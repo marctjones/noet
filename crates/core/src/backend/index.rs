@@ -195,7 +195,10 @@ impl Backend {
                 rusqlite::params![note.id, note.title, note.body],
             );
         }
-        let archived = note.path.to_string_lossy().contains("/archive/") as i64;
+        // A note is archived when it lives under a `archive/` folder. Check a path
+        // *component* (not a "/archive/" substring) so it works on Windows (`\`) too.
+        let archived =
+            note.path.components().any(|c| c.as_os_str() == "archive") as i64;
         tx.execute(
             "INSERT OR REPLACE INTO notes(id,title,path,created,updated,kind,body,archived) VALUES(?,?,?,?,?,?,?,?)",
             rusqlite::params![

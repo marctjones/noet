@@ -6,6 +6,15 @@ All notable changes to Noet are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-06-04
+
+### Fixed
+- **Archived notes leaked into every view on Windows.** Archive detection used a
+  `/archive/` substring check that never matches Windows path separators (`\`), so
+  archived notes were never flagged as archived on Windows (and the
+  `inbox_backlinks_and_archive` test failed on the Windows CI runner). Now checks a
+  path *component*, so it works on every OS.
+
 ## [0.2.0] - 2026-06-04
 
 ### Changed
