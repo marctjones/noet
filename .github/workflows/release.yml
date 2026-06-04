@@ -1,0 +1,45 @@
+name: Release
+
+# Build the Windows 11 binary and publish a GitHub Release whenever a version
+# tag is pushed (e.g. `git tag v0.1.0 && git push origin v0.1.0`).
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Build Windows binary
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release (GUI)
+        run: cargo build --release -p noet-gui
+
+      - name: Stage artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item target/release/noet.exe dist/noet.exe
+          Copy-Item README.md dist/README.md
+          Copy-Item CHANGELOG.md dist/CHANGELOG.md
+          Compress-Archive -Path dist/* -DestinationPath "noet-${{ github.ref_name }}-windows-x86_64.zip" -Force
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            noet-${{ github.ref_name }}-windows-x86_64.zip
+            target/release/noet.exe
+          generate_release_notes: true
+          body: |
+            Noet ${{ github.ref_name }} — Windows 11 build.
+
+            **Early release.** See CHANGELOG.md for what's included and in progress.
+            Download `noet.exe` (or the `.zip`) and run it; your notes live in
+            `~/Documents/Noet` (set `NOET_VAULT` to point elsewhere).

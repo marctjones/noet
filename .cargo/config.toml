@@ -1,0 +1,4 @@
+# Enable Slint experimental features (DragArea/DropArea for kanban drag-and-drop)
+# for every build, including the include_modules! macro path.
+[env]
+SLINT_ENABLE_EXPERIMENTAL_FEATURES = "1"

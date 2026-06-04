@@ -1,0 +1,27 @@
+[package]
+name = "noet-core"
+version = "0.1.0"
+edition = "2021"
+description = "Noet core: UI-agnostic domain logic — plain-markdown vault, SQLite index, typed todos, connectors. No GUI dependencies, so any frontend (Slint GUI, future TUI, CLI) can build on it."
+
+[lib]
+name = "noet_core"
+path = "src/lib.rs"
+
+# Headless performance benchmark (depends only on core — no UI).
+# Run: cargo run --release -p noet-core --bin noet-bench -- 5000
+[[bin]]
+name = "noet-bench"
+path = "src/bin/bench.rs"
+
+[dependencies]
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+serde_json = "1"
+regex = "1"
+ulid = "1"
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1"
+walkdir = "2"
+dirs = "5"

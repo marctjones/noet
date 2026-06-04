@@ -1,0 +1,21 @@
+# Rust build output
+/target
+**/target
+
+# The SQLite index is disposable — rebuilt from the markdown files.
+.index/
+
+# Local editor/OS cruft
+*.swp
+.DS_Store
+
+# Coverage artifacts
+/lcov.info
+/llvm-cov
+
+# Never commit a vault or local data (notes live in ~/Documents/Noet, not here)
+/NoetVault
+/Noet
+*.db
+*.db-wal
+*.db-shm

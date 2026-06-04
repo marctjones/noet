@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = ["crates/core", "crates/gui"]
+
+# Shared profiles apply across all workspace crates.
+[profile.dev.package."*"]
+# Optimize dependencies (Slint, FemtoVG, rusqlite…) even in dev builds so the UI
+# renders at full speed during `cargo run`, while our own crates stay at opt-level
+# 0 for fast incremental compiles.
+opt-level = 3
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
+panic = "abort"

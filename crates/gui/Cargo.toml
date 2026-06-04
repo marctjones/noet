@@ -1,0 +1,23 @@
+[package]
+name = "noet-gui"
+version = "0.1.0"
+edition = "2021"
+description = "Noet — native (Rust + Slint) notes + typed-todos + projects over plain markdown. The Slint GUI frontend over noet-core."
+default-run = "noet"
+
+[[bin]]
+name = "noet"
+path = "src/main.rs"
+
+[dependencies]
+noet-core = { path = "../core" }
+slint = "1.13"
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "5"
+arboard = "3"
+notify = "6"
+open = "5"
+anyhow = "1"
+
+[build-dependencies]
+slint-build = "1.13"
