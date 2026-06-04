@@ -29,6 +29,12 @@ All notable changes to Noet are documented here. Format follows
 - **Settings view** (left nav, pinned bottom): edit the vault folder and see the
   index-cache and settings-file paths. Saving persists `settings.json`; switching
   vaults takes effect on restart.
+- **Jira connector** (`noet_core::connectors::jira`) for Cloud (email + API token)
+  and Server/Data Center (Personal Access Token). Credentials live in `jira.json`
+  (OS config dir), edited in the Settings view. A `jira:KEY-123` ref on a todo
+  shows a clickable 🔗 chip on the Board/Gantt that opens the ticket; the core
+  also exposes `fetch_issue` (summary + status) and a `resolve_external_url`
+  helper that also handles `gh:owner/repo#N` and bare URLs.
 
 ### In progress
 - Jira connector (Cloud + Server) and Outlook Classic-COM connector (Windows-only,

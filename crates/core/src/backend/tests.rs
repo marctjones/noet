@@ -613,6 +613,7 @@ fn index_lives_outside_vault_and_migrates_legacy() {
     b.save_note(&note.id, "Hi", "body\n").unwrap();
 
     // index.db is built in the cache dir, and the synced vault holds no index.
+    assert_eq!(b.index_dir(), index_dir);
     assert!(index_dir.join("index.db").exists());
     assert!(!legacy.exists(), "stale in-vault .index should be removed on migrate");
 

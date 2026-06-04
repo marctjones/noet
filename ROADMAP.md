@@ -51,7 +51,11 @@ someday / reading) → workstreams, with 1:1 prep, agenda, board, and capture.
 ## Phase 3 — Reliability & integrations
 - [ ] **Git-backed version history** — view/restore previous versions of a note.
 - [ ] **Sync-conflict awareness** — detect concurrent OneDrive/Drive edits.
-- [ ] **Jira connector** — personal API token; link/browse tickets.
+- [~] **Jira connector** — Cloud (email + API token, Basic auth) and Server/DC
+  (Personal Access Token, Bearer). Add `jira:KEY-123` to a todo, then click the 🔗
+  chip on the Board/Gantt to open the ticket; credentials live in `jira.json` (OS
+  config dir) and are edited in Settings. Core also has `fetch_issue` (summary +
+  status). *Next: surface fetched summary/status inline + an in-app ticket browser.*
 - [ ] **Outlook connector** — Classic-Outlook COM (Windows); email → todo/note.
 - [ ] **Calendar integration** — pull meetings, spawn meeting notes.
 - [x] **Export (per note)** — File menu: "Export note as Markdown" (copies the

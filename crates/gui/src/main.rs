@@ -631,6 +631,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
+    // Populate the Jira connector fields from jira.json (if present).
+    {
+        let cfg = noet_core::connectors::jira::JiraConfig::load().unwrap_or_default();
+        ui.set_jira_base(cfg.base_url.clone().into());
+        ui.set_jira_email(cfg.email.clone().into());
+        ui.set_jira_token(cfg.token.clone().into());
+        ui.set_jira_configured(cfg.is_configured());
+    }
+
     // Save a new vault path to settings.json. Switching vaults takes effect on
     // restart (re-pointing the live index + file watcher mid-session isn't worth
     // the complexity), so we persist + tell the user rather than reopen in place.
@@ -649,6 +658,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ui.set_status_text(format!("Saved — restart Noet to switch to {path}").into());
                 }
                 Err(e) => ui.set_status_text(format!("Couldn't save settings: {e}").into()),
+            }
+        });
+    }
+
+    // Save Jira credentials to jira.json (OS config dir, never the vault).
+    {
+        let ui_w = ui.as_weak();
+        ui.on_save_jira(move |base: SharedString, email: SharedString, token: SharedString| {
+            let ui = ui_w.unwrap();
+            let cfg = noet_core::connectors::jira::JiraConfig {
+                base_url: base.trim().to_string(),
+                email: email.trim().to_string(),
+                token: token.trim().to_string(),
+            };
+            match cfg.save() {
+                Ok(()) => {
+                    ui.set_jira_configured(cfg.is_configured());
+                    ui.set_status_text("Jira settings saved.".into());
+                }
+                Err(e) => ui.set_status_text(format!("Couldn't save Jira settings: {e}").into()),
+            }
+        });
+    }
+
+    // Open an external ref (jira:/gh:/URL) in the browser. jira: refs resolve via
+    // the saved Jira base URL; if it can't be resolved we say so.
+    {
+        let ui_w = ui.as_weak();
+        ui.on_open_external(move |external: SharedString| {
+            let ui = ui_w.unwrap();
+            let jira = noet_core::connectors::jira::JiraConfig::load();
+            match noet_core::connectors::resolve_external_url(&external, jira.as_ref()) {
+                Some(url) => {
+                    let _ = open::that(&url);
+                }
+                None => ui.set_status_text(
+                    format!("Can't open '{external}' — set the Jira site URL in Settings?").into(),
+                ),
             }
         });
     }

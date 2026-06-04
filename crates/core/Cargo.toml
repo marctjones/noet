@@ -25,3 +25,6 @@ chrono = { version = "0.4", features = ["serde"] }
 anyhow = "1"
 walkdir = "2"
 dirs = "5"
+# Connectors (Jira) need a small blocking HTTP client. ureq is light (rustls, no
+# async runtime); fetches run off the UI thread.
+ureq = { version = "2", features = ["json"] }
