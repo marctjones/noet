@@ -116,9 +116,45 @@ fn headless_ui_smoke() {
         .find_all();
     assert!(!buttons.is_empty(), "the Settings view should expose Buttons");
 
-    // (Slint's testing backend can also snapshot the window via take_snapshot for
-    // pixel-diffing; we keep to behavioural assertions here since they're stable
-    // across renderers and don't need golden images.)
+    // ----- Level 3: more real handlers (templates, filters, smart lists) -----
+    ui.invoke_set_view("notes".into());
+
+    // group-by + status filter propagate to the UI and the shared filter
+    ui.invoke_set_group_by("kind".into());
+    assert_eq!(ui.get_group_by(), "kind");
+    ui.invoke_set_status_filter("open".into());
+    assert_eq!(ctx.state.borrow().filter.status, "open");
+
+    // new-from-template writes a note carrying the meeting template
+    let n0 = count(&ctx);
+    ui.invoke_new_from_template("meeting".into());
+    assert_eq!(count(&ctx), n0 + 1, "template should add one note");
+    assert!(ui.get_current_body().contains("## Attendees"), "meeting template body opened");
+
+    // smart lists: save the current filter, change it, then re-apply to restore
+    ui.invoke_save_smart_list("My open items".into());
+    assert!(
+        ctx.state.borrow().backend.list_smart_lists().iter().any(|n| n == "My open items"),
+        "smart list should be saved"
+    );
+    ui.invoke_set_status_filter("done".into());
+    assert_eq!(ctx.state.borrow().filter.status, "done");
+    ui.invoke_apply_smart_list("My open items".into());
+    assert_eq!(ctx.state.borrow().filter.status, "open", "applying the smart list restored the filter");
+
+    // ----- Level 3b: mocked-clock test of the 180ms debounced search -----
+    ui.invoke_set_search("Welcome".into());
+    assert_eq!(ctx.state.borrow().filter.search, "Welcome", "search sets the filter immediately");
+    itest::mock_elapsed_time(std::time::Duration::from_millis(250)); // fire the debounce timer
+    assert!(ui.get_notes().row_count() >= 1, "'Welcome' should match the welcome note");
+    ui.invoke_set_search("zzz-no-such-note".into());
+    itest::mock_elapsed_time(std::time::Duration::from_millis(250));
+    assert_eq!(ui.get_notes().row_count(), 0, "a non-matching search yields no notes");
+
+    // (Slint's lightweight testing backend renders no pixels — its window is a
+    // measurement-only renderer — so Window::take_snapshot is unavailable here.
+    // Pixel/visual-regression testing would need the software-renderer backend +
+    // golden images in a separate test process; out of scope for this suite.)
 
     let _ = std::fs::remove_dir_all(&tmp);
 }

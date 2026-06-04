@@ -22,11 +22,11 @@ cd "$(dirname "$0")/.."
 # current number is ~75% — the previous 80 default was never actually enforced
 # (CI runs build/test/clippy, not this script). Raise toward 80 as tests land
 # (render.rs / the export PDF + mutate error paths are the big gaps).
-BACKEND_MIN="${BACKEND_MIN:-76}"
+BACKEND_MIN="${BACKEND_MIN:-79}"
 # The TOTAL spans the whole workspace. It jumped once the headless Slint GUI test
 # (crates/gui/src/ui_tests.rs) started exercising setup_app + the main.rs callback
 # wiring; bench.rs (the perf harness) stays ~0% by design. Floor tracks reality.
-TOTAL_MIN="${TOTAL_MIN:-58}"
+TOTAL_MIN="${TOTAL_MIN:-62}"
 
 EXTRA=()
 [[ "${1:-}" == "--html" ]] && EXTRA+=(--html)

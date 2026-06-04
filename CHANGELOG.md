@@ -64,8 +64,10 @@ All notable changes to Noet are documented here. Format follows
   accessible-role/label queries, and simulated input (accessibility action +
   synthesized `mock_single_click`). `build.rs` emits Slint debug info for
   non-release builds (the ElementHandle API needs it); `NavItem` gained
-  `accessible-role`/`accessible-label` (a11y + testability). Lifted workspace TOTAL
-  coverage ~44% → ~59% (ratchet floors raised to backend 76 / TOTAL 58).
+  `accessible-role`/`accessible-label` (a11y + testability). The suite also covers
+  templates, status/group filters, smart-list save/apply, and a mock-clock test of
+  the 180ms debounced search. Lifted workspace TOTAL coverage ~44% → ~63%; backend
+  ~80% (ratchet floors raised to backend 79 / TOTAL 62).
 
 ### In progress
 - Jira connector (Cloud + Server) and Outlook Classic-COM connector (Windows-only,
