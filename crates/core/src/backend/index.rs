@@ -181,6 +181,12 @@ impl Backend {
         (self.index_dir.clone(), self.vault.clone(), self.fts)
     }
 
+    /// Where this backend's disposable index + render cache live (the OS cache
+    /// dir, not the vault). Shown in the Settings view.
+    pub fn index_dir(&self) -> &Path {
+        &self.index_dir
+    }
+
     pub(crate) fn index_note(tx: &rusqlite::Transaction, note: &Note, fts: bool) -> Result<()> {
         if fts {
             let _ = tx.execute("DELETE FROM notes_fts WHERE note_id=?", [&note.id]);

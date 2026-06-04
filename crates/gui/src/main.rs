@@ -615,6 +615,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ui.set_status_text("Indexing…".into());
     refresh(&ui, &state.borrow());
 
+    // Populate the Settings view. The paths are informational; vault-input is the
+    // editable field. The index lives outside the vault (OS cache dir).
+    {
+        let s = state.borrow();
+        let vault = s.backend.vault.to_string_lossy().to_string();
+        ui.set_vault_path(vault.clone().into());
+        ui.set_vault_input(vault.into());
+        ui.set_index_path(s.backend.index_dir().to_string_lossy().to_string().into());
+        ui.set_settings_path(
+            backend::Settings::path()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|| "(no OS config dir)".into())
+                .into(),
+        );
+    }
+
+    // Save a new vault path to settings.json. Switching vaults takes effect on
+    // restart (re-pointing the live index + file watcher mid-session isn't worth
+    // the complexity), so we persist + tell the user rather than reopen in place.
+    {
+        let ui_w = ui.as_weak();
+        ui.on_save_settings(move |path: SharedString| {
+            let ui = ui_w.unwrap();
+            let path = path.trim().to_string();
+            if path.is_empty() {
+                ui.set_status_text("Vault path can't be empty.".into());
+                return;
+            }
+            match (backend::Settings { vault: PathBuf::from(&path) }).save() {
+                Ok(()) => {
+                    ui.set_vault_path(path.clone().into());
+                    ui.set_status_text(format!("Saved — restart Noet to switch to {path}").into());
+                }
+                Err(e) => ui.set_status_text(format!("Couldn't save settings: {e}").into()),
+            }
+        });
+    }
+
     // When a background reindex finishes: reflect new data, open the first note
     // if none is open yet (launch), reopen the current note from disk otherwise,
     // and rerun if a change landed while we were indexing.

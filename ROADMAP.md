@@ -59,10 +59,11 @@ someday / reading) → workstreams, with 1:1 prep, agenda, board, and capture.
   lightweight heading/bullet converter). Writes to `<vault>/exports/` and opens
   the folder. *Markdown→PDF escapes markup for guaranteed compile, so emphasis
   shows literally; whole-vault bundle export still to add.*
-- [~] **Settings + onboarding** — vault location now persists in `settings.json`
-  (OS config dir; resolved `$NOET_VAULT` → settings → default), and the SQLite
-  index moved to the OS cache dir so it never syncs. *Still to add: an in-app
-  Settings screen to edit it, more defaults, and a syntax cheatsheet / onboarding.*
+- [~] **Settings + onboarding** — vault location persists in `settings.json`
+  (OS config dir; resolved `$NOET_VAULT` → settings → default); the SQLite index
+  moved to the OS cache dir so it never syncs; and an in-app **Settings view**
+  (left nav) edits the vault folder + shows the storage paths. *Still to add: more
+  defaults and a syntax cheatsheet / onboarding flow.*
 
 ## Phase 4 — UX modernization (from the Opus UX review)
 Benchmarked vs. UX best practice, Windows 11 Fluent thick-client standards,

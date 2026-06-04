@@ -25,8 +25,10 @@ All notable changes to Noet are documented here. Format follows
 ### Added
 - **`settings.json`** in the OS config dir holds the vault location (room for more
   defaults). The GUI resolves the vault as `$NOET_VAULT` → `settings.json` →
-  default under Documents (persisted on first run). *Next: an in-app Settings
-  screen to edit the vault location without hand-editing the file.*
+  default under Documents (persisted on first run).
+- **Settings view** (left nav, pinned bottom): edit the vault folder and see the
+  index-cache and settings-file paths. Saving persists `settings.json`; switching
+  vaults takes effect on restart.
 
 ### In progress
 - Jira connector (Cloud + Server) and Outlook Classic-COM connector (Windows-only,
