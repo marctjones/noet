@@ -35,6 +35,12 @@ All notable changes to Noet are documented here. Format follows
   shows a clickable 🔗 chip on the Board/Gantt that opens the ticket; the core
   also exposes `fetch_issue` (summary + status) and a `resolve_external_url`
   helper that also handles `gh:owner/repo#N` and bare URLs.
+- **Outlook connector** (`noet_core::connectors::outlook`): File → "Import from
+  Outlook" turns the selected Classic-Outlook email into a note (From/Received
+  header, body, and a seeded `TODO(followup)` mentioning the sender). Windows-only
+  via a PowerShell COM bridge (`New-Object -ComObject Outlook.Application`); it
+  errors gracefully on other platforms. JSON parsing + note shaping are pure and
+  tested on every OS.
 
 ### In progress
 - Jira connector (Cloud + Server) and Outlook Classic-COM connector (Windows-only,

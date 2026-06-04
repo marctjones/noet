@@ -1,8 +1,10 @@
 //! External-system connectors. Each is optional and degrades gracefully when
-//! unconfigured. Today: [`jira`]. The Outlook connector (Windows-only) lives in
-//! the GUI crate since it depends on platform COM, not on the index.
+//! unconfigured or unsupported on the platform. Today: [`jira`] (HTTP, any OS)
+//! and [`outlook`] (Classic Outlook COM via PowerShell, Windows-only — a no-op
+//! that errors elsewhere).
 
 pub mod jira;
+pub mod outlook;
 
 /// Resolve an `external` ref (the token Noet lifts off a todo line, e.g.
 /// `jira:PROJ-12`, `gh:owner/repo#3`, or a bare URL) into a browsable URL.

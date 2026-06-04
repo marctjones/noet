@@ -700,6 +700,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    // Import the selected Classic-Outlook email as a note (Windows only; the
+    // connector returns an error off-Windows, which we surface as a status).
+    {
+        let ui_w = ui.as_weak();
+        let state = state.clone();
+        ui.on_import_outlook(move || {
+            let ui = ui_w.unwrap();
+            match noet_core::connectors::outlook::import_selected() {
+                Ok(mail) => {
+                    let (title, body) = noet_core::connectors::outlook::mail_to_note(&mail);
+                    let mut s = state.borrow_mut();
+                    match s.backend.new_note().and_then(|n| {
+                        s.backend.save_note(&n.id, &title, &body).map(|_| n.id)
+                    }) {
+                        Ok(id) => {
+                            ui.set_view("notes".into());
+                            open_in_editor(&ui, &s.backend, &id);
+                            ui.set_status_text(format!("Imported “{title}” from Outlook").into());
+                            refresh(&ui, &s);
+                        }
+                        Err(e) => ui.set_status_text(format!("Import failed: {e}").into()),
+                    }
+                }
+                Err(e) => ui.set_status_text(format!("{e}").into()),
+            }
+        });
+    }
+
     // When a background reindex finishes: reflect new data, open the first note
     // if none is open yet (launch), reopen the current note from disk otherwise,
     // and rerun if a change landed while we were indexing.
