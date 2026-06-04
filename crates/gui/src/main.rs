@@ -71,13 +71,23 @@ fn build_calendar(b: &Backend, f: &Filter, year: i32, month: u32) -> (String, Mo
     (format!("{} {year}", month_name(month)), ModelRc::new(VecModel::from(cells)))
 }
 
-fn vault_dir() -> PathBuf {
+/// Resolve the vault location. Precedence: an explicit `$NOET_VAULT` (transient
+/// override) → the persisted `settings.json` → the default under Documents. The
+/// default is written to settings.json on first run so the location is explicit
+/// and editable there. The index itself lives in the OS cache dir (handled by
+/// `Backend`), never inside the synced vault.
+fn resolve_vault() -> PathBuf {
     if let Ok(p) = std::env::var("NOET_VAULT") {
         return PathBuf::from(p);
     }
-    dirs::document_dir()
+    if let Some(s) = backend::Settings::load() {
+        return s.vault;
+    }
+    let vault = dirs::document_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("NoetVault")
+        .join("NoetVault");
+    let _ = (backend::Settings { vault: vault.clone() }).save();
+    vault
 }
 
 // ---- conversions to Slint types ----
@@ -536,7 +546,7 @@ fn render_read(ui: &AppWindow, b: &Backend, note: &backend::Note) {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let vault = vault_dir();
+    let vault = resolve_vault();
     // Open without indexing — the window appears instantly regardless of vault
     // size; the first index runs on a background thread below.
     let mut backend = Backend::open_lazy(vault.clone())?;
@@ -586,10 +596,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return; // a rebuild is already running; coalesced via `dirty`
             }
             indexing.set(true);
-            let (vault, fts) = state.borrow().backend.reindex_params();
+            let (index_dir, vault, fts) = state.borrow().backend.reindex_params();
             let ui_w = ui_w.clone();
             std::thread::spawn(move || {
-                let _ = backend::background_reindex(&vault, fts);
+                let _ = backend::background_reindex(&index_dir, &vault, fts);
                 let _ = slint::invoke_from_event_loop(move || {
                     if let Some(ui) = ui_w.upgrade() {
                         ui.invoke_reindex_finished();

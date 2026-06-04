@@ -6,12 +6,29 @@ All notable changes to Noet are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+- **Decomposed `noet-core`'s backend** from a single 2.3k-line `backend/mod.rs`
+  into focused submodules: `model` (types), `parse` (the file-first grammar),
+  `vault` (file IO), `index` (SQLite schema + reindex), `query` (read views),
+  `mutate` (writes), `render` (Typst), `export` (Markdown/PDF), plus `tests`.
+  `mod.rs` now holds only the module wiring and the `Backend` struct. Behaviour
+  unchanged; all tests pass.
+- `scripts/coverage.sh` now aggregates backend line coverage across the new
+  submodule tree (was reading a single `backend/mod.rs` row); floors re-baselined
+  to the honest current numbers (backend 75%, TOTAL 36%).
+- **Index moved out of the vault.** The disposable SQLite index + Typst render
+  cache now live in the OS cache dir (`<cache>/noet/<vault>-<hash>/`), namespaced
+  per vault, so they never sync via OneDrive/Drive. A stale in-vault `.index/`
+  from the old layout is deleted on open (it's rebuildable). `Backend` gained
+  `open_at`/`open_lazy_at` so the index location is injectable.
+
+### Added
+- **`settings.json`** in the OS config dir holds the vault location (room for more
+  defaults). The GUI resolves the vault as `$NOET_VAULT` → `settings.json` →
+  default under Documents (persisted on first run). *Next: an in-app Settings
+  screen to edit the vault location without hand-editing the file.*
+
 ### In progress
-- Decomposing `noet-core/backend.rs` into focused modules (model / parse / vault /
-  index / query / mutate / render / export). The workspace split is done; the
-  internal file split is ongoing.
-- Storage refactor: move the SQLite index out of the vault into a local cache dir
-  (so it never syncs), add a `settings.json` + first-run vault picker.
 - Jira connector (Cloud + Server) and Outlook Classic-COM connector (Windows-only,
   optional/graceful).
 - Windows release binary via GitHub Actions.

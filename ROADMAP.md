@@ -59,7 +59,10 @@ someday / reading) → workstreams, with 1:1 prep, agenda, board, and capture.
   lightweight heading/bullet converter). Writes to `<vault>/exports/` and opens
   the folder. *Markdown→PDF escapes markup for guaranteed compile, so emphasis
   shows literally; whole-vault bundle export still to add.*
-- [ ] **Settings + onboarding** — vault location, defaults, syntax cheatsheet.
+- [~] **Settings + onboarding** — vault location now persists in `settings.json`
+  (OS config dir; resolved `$NOET_VAULT` → settings → default), and the SQLite
+  index moved to the OS cache dir so it never syncs. *Still to add: an in-app
+  Settings screen to edit it, more defaults, and a syntax cheatsheet / onboarding.*
 
 ## Phase 4 — UX modernization (from the Opus UX review)
 Benchmarked vs. UX best practice, Windows 11 Fluent thick-client standards,
@@ -104,15 +107,19 @@ query. Findings & fixes:
   thread with their own SQLite connection (WAL journaling so the UI connection
   keeps reading). The event loop never freezes; a "Indexing…" status shows and
   `reindex-finished` hops back to refresh.
-- [x] **Async startup + no auto-reindex (design decision)** — the window opens
-  instantly via `open_lazy` (schema only, no index) and the first index runs in
-  the background. **There is no filesystem watcher and no automatic/periodic
-  reindexing** — by deliberate choice, the index rebuilds ONLY at launch (once,
-  background) and on manual ⟳. In-app edits update their own note incrementally
-  (`persist`→`index_note`, idempotent) so they appear instantly. External edits
-  (other editor / OneDrive / Drive) are picked up on the next ⟳. Rationale:
-  guarantee zero background indexing churn. *Do not re-add a `notify` watcher
-  without revisiting this decision.*
+- [x] **Async startup + indexing never on the UI thread (design decision)** — the
+  window opens instantly via `open_lazy` (schema only, no index); the first index
+  runs in the background (worker thread, own SQLite connection, WAL) and again on
+  manual ⟳. In-app edits update their own note incrementally
+  (`persist`→`index_note`, idempotent) so they appear instantly. **A `notify`
+  filesystem watcher is enabled** (re-added 2026-06-04 for non-blocking
+  auto-reload): external edits (other editor / OneDrive / Drive) trigger a
+  *background* rebuild via a 700ms-debounced timer. Guards keep it off the
+  responsiveness path — skip while `editing` (your own autosaves are already
+  indexed incrementally), and coalesce overlapping rebuilds (`indexing`/`dirty`).
+  **The hard rule: the full reindex must NEVER run on the UI thread** — always a
+  worker + `reindex-finished` hop back. The watcher is fine as long as it stays
+  debounced + editing-guarded + off-thread.
 - [ ] **Incremental indexing** — reindex only *changed* files (mtime/path) instead
   of DELETE-all + full re-parse; cuts the rebuild itself (now off-thread, but a
   10k-note vault is still ~11s of background work) down to per-edit cost.
