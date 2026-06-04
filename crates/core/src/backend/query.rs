@@ -361,6 +361,18 @@ impl Backend {
         Ok(self.conn.query_row(&sql, [id], Self::row_to_todo)?)
     }
 
+    /// Todos whose external ref starts with `prefix` (e.g. `src:outlook:`). Used
+    /// by connectors to find what's already linked into the vault.
+    pub fn todos_by_external_prefix(&self, prefix: &str) -> Result<Vec<Todo>> {
+        let sql = format!(
+            "SELECT {} FROM todos t WHERE t.external LIKE ? ORDER BY t.line_no ASC",
+            Self::todo_cols("t.")
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map([format!("{prefix}%")], Self::row_to_todo)?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
     /// Open, stale follow-ups/delegated todos (note untouched > STALE_DAYS).
     pub fn stale_todos(&self) -> Result<Vec<Todo>> {
         let cutoff = (Utc::now() - chrono::Duration::days(STALE_DAYS))

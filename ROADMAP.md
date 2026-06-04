@@ -56,11 +56,15 @@ someday / reading) → workstreams, with 1:1 prep, agenda, board, and capture.
   chip on the Board/Gantt to open the ticket; credentials live in `jira.json` (OS
   config dir) and are edited in Settings. Core also has `fetch_issue` (summary +
   status). *Next: surface fetched summary/status inline + an in-app ticket browser.*
-- [~] **Outlook connector** — File → "Import from Outlook" turns the selected
-  Classic-Outlook email into a note (From/Received header, body, and a seeded
-  `TODO(followup)` mentioning the sender). Windows-only via a PowerShell COM
-  bridge (`Outlook.Application`); errors gracefully elsewhere. *Next: pick a
-  specific message / folder rather than just the current selection.*
+- [~] **Outlook connector** — Windows-only via a PowerShell COM bridge
+  (`Outlook.Application`), graceful elsewhere. File ▸ "Import from Outlook" turns
+  the selected email into a note; File ▸ "Sync flagged Outlook mail" imports
+  every flagged / `Noet`-categorized message, dedups by EntryID, and reconciles
+  both ways (un-flag in Outlook → resolve+archive in Noet; finish the review todo
+  in Noet → `MarkComplete` back in Outlook). Each review todo carries a
+  `src:outlook:<EntryID>` 🔗 chip that reopens the live message. See
+  [docs/outlook-connector.md](docs/outlook-connector.md). *Next: category→
+  workstream/kind mapping, Calendar/Task items, opt-in periodic poll.*
 - [ ] **Calendar integration** — pull meetings, spawn meeting notes.
 - [x] **Export (per note)** — File menu: "Export note as Markdown" (copies the
   .md) and "Export note as PDF" (Typst CLI; typst notes natively, markdown via a

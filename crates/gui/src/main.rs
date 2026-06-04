@@ -688,14 +688,51 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let ui_w = ui.as_weak();
         ui.on_open_external(move |external: SharedString| {
             let ui = ui_w.unwrap();
+            let ext = external.to_string();
+            // An Outlook back-link reopens the live message via COM (Windows only).
+            if let Some(entry_id) = noet_core::connectors::outlook::entry_id_of(&ext) {
+                if let Err(e) = noet_core::connectors::outlook::open_in_outlook(entry_id) {
+                    ui.set_status_text(format!("{e}").into());
+                }
+                return;
+            }
             let jira = noet_core::connectors::jira::JiraConfig::load();
-            match noet_core::connectors::resolve_external_url(&external, jira.as_ref()) {
+            match noet_core::connectors::resolve_external_url(&ext, jira.as_ref()) {
                 Some(url) => {
                     let _ = open::that(&url);
                 }
                 None => ui.set_status_text(
-                    format!("Can't open '{external}' — set the Jira site URL in Settings?").into(),
+                    format!("Can't open '{ext}' — set the Jira site URL in Settings?").into(),
                 ),
+            }
+        });
+    }
+
+    // Sync flagged / Noet-categorized Outlook mail: import new ones, resolve ones
+    // Outlook cleared, push completed reviews back. Windows-only; errors surface.
+    {
+        let ui_w = ui.as_weak();
+        let state = state.clone();
+        ui.on_sync_outlook(move || {
+            let ui = ui_w.unwrap();
+            match noet_core::connectors::outlook::fetch_flagged() {
+                Ok(flagged) => {
+                    let mut s = state.borrow_mut();
+                    match noet_core::connectors::outlook::sync_into(&mut s.backend, &flagged) {
+                        Ok(sum) => {
+                            ui.set_status_text(
+                                format!(
+                                    "Outlook sync: {} new, {} resolved, {} pushed back",
+                                    sum.created, sum.resolved, sum.pushed_back
+                                )
+                                .into(),
+                            );
+                            refresh(&ui, &s);
+                        }
+                        Err(e) => ui.set_status_text(format!("Sync failed: {e}").into()),
+                    }
+                }
+                Err(e) => ui.set_status_text(format!("{e}").into()),
             }
         });
     }

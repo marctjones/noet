@@ -1,7 +1,14 @@
 # Outlook connector — design spec
 
-> Status: design only. The connector is Windows-only (Classic Outlook via COM)
-> and not yet implemented. This captures the intended behavior so it isn't lost.
+> Status: **largely implemented** in `noet-core/connectors/outlook.rs` (Windows-only,
+> Classic Outlook via a PowerShell COM bridge). Done: selection import, the
+> flag/category sync with EntryID dedup, the `src:outlook:<EntryID>` reopen-link,
+> three-way reconciliation (create / resolve+archive / push-back+archive), and
+> push-back via `MarkComplete`. The pure logic (reconcile, parsing, note shaping)
+> is unit-tested on every OS; the COM calls run only on Windows. Not yet:
+> semantic categories mapping to workstream/kind, Calendar/Task items, and the
+> opt-in periodic poll (today it's app-open + the File ▸ "Sync flagged Outlook
+> mail" action).
 
 ## Goal
 

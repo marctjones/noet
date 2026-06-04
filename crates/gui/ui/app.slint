@@ -664,6 +664,7 @@ export component AppWindow inherits Window {
     callback save-jira(string, string, string); // base-url, email, token
     callback open-external(string); // open a jira:/gh:/URL ref in the browser
     callback import-outlook(); // import the selected Classic-Outlook email (Windows)
+    callback sync-outlook(); // import/reconcile flagged + Noet-categorized mail (Windows)
     callback export-note(string); // format: "md" | "pdf"
     callback reindex-finished();
     callback new-note();
@@ -1999,6 +2000,7 @@ export component AppWindow inherits Window {
             MenuItem { icon: "◆"; label: "New decision note"; clicked => { root.open-menu = ""; root.new-from-template("decision"); } }
             MenuSep {}
             MenuItem { icon: "✉"; label: "Import from Outlook"; clicked => { root.open-menu = ""; root.import-outlook(); } }
+            MenuItem { icon: "⇄"; label: "Sync flagged Outlook mail"; clicked => { root.open-menu = ""; root.sync-outlook(); } }
             MenuSep {}
             MenuItem { icon: "⤓"; label: "Export note as Markdown"; clicked => { root.open-menu = ""; root.export-note("md"); } }
             MenuItem { icon: "⎙"; label: "Export note as PDF"; clicked => { root.open-menu = ""; root.export-note("pdf"); } }
