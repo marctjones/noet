@@ -6,6 +6,8 @@ All notable changes to Noet are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-04
+
 ### Changed
 - **Decomposed `noet-core`'s backend** from a single 2.3k-line `backend/mod.rs`
   into focused submodules: `model` (types), `parse` (the file-first grammar),
@@ -69,10 +71,13 @@ All notable changes to Noet are documented here. Format follows
   the 180ms debounced search. Lifted workspace TOTAL coverage ~44% → ~63%; backend
   ~80% (ratchet floors raised to backend 79 / TOTAL 62).
 
-### In progress
-- Jira connector (Cloud + Server) and Outlook Classic-COM connector (Windows-only,
-  optional/graceful).
-- Windows release binary via GitHub Actions.
+### Notes
+- The Outlook connector implements the *core* of `docs/outlook-connector.md`
+  (flag/category import, EntryID dedup, the `src:outlook:` reopen-link, three-way
+  reconciliation + push-back). Still to do: the `kind: outlook` review type +
+  "Needs review" inbox, sync-on-app-open, semantic category→workstream/kind
+  mapping, re-flag-reopen, and Calendar/Task items.
+- The Windows release binary is produced by CI on the pushed `v*` tag.
 
 ## [0.1.0] - 2026-06-04
 
