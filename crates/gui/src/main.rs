@@ -551,10 +551,22 @@ fn render_read(ui: &AppWindow, b: &Backend, note: &backend::Note) {
     ui.set_current_backlinks(ModelRc::new(VecModel::from(backs)));
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let vault = resolve_vault();
+/// The built-but-not-yet-driven app: window, shared state, and the background-
+/// reindex plumbing. Extracted from `main` so headless GUI tests can construct
+/// the *real* app — real handlers, real Backend — without an event loop.
+struct AppCtx {
+    ui: AppWindow,
+    state: Rc<RefCell<State>>,
+    spawn_reindex: Rc<dyn Fn()>,
+    indexing: Rc<std::cell::Cell<bool>>,
+    dirty: Rc<std::cell::Cell<bool>>,
+}
+
+/// Open the vault, build the window, and register every callback. The caller
+/// adds the file watcher + reload timer and runs the event loop (see `main`).
+fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
     // Open without indexing — the window appears instantly regardless of vault
-    // size; the first index runs on a background thread below.
+    // size; the first index runs on a background thread (set up by the caller).
     let mut backend = Backend::open_lazy(vault.clone())?;
 
     if backend.is_vault_empty() {
@@ -614,7 +626,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
         }
     };
-    let spawn_reindex = Rc::new(spawn_reindex);
+    let spawn_reindex: Rc<dyn Fn()> = Rc::new(spawn_reindex);
 
     // Window comes up empty (index not built yet); the first background index
     // populates it a moment later via on_reindex_finished.
@@ -1770,6 +1782,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    Ok(AppCtx { ui, state, spawn_reindex, indexing, dirty })
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let vault = resolve_vault();
+    let AppCtx { ui, spawn_reindex, indexing, dirty, state: _state } = setup_app(vault.clone())?;
+
     // Live file-reload: watch the vault for external edits (another editor,
     // OneDrive/Drive sync) and rebuild in the BACKGROUND so the UI never blocks.
     // Guards keep it from ever affecting interaction responsiveness:
@@ -1825,3 +1844,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     drop(watcher);
     Ok(())
 }
+
+#[cfg(test)]
+mod ui_tests;

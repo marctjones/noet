@@ -22,13 +22,11 @@ cd "$(dirname "$0")/.."
 # current number is ~75% — the previous 80 default was never actually enforced
 # (CI runs build/test/clippy, not this script). Raise toward 80 as tests land
 # (render.rs / the export PDF + mutate error paths are the big gaps).
-BACKEND_MIN="${BACKEND_MIN:-75}"
-# The TOTAL spans the whole workspace, so it's dominated by the uncovered Slint
-# glue (gui/src/main.rs) and the perf-harness binary (bin/bench.rs) — both ~0%
-# unit coverage by design. The v0.1.0 workspace split pulled those into scope and
-# the old 44 floor was never re-baselined (this script isn't wired into CI). 36
-# matches reality; the meaningful signal is the per-layer backend floor above.
-TOTAL_MIN="${TOTAL_MIN:-36}"
+BACKEND_MIN="${BACKEND_MIN:-76}"
+# The TOTAL spans the whole workspace. It jumped once the headless Slint GUI test
+# (crates/gui/src/ui_tests.rs) started exercising setup_app + the main.rs callback
+# wiring; bench.rs (the perf harness) stays ~0% by design. Floor tracks reality.
+TOTAL_MIN="${TOTAL_MIN:-58}"
 
 EXTRA=()
 [[ "${1:-}" == "--html" ]] && EXTRA+=(--html)

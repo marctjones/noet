@@ -160,6 +160,10 @@ component NavItem inherits Rectangle {
     border-radius: 6px;
     background: active ? Theme.sel : (nt.has-hover ? Theme.hover : transparent);
     animate background { duration: 100ms; easing: ease-out; }
+    // Accessibility: also makes nav items findable/clickable from the GUI tests.
+    accessible-role: tab;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
     HorizontalLayout {
         padding-left: 9px; padding-right: 6px; spacing: 9px;
         Text { text: icon; font-size: (13px * Z.f); color: active ? #2d6cdf : Theme.text2; vertical-alignment: center; }

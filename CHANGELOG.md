@@ -56,6 +56,16 @@ All notable changes to Noet are documented here. Format follows
   in Outlook** (`GetItemFromID(...).Display()`). The reconciliation engine
   (`reconcile`/`sync_into`) and ref parsing are pure and unit-tested; only the COM
   calls are Windows-gated. New `Backend::todos_by_external_prefix` query backs it.
+- **Headless GUI tests** (`crates/gui/src/ui_tests.rs`) on Slint's testing backend
+  (`i-slint-backend-testing`). `main()` was refactored to expose a reusable
+  `setup_app(vault)` so tests drive the **real** app — real `Backend`, real
+  callback handlers — with no window or event loop. They span the generated
+  property/callback API, `ElementHandle`/`ElementQuery` introspection,
+  accessible-role/label queries, and simulated input (accessibility action +
+  synthesized `mock_single_click`). `build.rs` emits Slint debug info for
+  non-release builds (the ElementHandle API needs it); `NavItem` gained
+  `accessible-role`/`accessible-label` (a11y + testability). Lifted workspace TOTAL
+  coverage ~44% → ~59% (ratchet floors raised to backend 76 / TOTAL 58).
 
 ### In progress
 - Jira connector (Cloud + Server) and Outlook Classic-COM connector (Windows-only,
