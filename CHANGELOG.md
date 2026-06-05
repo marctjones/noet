@@ -6,6 +6,8 @@ All notable changes to Noet are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-06-05
+
 ### Docs
 - **`docs/connectors.md`** — architecture, lessons learned, and a per-connector
   roadmap (auth models, the "piggyback without corporate IT" rules, COM vs.
