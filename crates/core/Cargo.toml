@@ -28,3 +28,5 @@ dirs = "5"
 # Connectors (Jira) need a small blocking HTTP client. ureq is light (rustls, no
 # async runtime); fetches run off the UI thread.
 ureq = { version = "2", features = ["json"] }
+# SHA-256 for OAuth PKCE (S256). Randomness for the code verifier reuses `ulid`.
+sha2 = "0.10"

@@ -3,7 +3,9 @@
 //! and [`outlook`] (Classic Outlook COM via PowerShell, Windows-only — a no-op
 //! that errors elsewhere).
 
+pub mod gmail;
 pub mod jira;
+pub mod oauth;
 pub mod outlook;
 
 /// Resolve an `external` ref (the token Noet lifts off a todo line, e.g.
@@ -15,6 +17,12 @@ pub fn resolve_external_url(external: &str, jira_cfg: Option<&jira::JiraConfig>)
 
     if ext.starts_with("http://") || ext.starts_with("https://") {
         return Some(ext.to_string());
+    }
+    if let Some(id) = ext.strip_prefix(gmail::GMAIL_REF_PREFIX) {
+        let id = id.trim();
+        if !id.is_empty() {
+            return Some(gmail::message_url(id));
+        }
     }
     if let Some(rest) = ext.strip_prefix("jira:") {
         let key = jira::parse_key(rest)?;
@@ -67,6 +75,12 @@ mod tests {
         assert_eq!(
             resolve_external_url("gh:rust-lang/rust", None).as_deref(),
             Some("https://github.com/rust-lang/rust")
+        );
+
+        // gmail back-link -> Gmail web URL
+        assert_eq!(
+            resolve_external_url("src:gmail:18abc", None).as_deref(),
+            Some("https://mail.google.com/mail/u/0/#all/18abc")
         );
 
         // bare + ref: URLs pass through

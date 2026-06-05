@@ -1,0 +1,305 @@
+//! Gmail connector. Reads recent messages via the Gmail REST API using the
+//! native-app loopback + PKCE flow (see [`super::oauth`]). You register your own
+//! OAuth "Desktop app" client in Google Cloud; on a Workspace you administer you
+//! can mark it **Internal**, which exempts it from Google verification. Creds +
+//! the long-lived refresh token live in `gmail.json` (OS config dir).
+//!
+//! Pure parts (config, message parsing, note shaping) are unit-tested; the OAuth
+//! dance and HTTP are the thin IO.
+
+use super::oauth;
+use anyhow::{Context, Result};
+use std::path::{Path, PathBuf};
+
+const AUTH_ENDPOINT: &str = "https://accounts.google.com/o/oauth2/v2/auth";
+const TOKEN_ENDPOINT: &str = "https://oauth2.googleapis.com/token";
+const SCOPE: &str = "https://www.googleapis.com/auth/gmail.readonly";
+const API: &str = "https://gmail.googleapis.com/gmail/v1/users/me";
+
+/// The `external` prefix linking a note/todo back to a Gmail message.
+pub const GMAIL_REF_PREFIX: &str = "src:gmail:";
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct GmailConfig {
+    /// OAuth client id (`*.apps.googleusercontent.com`).
+    pub client_id: String,
+    /// OAuth client secret (Desktop clients require it; not actually confidential).
+    pub client_secret: String,
+    /// Long-lived refresh token, obtained once via [`connect`].
+    #[serde(default)]
+    pub refresh_token: String,
+}
+
+impl GmailConfig {
+    pub fn path() -> Option<PathBuf> {
+        dirs::config_dir().map(|c| c.join("noet").join("gmail.json"))
+    }
+    pub fn load() -> Option<GmailConfig> {
+        Self::load_from(&Self::path()?)
+    }
+    pub fn load_from(path: &Path) -> Option<GmailConfig> {
+        serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
+    }
+    pub fn save(&self) -> Result<()> {
+        self.save_to(&Self::path().context("no OS config dir for gmail.json")?)
+    }
+    pub fn save_to(&self, path: &Path) -> Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(path, serde_json::to_string_pretty(self)?)?;
+        Ok(())
+    }
+    /// Has an app registered (client id/secret) — ready to [`connect`].
+    pub fn has_client(&self) -> bool {
+        !self.client_id.trim().is_empty() && !self.client_secret.trim().is_empty()
+    }
+    /// Fully connected (a refresh token is stored).
+    pub fn is_connected(&self) -> bool {
+        self.has_client() && !self.refresh_token.trim().is_empty()
+    }
+}
+
+/// Run the one-time consent flow and store the refresh token. `open_browser` is
+/// called with the authorize URL (the GUI passes the system opener) — kept out of
+/// core so it stays GUI-free. Blocks on the loopback redirect, so call it off the
+/// UI thread. Returns the updated, saved config.
+pub fn connect(mut cfg: GmailConfig, open_browser: impl FnOnce(&str)) -> Result<GmailConfig> {
+    if !cfg.has_client() {
+        anyhow::bail!("set your Google OAuth client id + secret first");
+    }
+    let pkce = oauth::pkce();
+    let state = ulid::Ulid::new().to_string();
+    let (listener, redirect_uri) = oauth::loopback()?;
+    let url = oauth::authorize_url(
+        AUTH_ENDPOINT, &cfg.client_id, &redirect_uri, &[SCOPE], &pkce.challenge, &state,
+    );
+    open_browser(&url);
+    let code = oauth::wait_for_code(&listener, &state)?;
+    let tokens = oauth::exchange_code(
+        TOKEN_ENDPOINT, &cfg.client_id, &cfg.client_secret, &code, &pkce.verifier, &redirect_uri,
+    )?;
+    if tokens.refresh_token.is_empty() {
+        anyhow::bail!("Google returned no refresh token — revoke prior access and retry");
+    }
+    cfg.refresh_token = tokens.refresh_token;
+    cfg.save()?;
+    Ok(cfg)
+}
+
+/// A fresh access token from the stored refresh token.
+fn access_token(cfg: &GmailConfig) -> Result<String> {
+    if !cfg.is_connected() {
+        anyhow::bail!("Gmail isn't connected — connect it in Settings");
+    }
+    let t = oauth::refresh_access(TOKEN_ENDPOINT, &cfg.client_id, &cfg.client_secret, &cfg.refresh_token)?;
+    if t.access_token.is_empty() {
+        anyhow::bail!("Gmail refresh returned no access token");
+    }
+    Ok(t.access_token)
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GmailMessage {
+    pub id: String,
+    pub subject: String,
+    pub from_name: String,
+    pub from_email: String,
+    pub date: String,
+    pub snippet: String,
+}
+
+/// Parse a Gmail `messages.get` (format=metadata) JSON body.
+pub(crate) fn parse_message(json: &serde_json::Value) -> GmailMessage {
+    let header = |name: &str| -> String {
+        json.pointer("/payload/headers")
+            .and_then(|h| h.as_array())
+            .and_then(|hs| {
+                hs.iter().find(|h| {
+                    h.get("name").and_then(|n| n.as_str()).map(|n| n.eq_ignore_ascii_case(name)).unwrap_or(false)
+                })
+            })
+            .and_then(|h| h.get("value"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
+    let (from_name, from_email) = split_from(&header("From"));
+    GmailMessage {
+        id: json.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        subject: header("Subject"),
+        from_name,
+        from_email,
+        date: header("Date"),
+        snippet: json.get("snippet").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+    }
+}
+
+/// Split a `From:` header (`Jane Doe <jane@x.com>` or `jane@x.com`) into
+/// (display-name, email).
+fn split_from(from: &str) -> (String, String) {
+    let from = from.trim();
+    if let Some(open) = from.find('<') {
+        let name = from[..open].trim().trim_matches('"').trim();
+        let email = from[open + 1..].trim_end_matches('>').trim();
+        (name.to_string(), email.to_string())
+    } else if from.contains('@') {
+        (String::new(), from.to_string())
+    } else {
+        (from.to_string(), String::new())
+    }
+}
+
+/// List recent messages (newest first). `query` is a Gmail search (e.g.
+/// `is:starred`, `label:follow-up`, or `""` for the inbox).
+pub fn list_recent(cfg: &GmailConfig, query: &str, max: u32) -> Result<Vec<GmailMessage>> {
+    let token = access_token(cfg)?;
+    let list: serde_json::Value = ureq::get(&format!("{API}/messages"))
+        .set("Authorization", &format!("Bearer {token}"))
+        .query("maxResults", &max.to_string())
+        .query("q", query)
+        .call()
+        .map_err(|e| anyhow::anyhow!("Gmail list failed: {e}"))?
+        .into_json()
+        .context("bad Gmail list response")?;
+    let ids: Vec<String> = list
+        .get("messages")
+        .and_then(|m| m.as_array())
+        .map(|a| a.iter().filter_map(|m| m.get("id").and_then(|v| v.as_str()).map(String::from)).collect())
+        .unwrap_or_default();
+
+    let mut out = Vec::new();
+    for id in ids {
+        let msg: serde_json::Value = ureq::get(&format!("{API}/messages/{id}"))
+            .set("Authorization", &format!("Bearer {token}"))
+            .query("format", "metadata")
+            .query("metadataHeaders", "Subject")
+            .query("metadataHeaders", "From")
+            .query("metadataHeaders", "Date")
+            .call()
+            .map_err(|e| anyhow::anyhow!("Gmail get failed: {e}"))?
+            .into_json()
+            .context("bad Gmail message response")?;
+        out.push(parse_message(&msg));
+    }
+    Ok(out)
+}
+
+/// Render a Gmail message into a Noet note: a `(title, body)` pair with the sender
+/// as an `@[[Person]]`, a `src:gmail:` back-link, and a follow-up todo. Pure.
+pub fn message_to_note(msg: &GmailMessage) -> (String, String) {
+    let subject = msg.subject.trim();
+    let title = if subject.is_empty() { "Email".to_string() } else { subject.to_string() };
+    let who = if !msg.from_name.trim().is_empty() { msg.from_name.trim() } else { msg.from_email.trim() };
+
+    let mut body = String::new();
+    let from = match (msg.from_name.trim(), msg.from_email.trim()) {
+        ("", "") => String::new(),
+        ("", email) => email.to_string(),
+        (name, "") => name.to_string(),
+        (name, email) => format!("{name} <{email}>"),
+    };
+    if !from.is_empty() {
+        body.push_str(&format!("**From:** {from}\n"));
+    }
+    if !msg.date.trim().is_empty() {
+        body.push_str(&format!("**Received:** {}\n", msg.date.trim()));
+    }
+    body.push('\n');
+    if !msg.snippet.trim().is_empty() {
+        body.push_str(msg.snippet.trim());
+        body.push_str("\n\n");
+    }
+    let subj_for_todo = if subject.is_empty() { "this email".to_string() } else { format!("\"{subject}\"") };
+    let mut todo = format!("TODO(followup) Follow up: {subj_for_todo}");
+    if !who.is_empty() {
+        todo.push_str(&format!(" @[[{who}]]"));
+    }
+    if !msg.id.trim().is_empty() {
+        todo.push_str(&format!(" {GMAIL_REF_PREFIX}{}", msg.id.trim()));
+    }
+    body.push_str(&todo);
+    body.push('\n');
+    (title, body)
+}
+
+/// Web URL that opens a Gmail message in the browser.
+pub fn message_url(id: &str) -> String {
+    format!("https://mail.google.com/mail/u/0/#all/{id}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_state_machine() {
+        let mut c = GmailConfig::default();
+        assert!(!c.has_client() && !c.is_connected());
+        c.client_id = "x.apps.googleusercontent.com".into();
+        c.client_secret = "secret".into();
+        assert!(c.has_client() && !c.is_connected());
+        c.refresh_token = "rt".into();
+        assert!(c.is_connected());
+    }
+
+    #[test]
+    fn config_roundtrip() {
+        let dir = std::env::temp_dir().join(format!("noet-gmail-{}", ulid::Ulid::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("gmail.json");
+        assert!(GmailConfig::load_from(&path).is_none());
+        GmailConfig { client_id: "cid".into(), client_secret: "s".into(), refresh_token: "rt".into() }
+            .save_to(&path)
+            .unwrap();
+        assert!(GmailConfig::load_from(&path).unwrap().is_connected());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn parses_message_headers_and_from() {
+        let json = serde_json::json!({
+            "id": "18abc",
+            "snippet": "Let's sync on the budget.",
+            "payload": { "headers": [
+                {"name": "Subject", "value": "Q3 budget"},
+                {"name": "From", "value": "Jane Doe <jane@x.com>"},
+                {"name": "Date", "value": "Thu, 5 Jun 2026 09:00:00 -0700"}
+            ]}
+        });
+        let m = parse_message(&json);
+        assert_eq!(m.id, "18abc");
+        assert_eq!(m.subject, "Q3 budget");
+        assert_eq!(m.from_name, "Jane Doe");
+        assert_eq!(m.from_email, "jane@x.com");
+        assert_eq!(m.snippet, "Let's sync on the budget.");
+        // bare-address From
+        let bare = parse_message(&serde_json::json!({
+            "id":"1","payload":{"headers":[{"name":"From","value":"ops@x.com"}]}
+        }));
+        assert_eq!(bare.from_email, "ops@x.com");
+        assert_eq!(bare.from_name, "");
+    }
+
+    #[test]
+    fn message_to_note_shapes_a_followup() {
+        let m = GmailMessage {
+            id: "18abc".into(),
+            subject: "Q3 budget".into(),
+            from_name: "Jane Doe".into(),
+            from_email: "jane@x.com".into(),
+            date: "Thu, 5 Jun 2026 09:00:00 -0700".into(),
+            snippet: "Let's sync.".into(),
+        };
+        let (title, body) = message_to_note(&m);
+        assert_eq!(title, "Q3 budget");
+        assert!(body.contains("**From:** Jane Doe <jane@x.com>"));
+        assert!(body.contains("Let's sync."));
+        assert!(body.contains(r#"TODO(followup) Follow up: "Q3 budget" @[[Jane Doe]] src:gmail:18abc"#));
+    }
+
+    #[test]
+    fn message_url_points_at_gmail() {
+        assert_eq!(message_url("18abc"), "https://mail.google.com/mail/u/0/#all/18abc");
+    }
+}
