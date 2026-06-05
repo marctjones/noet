@@ -14,7 +14,7 @@ jobs:
     name: Build Windows binary
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
@@ -40,6 +40,7 @@ jobs:
           body: |
             Noet ${{ github.ref_name }} — Windows 11 build.
 
-            **Early release.** See CHANGELOG.md for what's included and in progress.
-            Download `noet.exe` (or the `.zip`) and run it; your notes live in
-            `~/Documents/Noet` (set `NOET_VAULT` to point elsewhere).
+            See CHANGELOG.md for what's included. Download `noet.exe` (or the
+            `.zip`) and run it; your notes live in `~/Documents/NoetVault` (change
+            it in Settings, or set `NOET_VAULT`). The rebuildable index is kept in
+            your OS cache dir, never inside the vault.
