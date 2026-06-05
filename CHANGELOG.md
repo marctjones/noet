@@ -6,7 +6,15 @@ All notable changes to Noet are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-05
+
+Stable checkpoint. Connectors + views + UX are working; further feature work is
+paused pending a WYSIWYG rich-text editor.
+
 ### Added
+- **License: GPL-3.0-only** (`LICENSE`) — the distributed app builds Slint under
+  its GPL-3.0 option, so Noet is GPL-3.0. Declared in both crates' manifests.
+- Rewritten **README** (download/install, features, connectors, build, license).
 - **Context toolbar** — a per-view action row under the top bar (Today: Capture /
   Refresh; Notes: Edit·Related·Add todo·Export; Tasks/Agenda/Gantt: Add todo;
   Inbox: New note; Review: Sync Outlook), showing the active filter summary.
