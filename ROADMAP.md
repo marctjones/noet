@@ -49,6 +49,10 @@ someday / reading) → workstreams, with 1:1 prep, agenda, board, and capture.
 - [ ] **1:1 history & continuity** — per-person time-ordered note thread, "last met".
 
 ## Phase 3 — Reliability & integrations
+> Connector architecture, auth models, the "avoid corporate IT" rules, and the
+> per-connector plan (Gmail/Workspace, Todoist, Monday, SharePoint-via-WebView,
+> Outlook→Tasks, …) are documented in [docs/connectors.md](docs/connectors.md).
+
 - [ ] **Git-backed version history** — view/restore previous versions of a note.
 - [ ] **Sync-conflict awareness** — detect concurrent OneDrive/Drive edits.
 - [~] **Jira connector** — Cloud (email + API token, Basic auth) and Server/DC

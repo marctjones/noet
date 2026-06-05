@@ -6,6 +6,12 @@ All notable changes to Noet are documented here. Format follows
 
 ## [Unreleased]
 
+### Docs
+- **`docs/connectors.md`** — architecture, lessons learned, and a per-connector
+  roadmap (auth models, the "piggyback without corporate IT" rules, COM vs.
+  WebView vs. cloud REST, IWA vs. SharePoint-Online, and a plan tuned to a
+  Linux-dev / personal-Workspace-Gmail / work-Windows-Outlook+SharePoint setup).
+
 ### Added
 - **"Needs review" view** (left nav) — lists the open todos linked to a flagged
   Outlook item (`src:outlook:`); open one to jump to its note.
