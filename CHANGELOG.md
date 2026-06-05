@@ -6,6 +6,12 @@ All notable changes to Noet are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+- **Outlook semantic categories.** An item's Outlook categories now shape the
+  review todo: `Noet: <kind>` (a valid todo kind, e.g. `Noet: delegated`) sets the
+  kind, and `Noet/<Workstream>` or `Noet: <Workstream>` files it under that
+  workstream (`+[[Workstream]]`). A bare `Noet` stays the opt-in marker.
+
 ### Fixed
 - **Outlook sync: re-flagging a resolved email now reopens it** instead of being
   pushed back. Reconciliation now distinguishes "Outlook cleared the flag" (we

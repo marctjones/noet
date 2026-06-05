@@ -5,10 +5,12 @@
 > flag/category sync with EntryID dedup, the `src:outlook:<EntryID>` reopen-link,
 > reconciliation (create / resolve+archive / **re-flag→reopen** / push-back+archive),
 > and push-back via `MarkComplete`. The pure logic (reconcile, parsing, note
-> shaping) is unit-tested on every OS; the COM calls run only on Windows. Not yet:
-> semantic categories mapping to workstream/kind, the `kind: outlook` review type +
-> dedicated "Needs review" inbox, Calendar/Task items, sync-on-app-open, and the
-> opt-in periodic poll (today it's the File ▸ "Sync flagged Outlook mail" action).
+> shaping) is unit-tested on every OS; the COM calls run only on Windows. Semantic
+> categories are mapped too: `Noet: <kind>` sets the review todo's kind and
+> `Noet/<Workstream>` (or `Noet: <Workstream>`) files it under a workstream. Not
+> yet: the `kind: outlook` review type + dedicated "Needs review" inbox,
+> Calendar/Task items, sync-on-app-open, and the opt-in periodic poll (today it's
+> the File ▸ "Sync flagged Outlook mail" action).
 
 ## Goal
 

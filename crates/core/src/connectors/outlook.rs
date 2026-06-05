@@ -29,6 +29,37 @@ pub struct OutlookMail {
     /// The flag's due date, if any (YYYY-MM-DD); maps to the review todo's `due:`.
     #[serde(default)]
     pub due: String,
+    /// Outlook categories (comma-separated). `Noet: <kind>` sets the review todo's
+    /// kind; `Noet/<Workstream>` (or `Noet: <Workstream>`) files it under a
+    /// workstream. See [`parse_categories`].
+    #[serde(default)]
+    pub categories: String,
+}
+
+/// Map an item's Outlook categories to a review-todo `(kind, workstream)`.
+/// Recognises `Noet: <kind>` (a valid todo kind) and `Noet/<X>` / `Noet: <X>`
+/// (anything else → a `+[[X]]` workstream). A bare `Noet` (the opt-in marker)
+/// and non-`Noet` categories are ignored. Pure + tested.
+pub(crate) fn parse_categories(categories: &str) -> (Option<String>, Option<String>) {
+    let mut kind = None;
+    let mut workstream = None;
+    for raw in categories.split(',') {
+        let c = raw.trim();
+        let rest = match c.strip_prefix("Noet") {
+            // "Noet: X" / "Noet/X" / "Noet X" → X ; bare "Noet" or "Noetbook" → skip
+            Some(r) if r.starts_with([':', '/', ' ']) => r.trim_start_matches([':', '/', ' ']).trim(),
+            _ => continue,
+        };
+        if rest.is_empty() {
+            continue;
+        }
+        if crate::backend::KINDS.contains(&rest.to_lowercase().as_str()) {
+            kind = Some(rest.to_lowercase());
+        } else {
+            workstream = Some(rest.to_string());
+        }
+    }
+    (kind, workstream)
 }
 
 /// The `external` prefix used to link a note/todo back to an Outlook message.
@@ -67,6 +98,7 @@ $m = $sel.Item(1)
   body         = [string]$m.Body
   entry_id     = [string]$m.EntryID
   due          = if ($m.TaskDueDate) { $m.TaskDueDate.ToString('yyyy-MM-dd') } else { '' }
+  categories   = [string]$m.Categories
 } | ConvertTo-Json -Compress
 "#
 }
@@ -133,12 +165,18 @@ pub fn mail_to_note(mail: &OutlookMail) -> (String, String) {
         body.push_str(mail.body.trim());
         body.push_str("\n\n");
     }
-    // A follow-up todo so the email becomes actionable; mention the sender, link
-    // back to the live message (src:outlook:<EntryID>), and carry the flag due.
+    // A review todo so the email becomes actionable; its kind/workstream come from
+    // the Noet category (if any), and it mentions the sender, files into the
+    // workstream, links back to the live message, and carries the flag due.
+    let (kind, workstream) = parse_categories(&mail.categories);
+    let kind = kind.unwrap_or_else(|| "followup".to_string());
     let subj_for_todo = if subject.is_empty() { "this email".to_string() } else { format!("\"{subject}\"") };
-    let mut todo = format!("TODO(followup) reply to {subj_for_todo}");
+    let mut todo = format!("TODO({kind}) reply to {subj_for_todo}");
     if !who.is_empty() {
         todo.push_str(&format!(" @[[{who}]]"));
+    }
+    if let Some(ws) = workstream {
+        todo.push_str(&format!(" +[[{ws}]]"));
     }
     if !mail.due.trim().is_empty() {
         todo.push_str(&format!(" due:{}", mail.due.trim()));
@@ -218,6 +256,7 @@ foreach ($m in $marked) {
     body         = [string]$m.Body
     entry_id     = [string]$m.EntryID
     due          = if ($m.TaskDueDate -and $m.TaskDueDate.Year -lt 4500) { $m.TaskDueDate.ToString('yyyy-MM-dd') } else { '' }
+    categories   = [string]$m.Categories
   }
 }
 $out | ConvertTo-Json -Compress
@@ -499,6 +538,40 @@ mod tests {
         let (_t, body) = mail_to_note(&mail);
         assert!(body.contains("due:2026-07-01"));
         assert!(body.contains("src:outlook:00000000DEADBEEF"));
+    }
+
+    #[test]
+    fn categories_map_to_kind_and_workstream() {
+        // semantic kind + workstream, plus the bare opt-in marker and a noise category
+        let (k, w) = parse_categories("Noet, Noet: delegated, Noet/Platform, Red Category");
+        assert_eq!(k.as_deref(), Some("delegated"));
+        assert_eq!(w.as_deref(), Some("Platform"));
+        // "Noet: <Workstream>" form also works for the workstream
+        let (k, w) = parse_categories("Noet: Acme");
+        assert_eq!(k, None);
+        assert_eq!(w.as_deref(), Some("Acme"));
+        // bare Noet and lookalikes are ignored
+        assert_eq!(parse_categories("Noet"), (None, None));
+        assert_eq!(parse_categories("Noetbook"), (None, None));
+        assert_eq!(parse_categories(""), (None, None));
+    }
+
+    #[test]
+    fn mail_to_note_applies_category_kind_and_workstream() {
+        let mail = OutlookMail {
+            subject: "NDA".into(),
+            entry_id: "X1".into(),
+            categories: "Noet, Noet: delegated, Noet/Legal".into(),
+            ..Default::default()
+        };
+        let (_t, body) = mail_to_note(&mail);
+        assert!(body.contains("TODO(delegated) reply to \"NDA\""));
+        assert!(body.contains("+[[Legal]]"));
+        assert!(body.contains("src:outlook:X1"));
+        // no category -> defaults to followup, no workstream
+        let (_t2, body2) = mail_to_note(&OutlookMail { subject: "Hi".into(), ..Default::default() });
+        assert!(body2.contains("TODO(followup) reply to \"Hi\""));
+        assert!(!body2.contains("+[["));
     }
 
     #[test]
