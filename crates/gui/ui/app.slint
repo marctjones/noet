@@ -614,6 +614,7 @@ export component AppWindow inherits Window {
 
     // View + filter state
     in-out property <string> view: "notes";
+    in-out property <string> prev-view: "notes"; // the view to return to when closing a panel
     in-out property <string> group-by: "status";
     in-out property <string> search;
     in-out property <string> status-filter: "";
@@ -795,6 +796,30 @@ export component AppWindow inherits Window {
                             Palette.color-scheme = Theme.dark ? ColorScheme.dark : ColorScheme.light;
                         }
                     }
+                }
+            }
+
+            // ===== Context toolbar (per-view actions) =====
+            if (root.view == "today" || root.view == "notes" || root.view == "tasks"
+                || root.view == "agenda" || root.view == "gantt" || root.view == "inbox"
+                || root.view == "review"): Rectangle {
+                height: 40px;
+                background: Theme.surface2;
+                Rectangle { y: parent.height - 1px; height: 1px; width: 100%; background: Theme.border; }
+                HorizontalLayout {
+                    padding-left: 10px; padding-right: 10px; padding-top: 5px; padding-bottom: 5px; spacing: 6px;
+                    alignment: start;
+                    if (root.view == "today"): Button { text: "＋ Capture"; clicked => { root.set-view("inbox"); } }
+                    if (root.view == "today"): Button { text: "⟳ Refresh"; clicked => { root.reindex(); } }
+                    if (root.view == "notes"): Button { text: root.editing ? "✓ Done" : "✎ Edit"; primary: !root.editing; clicked => { if (root.editing) { root.stop-editing(); } else { root.editing = true; } } }
+                    if (root.view == "notes"): Button { text: "⎇ Related note"; clicked => { root.new-related-note(); } }
+                    if (root.view == "notes"): Button { text: "✓ Add todo"; clicked => { root.open-add-todo(); } }
+                    if (root.view == "notes"): Button { text: "⤓ Export PDF"; clicked => { root.export-note("pdf"); } }
+                    if (root.view == "tasks" || root.view == "agenda" || root.view == "gantt"): Button { text: "✓ Add todo"; clicked => { root.open-add-todo(); } }
+                    if (root.view == "inbox"): Button { text: "＋ New note"; primary: true; clicked => { root.new-note(); } }
+                    if (root.view == "review"): Button { text: "⇄ Sync Outlook"; clicked => { root.sync-outlook(); } }
+                    Rectangle { horizontal-stretch: 1; }
+                    if (root.active-summary != ""): Text { text: root.active-summary; font-size: (11px * Z.f); color: Theme.text3; vertical-alignment: center; }
                 }
             }
 
@@ -1444,10 +1469,7 @@ export component AppWindow inherits Window {
                     background: Theme.bg;
                     VerticalLayout {
                         padding: 10px; spacing: 8px;
-                        HorizontalLayout {
-                            Text { text: "TODAY"; font-size: (16px * Z.f); font-weight: 800; color: Theme.text; horizontal-stretch: 1; }
-                            Button { text: "＋ Capture"; clicked => { root.set-view("inbox"); } }
-                        }
+                        Text { text: "TODAY"; font-size: (16px * Z.f); font-weight: 800; color: Theme.text; }
                         Rectangle {
                             vertical-stretch: 1; background: Theme.surface; border-radius: 8px;
                             tdsv := ScrollView {
@@ -1502,7 +1524,10 @@ export component AppWindow inherits Window {
                     background: Theme.bg;
                     VerticalLayout {
                         padding: 10px; spacing: 8px;
-                        Text { text: "TRASH — deleted notes (restore to bring them back)"; font-size: (11px * Z.f); letter-spacing: 0.5px; color: Theme.text3; }
+                        HorizontalLayout {
+                            Text { text: "TRASH — deleted notes (restore to bring them back)"; font-size: (11px * Z.f); letter-spacing: 0.5px; color: Theme.text3; vertical-alignment: center; horizontal-stretch: 1; }
+                            Button { text: "✕ Close"; clicked => { root.set-view(root.prev-view); } }
+                        }
                         Rectangle {
                             vertical-stretch: 1; background: Theme.surface; border-radius: 8px;
                             ListView {
@@ -1555,7 +1580,10 @@ export component AppWindow inherits Window {
                         width: setsv.visible-width;
                         padding: 16px; spacing: 14px; alignment: start;
 
-                        Text { text: "Settings"; font-size: (20px * Z.f); font-weight: 700; color: Theme.text; }
+                        HorizontalLayout {
+                            Text { text: "Settings"; font-size: (20px * Z.f); font-weight: 700; color: Theme.text; horizontal-stretch: 1; vertical-alignment: center; }
+                            Button { text: "✕ Close"; clicked => { root.set-view(root.prev-view); } }
+                        }
 
                         // --- Vault location (editable) ---
                         Rectangle {
@@ -1740,7 +1768,7 @@ export component AppWindow inherits Window {
                         padding: 16px; spacing: 12px;
                         HorizontalLayout {
                             spacing: 8px;
-                            Button { text: "← Settings"; clicked => { root.set-view("settings"); } }
+                            Button { text: "← Back"; clicked => { root.set-view(root.prev-view); } }
                             Text { text: "Open-source licenses"; font-size: (20px * Z.f); font-weight: 700; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; }
                             Button { text: "Open full notices"; primary: true; clicked => { root.open-licenses(); } }
                         }

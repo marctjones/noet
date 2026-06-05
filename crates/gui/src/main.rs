@@ -1129,6 +1129,12 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         let state = state.clone();
         ui.on_set_view(move |v: SharedString| {
             let ui = ui_w.unwrap();
+            // Remember where we came from so panels (Settings/About/Trash) can
+            // offer a "close → back to where I was" action.
+            let cur = ui.get_view();
+            if cur != v {
+                ui.set_prev_view(cur);
+            }
             ui.set_view(v);
             refresh(&ui, &state.borrow());
         });

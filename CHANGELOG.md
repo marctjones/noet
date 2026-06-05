@@ -6,6 +6,13 @@ All notable changes to Noet are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+- **Context toolbar** — a per-view action row under the top bar (Today: Capture /
+  Refresh; Notes: Edit·Related·Add todo·Export; Tasks/Agenda/Gantt: Add todo;
+  Inbox: New note; Review: Sync Outlook), showing the active filter summary.
+- **Close/back on panels** — Settings, About, and Trash get a discreet "✕ Close"
+  / "← Back" that returns you to the view you came from (tracked `prev-view`).
+
 ### Changed
 - **Menu bar reorganized.** Connectors moved out of the crowded File menu into a
   dedicated **Connectors** menu (Gmail / Google Tasks / Todoist / Outlook import +
