@@ -6,6 +6,16 @@ All notable changes to Noet are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+- **Gmail connector** (`noet_core::connectors::gmail` + `::oauth`). Register your
+  own Google OAuth "Desktop app" (Internal to a Workspace you admin → no Google
+  verification), enter the client id/secret in **Settings ▸ Gmail**, and
+  **Connect** (a browser opens once via native-app **loopback + PKCE**; the
+  refresh token is stored in `gmail.json`). **File ▸ Import from Gmail (starred)**
+  turns starred mail into notes — sender as `@[[Person]]`, a `src:gmail:` 🔗
+  back-link that opens the message in Gmail, and a follow-up todo; dedups by
+  message id. The OAuth helper (`oauth.rs`) is reusable for future connectors.
+
 ## [0.2.3] - 2026-06-05
 
 ### Docs

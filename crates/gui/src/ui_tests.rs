@@ -78,6 +78,10 @@ fn headless_ui_smoke() {
     ui.invoke_save_outlook_sync(true);
     assert!(noet_core::backend::Settings::load().unwrap().outlook_sync_on_open);
 
+    // saving Gmail OAuth client creds persists to gmail.json
+    ui.invoke_save_gmail("cid.apps.googleusercontent.com".into(), "secret".into());
+    assert!(noet_core::connectors::gmail::GmailConfig::load().unwrap().has_client());
+
     // The Outlook connector reports a status rather than panicking when it can't
     // run (off-Windows it's "only available on Windows"; on a Windows runner
     // without Outlook installed it's a COM error — either way, no crash).

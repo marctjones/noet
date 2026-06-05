@@ -568,6 +568,8 @@ struct AppCtx {
     spawn_reindex: Rc<dyn Fn()>,
     indexing: Rc<std::cell::Cell<bool>>,
     dirty: Rc<std::cell::Cell<bool>>,
+    /// Drains Gmail-import results on the UI thread; held so it lives for the run.
+    gmail_timer: slint::Timer,
 }
 
 /// Open the vault, build the window, and register every callback. The caller
@@ -685,6 +687,61 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                     Err(e) => ui.set_status_text(format!("Couldn't save: {e}").into()),
                 }
             }
+        });
+    }
+
+    // Gmail connector: reflect saved creds/connection.
+    {
+        let g = noet_core::connectors::gmail::GmailConfig::load().unwrap_or_default();
+        ui.set_gmail_client_id(g.client_id.clone().into());
+        ui.set_gmail_client_secret(g.client_secret.clone().into());
+        ui.set_gmail_connected(g.is_connected());
+    }
+
+    // Save Gmail OAuth client id/secret (preserving any existing refresh token).
+    {
+        let ui_w = ui.as_weak();
+        ui.on_save_gmail(move |id: SharedString, secret: SharedString| {
+            let ui = ui_w.unwrap();
+            let mut g = noet_core::connectors::gmail::GmailConfig::load().unwrap_or_default();
+            g.client_id = id.trim().to_string();
+            g.client_secret = secret.trim().to_string();
+            match g.save() {
+                Ok(()) => ui.set_status_text("Gmail client saved. Click Connect…".into()),
+                Err(e) => ui.set_status_text(format!("Couldn't save: {e}").into()),
+            }
+        });
+    }
+
+    // Connect Gmail: run the OAuth consent flow on a worker thread (it blocks on
+    // the loopback redirect) and open the browser via the system opener.
+    {
+        let ui_w = ui.as_weak();
+        ui.on_connect_gmail(move || {
+            let ui = ui_w.unwrap();
+            let cfg = noet_core::connectors::gmail::GmailConfig::load().unwrap_or_default();
+            if !cfg.has_client() {
+                ui.set_status_text("Enter your Google client id + secret, then Save.".into());
+                return;
+            }
+            ui.set_status_text("Opening your browser to connect Gmail…".into());
+            let ui_w = ui.as_weak();
+            std::thread::spawn(move || {
+                let res = noet_core::connectors::gmail::connect(cfg, |url| {
+                    let _ = open::that(url);
+                });
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(ui) = ui_w.upgrade() {
+                        match res {
+                            Ok(_) => {
+                                ui.set_gmail_connected(true);
+                                ui.set_status_text("Gmail connected.".into());
+                            }
+                            Err(e) => ui.set_status_text(format!("Gmail connect failed: {e}").into()),
+                        }
+                    }
+                });
+            });
         });
     }
 
@@ -1820,12 +1877,72 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         });
     }
 
-    Ok(AppCtx { ui, state, spawn_reindex, indexing, dirty })
+    // Import recent starred Gmail. The slow fetch runs on a worker thread and
+    // sends messages over a channel; a UI-thread timer turns them into notes
+    // (sync_into/new_note touch the Backend, so that must stay on this thread).
+    let (gmail_tx, gmail_rx) = std::sync::mpsc::channel::<Vec<noet_core::connectors::gmail::GmailMessage>>();
+    {
+        let ui_w = ui.as_weak();
+        ui.on_import_gmail(move || {
+            let ui = ui_w.unwrap();
+            let cfg = noet_core::connectors::gmail::GmailConfig::load().unwrap_or_default();
+            if !cfg.is_connected() {
+                ui.set_status_text("Connect Gmail in Settings first.".into());
+                return;
+            }
+            ui.set_status_text("Importing from Gmail…".into());
+            let tx = gmail_tx.clone();
+            std::thread::spawn(move || {
+                if let Ok(msgs) = noet_core::connectors::gmail::list_recent(&cfg, "is:starred", 25) {
+                    let _ = tx.send(msgs);
+                }
+            });
+        });
+    }
+    let gmail_timer = slint::Timer::default();
+    {
+        let ui_w = ui.as_weak();
+        let state = state.clone();
+        gmail_timer.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_millis(500),
+            move || {
+                let Ok(msgs) = gmail_rx.try_recv() else { return };
+                let Some(ui) = ui_w.upgrade() else { return };
+                let mut s = state.borrow_mut();
+                // dedup by the src:gmail: ref already imported
+                let seen: std::collections::HashSet<String> = s
+                    .backend
+                    .todos_by_external_prefix(noet_core::connectors::gmail::GMAIL_REF_PREFIX)
+                    .unwrap_or_default()
+                    .iter()
+                    .filter_map(|t| t.external.trim().strip_prefix(noet_core::connectors::gmail::GMAIL_REF_PREFIX).map(|s| s.trim().to_string()))
+                    .collect();
+                let mut n = 0;
+                for m in &msgs {
+                    if seen.contains(&m.id) {
+                        continue;
+                    }
+                    let (title, body) = noet_core::connectors::gmail::message_to_note(m);
+                    if let Ok(note) = s.backend.new_note() {
+                        if s.backend.save_note(&note.id, &title, &body).is_ok() {
+                            n += 1;
+                        }
+                    }
+                }
+                ui.set_status_text(format!("Imported {n} new from Gmail").into());
+                refresh(&ui, &s);
+            },
+        );
+    }
+
+    Ok(AppCtx { ui, state, spawn_reindex, indexing, dirty, gmail_timer })
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let vault = resolve_vault();
-    let AppCtx { ui, state, spawn_reindex, indexing, dirty } = setup_app(vault.clone())?;
+    let AppCtx { ui, state, spawn_reindex, indexing, dirty, gmail_timer: _gmail_timer } =
+        setup_app(vault.clone())?;
 
     // Opt-in: sync flagged Outlook mail once at startup (Windows only). The slow
     // COM call runs on a worker thread; a timer drains the result on the UI thread
