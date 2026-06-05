@@ -1,6 +1,6 @@
 [package]
 name = "noet-core"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "Noet core: UI-agnostic domain logic — plain-markdown vault, SQLite index, typed todos, connectors. No GUI dependencies, so any frontend (Slint GUI, future TUI, CLI) can build on it."
 

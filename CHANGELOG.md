@@ -6,6 +6,8 @@ All notable changes to Noet are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-06-04
+
 ### Added
 - **Entity highlighting in the note views.** The rendered view's inline
   `#tag` / `[[label]]` / `@person` chips are bolder so they're easier to spot, and
