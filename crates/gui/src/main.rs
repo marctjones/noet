@@ -776,8 +776,8 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                         Ok(sum) => {
                             ui.set_status_text(
                                 format!(
-                                    "Outlook sync: {} new, {} resolved, {} pushed back",
-                                    sum.created, sum.resolved, sum.pushed_back
+                                    "Outlook sync: {} new, {} resolved, {} reopened, {} pushed back",
+                                    sum.created, sum.resolved, sum.reopened, sum.pushed_back
                                 )
                                 .into(),
                             );

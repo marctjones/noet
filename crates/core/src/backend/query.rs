@@ -373,6 +373,15 @@ impl Backend {
         Ok(rows.filter_map(|r| r.ok()).collect())
     }
 
+    /// Whether a note is currently archived. `false` if it's unknown to the index.
+    pub fn note_archived(&self, note_id: &str) -> Result<bool> {
+        let archived: i64 = self
+            .conn
+            .query_row("SELECT archived FROM notes WHERE id=?", [note_id], |r| r.get(0))
+            .unwrap_or(0);
+        Ok(archived != 0)
+    }
+
     /// Open, stale follow-ups/delegated todos (note untouched > STALE_DAYS).
     pub fn stale_todos(&self) -> Result<Vec<Todo>> {
         let cutoff = (Utc::now() - chrono::Duration::days(STALE_DAYS))

@@ -6,6 +6,14 @@ All notable changes to Noet are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Outlook sync: re-flagging a resolved email now reopens it** instead of being
+  pushed back. Reconciliation now distinguishes "Outlook cleared the flag" (we
+  resolve + archive) from "re-flagged after we'd archived it" (we un-archive +
+  reopen the review todo) — previously both looked like "done" and a re-flag
+  wrongly marked the Outlook flag complete. Adds a `reopened` count to the sync
+  summary and a `Backend::note_archived` query.
+
 ## [0.2.2] - 2026-06-04
 
 ### Added

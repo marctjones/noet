@@ -315,19 +315,26 @@ pub enum SyncAction {
     Create(Box<OutlookMail>),
     /// No longer flagged in Outlook → mark the review todo done + archive in Noet.
     ResolveInNoet(String),
-    /// Still flagged in Outlook but the review todo is done in Noet → mark the
-    /// Outlook flag complete (push-back) and archive the note.
+    /// Re-flagged in Outlook after we'd resolved+archived it → reopen in Noet
+    /// (un-archive + set the review todo back to open).
+    Reopen(String),
+    /// Still flagged in Outlook but the review todo is done in Noet (and not
+    /// archived, i.e. you finished it yourself) → mark the Outlook flag complete
+    /// (push-back) and archive the note.
     CompleteInOutlook(String),
 }
 
 /// Diff the live flagged set against what Noet already imported. `imported` is
-/// `(entry_id, done_in_noet)` for each note carrying a `src:outlook:` link. Pure
-/// and fully unit-tested — the COM/IO lives in [`fetch_flagged`]/[`sync_into`].
-pub fn reconcile(flagged: &[OutlookMail], imported: &[(String, bool)]) -> Vec<SyncAction> {
+/// `(entry_id, done_in_noet, archived_in_noet)` for each note carrying a
+/// `src:outlook:` link. The `archived` bit distinguishes "Outlook cleared the
+/// flag" (we archive) from "re-flagged after we resolved it" (we reopen) — both
+/// look like `done` otherwise. Pure and fully unit-tested; COM/IO lives in
+/// [`fetch_flagged`]/[`sync_into`].
+pub fn reconcile(flagged: &[OutlookMail], imported: &[(String, bool, bool)]) -> Vec<SyncAction> {
     use std::collections::HashSet;
     let live: HashSet<&str> =
         flagged.iter().map(|m| m.entry_id.trim()).filter(|s| !s.is_empty()).collect();
-    let known: HashSet<&str> = imported.iter().map(|(id, _)| id.as_str()).collect();
+    let known: HashSet<&str> = imported.iter().map(|(id, _, _)| id.as_str()).collect();
 
     let mut actions = Vec::new();
     for m in flagged {
@@ -336,10 +343,18 @@ pub fn reconcile(flagged: &[OutlookMail], imported: &[(String, bool)]) -> Vec<Sy
             actions.push(SyncAction::Create(Box::new(m.clone())));
         }
     }
-    for (id, done) in imported {
+    for (id, done, archived) in imported {
         if !live.contains(id.as_str()) {
-            actions.push(SyncAction::ResolveInNoet(id.clone()));
+            // Outlook cleared the flag. Resolve it (once) if we haven't already.
+            if !archived {
+                actions.push(SyncAction::ResolveInNoet(id.clone()));
+            }
+        } else if *archived {
+            // It's flagged again but we'd archived it → the user re-flagged to
+            // resurface it. Reopen rather than push back.
+            actions.push(SyncAction::Reopen(id.clone()));
         } else if *done {
+            // Flagged, live, finished in Noet, still active here → push back.
             actions.push(SyncAction::CompleteInOutlook(id.clone()));
         }
     }
@@ -351,6 +366,7 @@ pub fn reconcile(flagged: &[OutlookMail], imported: &[(String, bool)]) -> Vec<Sy
 pub struct SyncSummary {
     pub created: usize,
     pub resolved: usize,
+    pub reopened: usize,
     pub pushed_back: usize,
 }
 
@@ -360,10 +376,16 @@ pub struct SyncSummary {
 /// call is best-effort and a no-op off Windows).
 pub fn sync_into(backend: &mut crate::backend::Backend, flagged: &[OutlookMail]) -> Result<SyncSummary> {
     let existing = backend.todos_by_external_prefix(OUTLOOK_REF_PREFIX)?;
-    let imported: Vec<(String, bool)> = existing
+    let imported: Vec<(String, bool, bool)> = existing
         .iter()
-        .filter_map(|t| entry_id_of(&t.external).map(|id| (id.to_string(), t.done)))
+        .filter_map(|t| {
+            entry_id_of(&t.external).map(|id| {
+                let archived = backend.note_archived(&t.note_id).unwrap_or(false);
+                (id.to_string(), t.done, archived)
+            })
+        })
         .collect();
+    let find = |id: &str| existing.iter().find(|t| entry_id_of(&t.external) == Some(id));
 
     let mut summary = SyncSummary::default();
     for action in reconcile(flagged, &imported) {
@@ -375,16 +397,25 @@ pub fn sync_into(backend: &mut crate::backend::Backend, flagged: &[OutlookMail])
                 summary.created += 1;
             }
             SyncAction::ResolveInNoet(id) => {
-                if let Some(t) = existing.iter().find(|t| entry_id_of(&t.external) == Some(id.as_str())) {
-                    let _ = backend.set_todo_status(&t.id, "done");
-                    let _ = backend.archive_note(&t.note_id, true);
+                if let Some(t) = find(&id) {
+                    let (tid, nid) = (t.id.clone(), t.note_id.clone());
+                    let _ = backend.set_todo_status(&tid, "done");
+                    let _ = backend.archive_note(&nid, true);
                     summary.resolved += 1;
                 }
             }
+            SyncAction::Reopen(id) => {
+                if let Some(t) = find(&id) {
+                    let (tid, nid) = (t.id.clone(), t.note_id.clone());
+                    let _ = backend.archive_note(&nid, false); // un-archive first
+                    let _ = backend.set_todo_status(&tid, "todo");
+                    summary.reopened += 1;
+                }
+            }
             SyncAction::CompleteInOutlook(id) => {
-                if let Some(t) = existing.iter().find(|t| entry_id_of(&t.external) == Some(id.as_str())) {
+                if let Some(t) = find(&id) {
                     let _ = mark_flag_complete(&id); // best-effort, Windows-only
-                    let _ = backend.archive_note(&t.note_id, true);
+                    let _ = backend.archive_note(&t.note_id.clone(), true);
                     summary.pushed_back += 1;
                 }
             }
@@ -514,19 +545,32 @@ mod tests {
         let a = OutlookMail { entry_id: "A".into(), ..Default::default() };
         let b = OutlookMail { entry_id: "B".into(), ..Default::default() };
         let d = OutlookMail { entry_id: "D".into(), ..Default::default() };
-        let flagged = vec![a.clone(), b.clone(), d.clone()];
-        // imported: B done (still flagged -> push back), C absent from flags (-> resolve),
-        // D not done & still flagged (-> leave). A is new (-> create).
-        let imported = vec![("B".to_string(), true), ("C".to_string(), false), ("D".to_string(), false)];
+        let e = OutlookMail { entry_id: "E".into(), ..Default::default() };
+        let flagged = vec![a.clone(), b.clone(), d.clone(), e.clone()];
+        // imported (id, done, archived):
+        //   B done, flagged, not archived -> push back
+        //   C absent from flags, not archived -> resolve
+        //   D not done, flagged, not archived -> leave
+        //   E flagged but archived (re-flagged after resolve) -> reopen
+        //   F absent from flags, already archived -> leave (already resolved)
+        //   A is new -> create
+        let imported = vec![
+            ("B".to_string(), true, false),
+            ("C".to_string(), false, false),
+            ("D".to_string(), false, false),
+            ("E".to_string(), true, true),
+            ("F".to_string(), true, true),
+        ];
         let actions = reconcile(&flagged, &imported);
         assert!(actions.contains(&SyncAction::Create(Box::new(a))));
         assert!(actions.contains(&SyncAction::CompleteInOutlook("B".into())));
         assert!(actions.contains(&SyncAction::ResolveInNoet("C".into())));
-        assert_eq!(actions.len(), 3); // D is left alone
+        assert!(actions.contains(&SyncAction::Reopen("E".into())));
+        assert_eq!(actions.len(), 4); // D and F are left alone
     }
 
     #[test]
-    fn sync_into_creates_dedups_resolves_and_pushes_back() {
+    fn sync_into_creates_dedups_resolves_reopens_and_pushes_back() {
         use crate::backend::Backend;
         let dir = std::env::temp_dir().join(format!("noet-osync-{}", ulid::Ulid::new()));
         let mut b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();
@@ -535,22 +579,30 @@ mod tests {
         let m2 = OutlookMail { subject: "B".into(), entry_id: "ID2".into(), ..Default::default() };
 
         // first sync creates two review notes
-        let s1 = sync_into(&mut b, &[m1.clone(), m2.clone()]).unwrap();
-        assert_eq!(s1.created, 2);
+        assert_eq!(sync_into(&mut b, &[m1.clone(), m2.clone()]).unwrap().created, 2);
         // re-sync with the same flags is a no-op (dedup by EntryID)
         assert_eq!(sync_into(&mut b, &[m1.clone(), m2.clone()]).unwrap().created, 0);
 
-        // m1 un-flagged in Outlook -> resolved (todo done) in Noet
-        let s3 = sync_into(&mut b, &[m2.clone()]).unwrap();
-        assert_eq!(s3.resolved, 1);
+        // m1 un-flagged in Outlook -> resolved (todo done + note archived)
+        let s = sync_into(&mut b, &[m2.clone()]).unwrap();
+        assert_eq!(s.resolved, 1);
         let t1 = b.todos_by_external_prefix("src:outlook:ID1").unwrap();
-        assert!(t1[0].done);
+        assert!(t1[0].done && b.note_archived(&t1[0].note_id).unwrap());
+
+        // re-syncing without m1 doesn't re-resolve it (it's already archived)
+        assert_eq!(sync_into(&mut b, &[m2.clone()]).unwrap().resolved, 0);
+
+        // m1 re-flagged in Outlook -> reopened (un-archived + todo back to open)
+        let s = sync_into(&mut b, &[m1.clone(), m2.clone()]).unwrap();
+        assert_eq!(s.reopened, 1);
+        let t1 = b.todos_by_external_prefix("src:outlook:ID1").unwrap();
+        assert!(!t1[0].done && !b.note_archived(&t1[0].note_id).unwrap());
 
         // finish m2's review in Noet while still flagged -> push-back
         let t2 = b.todos_by_external_prefix("src:outlook:ID2").unwrap();
         b.set_todo_status(&t2[0].id, "done").unwrap();
-        let s4 = sync_into(&mut b, &[m2.clone()]).unwrap();
-        assert_eq!(s4.pushed_back, 1);
+        let s = sync_into(&mut b, &[m1.clone(), m2.clone()]).unwrap();
+        assert_eq!(s.pushed_back, 1);
 
         std::fs::remove_dir_all(&dir).ok();
     }
