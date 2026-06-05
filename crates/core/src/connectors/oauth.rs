@@ -11,6 +11,10 @@ use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
 use std::net::TcpListener;
+use std::time::{Duration, Instant};
+
+/// How long [`wait_for_code`] waits for the browser redirect before giving up.
+const LOOPBACK_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// A PKCE verifier/challenge pair (S256).
 #[derive(Debug, Clone)]
@@ -146,27 +150,79 @@ pub fn loopback() -> Result<(TcpListener, String)> {
     Ok((listener, format!("http://127.0.0.1:{port}")))
 }
 
-/// Block until the browser hits the loopback redirect, return the auth `code`
-/// (verifying `state`), and show the user a "you can close this tab" page.
-pub fn wait_for_code(listener: &TcpListener, expected_state: &str) -> Result<String> {
-    let (mut stream, _) = listener.accept().context("no redirect received")?;
-    let mut buf = [0u8; 4096];
-    let n = stream.read(&mut buf).unwrap_or(0);
-    let req = String::from_utf8_lossy(&buf[..n]);
-    let first = req.lines().next().unwrap_or("");
-    let result = parse_redirect(first, expected_state);
-    let body = if result.is_ok() {
-        "Noet is connected. You can close this tab."
-    } else {
-        "Authorization failed. You can close this tab and try again."
-    };
+fn respond(stream: &mut std::net::TcpStream, body: &str) {
     let _ = write!(
         stream,
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
         body.len(),
         body
     );
-    result
+}
+
+/// Block until the browser hits the loopback redirect, return the auth `code`
+/// (verifying `state`), and show a "you can close this tab" page. Robust to
+/// stray requests (e.g. `/favicon.ico`) and times out after [`LOOPBACK_TIMEOUT`]
+/// so a never-completed flow can't wedge the worker thread.
+pub fn wait_for_code(listener: &TcpListener, expected_state: &str) -> Result<String> {
+    listener.set_nonblocking(true).ok();
+    let deadline = Instant::now() + LOOPBACK_TIMEOUT;
+    loop {
+        if Instant::now() >= deadline {
+            anyhow::bail!("timed out waiting for the browser sign-in — try Connect again");
+        }
+        let (mut stream, _) = match listener.accept() {
+            Ok(s) => s,
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(100));
+                continue;
+            }
+            Err(e) => return Err(e).context("loopback accept failed"),
+        };
+        stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
+        let mut buf = [0u8; 8192];
+        let n = stream.read(&mut buf).unwrap_or(0);
+        let req = String::from_utf8_lossy(&buf[..n]);
+        let first = req.lines().next().unwrap_or("");
+        let path = first.split_whitespace().nth(1).unwrap_or("");
+        // Ignore anything that isn't the OAuth redirect (favicon, probes, …).
+        if !path.contains("code=") && !path.contains("error=") {
+            respond(&mut stream, "Waiting for authorization…");
+            continue;
+        }
+        let result = parse_redirect(first, expected_state);
+        respond(
+            &mut stream,
+            if result.is_ok() {
+                "Noet is connected. You can close this tab."
+            } else {
+                "Authorization failed. Close this tab and try again."
+            },
+        );
+        return result;
+    }
+}
+
+/// POST a form to an OAuth endpoint, surfacing the provider's own error body on
+/// failure (Google returns `error` / `error_description`, e.g. `invalid_client`,
+/// `redirect_uri_mismatch`) so setup mistakes are legible instead of "status 400".
+fn post_form(endpoint: &str, params: &[(&str, &str)]) -> Result<serde_json::Value> {
+    match ureq::post(endpoint).send_form(params) {
+        Ok(resp) => resp.into_json().context("unexpected OAuth token response"),
+        Err(ureq::Error::Status(code, resp)) => {
+            let body = resp.into_string().unwrap_or_default();
+            let detail = serde_json::from_str::<serde_json::Value>(&body)
+                .ok()
+                .and_then(|j| {
+                    j.get("error_description")
+                        .or_else(|| j.get("error"))
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string)
+                })
+                .unwrap_or_else(|| body.chars().take(200).collect());
+            anyhow::bail!("OAuth error (HTTP {code}): {detail}")
+        }
+        Err(e) => anyhow::bail!("network error talking to the OAuth server: {e}"),
+    }
 }
 
 /// Exchange an authorization code for tokens (RFC 6749 §4.1.3).
@@ -178,18 +234,17 @@ pub fn exchange_code(
     verifier: &str,
     redirect_uri: &str,
 ) -> Result<Tokens> {
-    let resp = ureq::post(token_endpoint)
-        .send_form(&[
+    let resp = post_form(
+        token_endpoint,
+        &[
             ("grant_type", "authorization_code"),
             ("code", code),
             ("client_id", client_id),
             ("client_secret", client_secret),
             ("code_verifier", verifier),
             ("redirect_uri", redirect_uri),
-        ])
-        .map_err(|e| anyhow::anyhow!("token exchange failed: {e}"))?
-        .into_json::<serde_json::Value>()
-        .context("bad token response")?;
+        ],
+    )?;
     Ok(parse_token_response(&resp))
 }
 
@@ -200,16 +255,15 @@ pub fn refresh_access(
     client_secret: &str,
     refresh_token: &str,
 ) -> Result<Tokens> {
-    let resp = ureq::post(token_endpoint)
-        .send_form(&[
+    let resp = post_form(
+        token_endpoint,
+        &[
             ("grant_type", "refresh_token"),
             ("refresh_token", refresh_token),
             ("client_id", client_id),
             ("client_secret", client_secret),
-        ])
-        .map_err(|e| anyhow::anyhow!("token refresh failed: {e}"))?
-        .into_json::<serde_json::Value>()
-        .context("bad token response")?;
+        ],
+    )?;
     Ok(parse_token_response(&resp))
 }
 

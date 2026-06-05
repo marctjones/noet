@@ -10,6 +10,12 @@
 use super::oauth;
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
+/// In-memory access-token cache (one Gmail account) so repeated API calls and
+/// back-to-back imports don't each hit the token endpoint.
+static ACCESS_CACHE: Mutex<Option<(String, Instant)>> = Mutex::new(None);
 
 const AUTH_ENDPOINT: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_ENDPOINT: &str = "https://oauth2.googleapis.com/token";
@@ -87,16 +93,40 @@ pub fn connect(mut cfg: GmailConfig, open_browser: impl FnOnce(&str)) -> Result<
     Ok(cfg)
 }
 
-/// A fresh access token from the stored refresh token.
+/// A valid access token, reusing the cached one until ~1 min before it expires.
 fn access_token(cfg: &GmailConfig) -> Result<String> {
     if !cfg.is_connected() {
         anyhow::bail!("Gmail isn't connected — connect it in Settings");
+    }
+    if let Some((tok, exp)) = ACCESS_CACHE.lock().unwrap().as_ref() {
+        if Instant::now() < *exp {
+            return Ok(tok.clone());
+        }
     }
     let t = oauth::refresh_access(TOKEN_ENDPOINT, &cfg.client_id, &cfg.client_secret, &cfg.refresh_token)?;
     if t.access_token.is_empty() {
         anyhow::bail!("Gmail refresh returned no access token");
     }
+    let ttl = (t.expires_in.max(60) as u64).saturating_sub(60);
+    *ACCESS_CACHE.lock().unwrap() = Some((t.access_token.clone(), Instant::now() + Duration::from_secs(ttl)));
     Ok(t.access_token)
+}
+
+/// GET a Gmail API URL, surfacing Google's error `message` (e.g. "Gmail API has
+/// not been used in project … or it is disabled") instead of a bare status.
+fn get_json(req: ureq::Request) -> Result<serde_json::Value> {
+    match req.call() {
+        Ok(r) => r.into_json().context("unexpected Gmail response"),
+        Err(ureq::Error::Status(code, resp)) => {
+            let body = resp.into_string().unwrap_or_default();
+            let detail = serde_json::from_str::<serde_json::Value>(&body)
+                .ok()
+                .and_then(|j| j.pointer("/error/message").and_then(|v| v.as_str()).map(str::to_string))
+                .unwrap_or_else(|| body.chars().take(200).collect());
+            anyhow::bail!("Gmail API error (HTTP {code}): {detail}")
+        }
+        Err(e) => anyhow::bail!("network error talking to Gmail: {e}"),
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -154,14 +184,12 @@ fn split_from(from: &str) -> (String, String) {
 /// `is:starred`, `label:follow-up`, or `""` for the inbox).
 pub fn list_recent(cfg: &GmailConfig, query: &str, max: u32) -> Result<Vec<GmailMessage>> {
     let token = access_token(cfg)?;
-    let list: serde_json::Value = ureq::get(&format!("{API}/messages"))
-        .set("Authorization", &format!("Bearer {token}"))
-        .query("maxResults", &max.to_string())
-        .query("q", query)
-        .call()
-        .map_err(|e| anyhow::anyhow!("Gmail list failed: {e}"))?
-        .into_json()
-        .context("bad Gmail list response")?;
+    let list = get_json(
+        ureq::get(&format!("{API}/messages"))
+            .set("Authorization", &format!("Bearer {token}"))
+            .query("maxResults", &max.to_string())
+            .query("q", query),
+    )?;
     let ids: Vec<String> = list
         .get("messages")
         .and_then(|m| m.as_array())
@@ -170,16 +198,14 @@ pub fn list_recent(cfg: &GmailConfig, query: &str, max: u32) -> Result<Vec<Gmail
 
     let mut out = Vec::new();
     for id in ids {
-        let msg: serde_json::Value = ureq::get(&format!("{API}/messages/{id}"))
-            .set("Authorization", &format!("Bearer {token}"))
-            .query("format", "metadata")
-            .query("metadataHeaders", "Subject")
-            .query("metadataHeaders", "From")
-            .query("metadataHeaders", "Date")
-            .call()
-            .map_err(|e| anyhow::anyhow!("Gmail get failed: {e}"))?
-            .into_json()
-            .context("bad Gmail message response")?;
+        let msg = get_json(
+            ureq::get(&format!("{API}/messages/{id}"))
+                .set("Authorization", &format!("Bearer {token}"))
+                .query("format", "metadata")
+                .query("metadataHeaders", "Subject")
+                .query("metadataHeaders", "From")
+                .query("metadataHeaders", "Date"),
+        )?;
         out.push(parse_message(&msg));
     }
     Ok(out)

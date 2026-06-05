@@ -1880,7 +1880,8 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
     // Import recent starred Gmail. The slow fetch runs on a worker thread and
     // sends messages over a channel; a UI-thread timer turns them into notes
     // (sync_into/new_note touch the Backend, so that must stay on this thread).
-    let (gmail_tx, gmail_rx) = std::sync::mpsc::channel::<Vec<noet_core::connectors::gmail::GmailMessage>>();
+    type GmailResult = Result<Vec<noet_core::connectors::gmail::GmailMessage>, String>;
+    let (gmail_tx, gmail_rx) = std::sync::mpsc::channel::<GmailResult>();
     {
         let ui_w = ui.as_weak();
         ui.on_import_gmail(move || {
@@ -1893,9 +1894,9 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             ui.set_status_text("Importing from Gmail…".into());
             let tx = gmail_tx.clone();
             std::thread::spawn(move || {
-                if let Ok(msgs) = noet_core::connectors::gmail::list_recent(&cfg, "is:starred", 25) {
-                    let _ = tx.send(msgs);
-                }
+                let res = noet_core::connectors::gmail::list_recent(&cfg, "is:starred", 25)
+                    .map_err(|e| e.to_string());
+                let _ = tx.send(res);
             });
         });
     }
@@ -1907,8 +1908,15 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             slint::TimerMode::Repeated,
             std::time::Duration::from_millis(500),
             move || {
-                let Ok(msgs) = gmail_rx.try_recv() else { return };
+                let Ok(result) = gmail_rx.try_recv() else { return };
                 let Some(ui) = ui_w.upgrade() else { return };
+                let msgs = match result {
+                    Ok(m) => m,
+                    Err(e) => {
+                        ui.set_status_text(format!("Gmail import failed: {e}").into());
+                        return;
+                    }
+                };
                 let mut s = state.borrow_mut();
                 // dedup by the src:gmail: ref already imported
                 let seen: std::collections::HashSet<String> = s
