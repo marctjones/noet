@@ -1546,7 +1546,9 @@ export component AppWindow inherits Window {
                 if (root.view == "settings"): Rectangle {
                     horizontal-stretch: 1;
                     background: Theme.bg;
+                    setsv := ScrollView {
                     VerticalLayout {
+                        width: setsv.visible-width;
                         padding: 16px; spacing: 14px; alignment: start;
 
                         Text { text: "Settings"; font-size: (20px * Z.f); font-weight: 700; color: Theme.text; }
@@ -1722,6 +1724,7 @@ export component AppWindow inherits Window {
                                 }
                             }
                         }
+                    }
                     }
                 }
 
