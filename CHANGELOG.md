@@ -6,6 +6,8 @@ All notable changes to Noet are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-06-05
+
 ### Added
 - **Google Tasks connector** — shares the **same Google sign-in** as Gmail (one
   Desktop-app client, one consent requests both `gmail.readonly` +

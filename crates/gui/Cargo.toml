@@ -1,6 +1,6 @@
 [package]
 name = "noet-gui"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2021"
 description = "Noet — native (Rust + Slint) notes + typed-todos + projects over plain markdown. The Slint GUI frontend over noet-core."
 default-run = "noet"
