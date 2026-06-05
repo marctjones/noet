@@ -568,8 +568,16 @@ struct AppCtx {
     spawn_reindex: Rc<dyn Fn()>,
     indexing: Rc<std::cell::Cell<bool>>,
     dirty: Rc<std::cell::Cell<bool>>,
-    /// Drains Gmail-import results on the UI thread; held so it lives for the run.
-    gmail_timer: slint::Timer,
+    /// Drains connector-import results on the UI thread; held so it lives for the run.
+    import_timer: slint::Timer,
+}
+
+/// A note ready to be created from an external import (Gmail / Google Tasks /
+/// Todoist). `reference` is the `src:…` external ref used to dedup re-imports.
+struct ImportItem {
+    title: String,
+    body: String,
+    reference: String,
 }
 
 /// Open the vault, build the window, and register every callback. The caller
@@ -742,6 +750,27 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                     }
                 });
             });
+        });
+    }
+
+    // Todoist connector: reflect saved token.
+    {
+        let t = noet_core::connectors::todoist::TodoistConfig::load().unwrap_or_default();
+        ui.set_todoist_token(t.token.clone().into());
+        ui.set_todoist_configured(t.is_configured());
+    }
+    {
+        let ui_w = ui.as_weak();
+        ui.on_save_todoist(move |token: SharedString| {
+            let ui = ui_w.unwrap();
+            let cfg = noet_core::connectors::todoist::TodoistConfig { token: token.trim().to_string() };
+            match cfg.save() {
+                Ok(()) => {
+                    ui.set_todoist_configured(cfg.is_configured());
+                    ui.set_status_text("Todoist token saved.".into());
+                }
+                Err(e) => ui.set_status_text(format!("Couldn't save: {e}").into()),
+            }
         });
     }
 
@@ -1877,79 +1906,144 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         });
     }
 
-    // Import recent starred Gmail. The slow fetch runs on a worker thread and
-    // sends messages over a channel; a UI-thread timer turns them into notes
-    // (sync_into/new_note touch the Backend, so that must stay on this thread).
-    type GmailResult = Result<Vec<noet_core::connectors::gmail::GmailMessage>, String>;
-    let (gmail_tx, gmail_rx) = std::sync::mpsc::channel::<GmailResult>();
+    // Connector imports (Gmail / Google Tasks / Todoist) share one pipeline: the
+    // slow fetch + mapping runs on a worker thread and sends ready-to-create
+    // ImportItems over a channel; a UI-thread timer turns them into notes
+    // (new_note touches the Backend, so that must stay on this thread).
+    let (import_tx, import_rx) = std::sync::mpsc::channel::<Result<Vec<ImportItem>, String>>();
     {
+        use noet_core::connectors::gmail;
         let ui_w = ui.as_weak();
+        let tx = import_tx.clone();
         ui.on_import_gmail(move || {
             let ui = ui_w.unwrap();
-            let cfg = noet_core::connectors::gmail::GmailConfig::load().unwrap_or_default();
+            let cfg = gmail::GmailConfig::load().unwrap_or_default();
             if !cfg.is_connected() {
-                ui.set_status_text("Connect Gmail in Settings first.".into());
+                ui.set_status_text("Connect Google in Settings first.".into());
                 return;
             }
             ui.set_status_text("Importing from Gmail…".into());
-            let tx = gmail_tx.clone();
+            let tx = tx.clone();
             std::thread::spawn(move || {
-                let res = noet_core::connectors::gmail::list_recent(&cfg, "is:starred", 25)
+                let res = gmail::list_recent(&cfg, "is:starred", 25)
+                    .map(|msgs| {
+                        msgs.iter()
+                            .map(|m| {
+                                let (title, body) = gmail::message_to_note(m);
+                                ImportItem { title, body, reference: format!("{}{}", gmail::GMAIL_REF_PREFIX, m.id) }
+                            })
+                            .collect()
+                    })
                     .map_err(|e| e.to_string());
                 let _ = tx.send(res);
             });
         });
     }
-    let gmail_timer = slint::Timer::default();
+    {
+        use noet_core::connectors::{gmail, gtasks};
+        let ui_w = ui.as_weak();
+        let tx = import_tx.clone();
+        ui.on_import_gtasks(move || {
+            let ui = ui_w.unwrap();
+            let cfg = gmail::GmailConfig::load().unwrap_or_default();
+            if !cfg.is_connected() {
+                ui.set_status_text("Connect Google in Settings first.".into());
+                return;
+            }
+            ui.set_status_text("Importing from Google Tasks…".into());
+            let tx = tx.clone();
+            std::thread::spawn(move || {
+                let res = gtasks::list_tasks(&cfg, 100)
+                    .map(|tasks| {
+                        tasks.iter()
+                            .map(|t| {
+                                let (title, body) = gtasks::task_to_note(t);
+                                ImportItem { title, body, reference: format!("{}{}", gtasks::GTASK_REF_PREFIX, t.id) }
+                            })
+                            .collect()
+                    })
+                    .map_err(|e| e.to_string());
+                let _ = tx.send(res);
+            });
+        });
+    }
+    {
+        use noet_core::connectors::todoist;
+        let ui_w = ui.as_weak();
+        let tx = import_tx.clone();
+        ui.on_import_todoist(move || {
+            let ui = ui_w.unwrap();
+            let cfg = todoist::TodoistConfig::load().unwrap_or_default();
+            if !cfg.is_configured() {
+                ui.set_status_text("Add your Todoist token in Settings first.".into());
+                return;
+            }
+            ui.set_status_text("Importing from Todoist…".into());
+            let tx = tx.clone();
+            std::thread::spawn(move || {
+                let res = todoist::list_tasks(&cfg, "")
+                    .map(|tasks| {
+                        tasks.iter()
+                            .map(|t| {
+                                let (title, body) = todoist::task_to_note(t);
+                                ImportItem { title, body, reference: format!("{}{}", todoist::TODOIST_REF_PREFIX, t.id) }
+                            })
+                            .collect()
+                    })
+                    .map_err(|e| e.to_string());
+                let _ = tx.send(res);
+            });
+        });
+    }
+    let import_timer = slint::Timer::default();
     {
         let ui_w = ui.as_weak();
         let state = state.clone();
-        gmail_timer.start(
+        import_timer.start(
             slint::TimerMode::Repeated,
-            std::time::Duration::from_millis(500),
+            std::time::Duration::from_millis(400),
             move || {
-                let Ok(result) = gmail_rx.try_recv() else { return };
+                let Ok(result) = import_rx.try_recv() else { return };
                 let Some(ui) = ui_w.upgrade() else { return };
-                let msgs = match result {
-                    Ok(m) => m,
+                let items = match result {
+                    Ok(v) => v,
                     Err(e) => {
-                        ui.set_status_text(format!("Gmail import failed: {e}").into());
+                        ui.set_status_text(format!("Import failed: {e}").into());
                         return;
                     }
                 };
                 let mut s = state.borrow_mut();
-                // dedup by the src:gmail: ref already imported
+                // dedup against everything already linked from an external source
                 let seen: std::collections::HashSet<String> = s
                     .backend
-                    .todos_by_external_prefix(noet_core::connectors::gmail::GMAIL_REF_PREFIX)
+                    .todos_by_external_prefix("src:")
                     .unwrap_or_default()
                     .iter()
-                    .filter_map(|t| t.external.trim().strip_prefix(noet_core::connectors::gmail::GMAIL_REF_PREFIX).map(|s| s.trim().to_string()))
+                    .map(|t| t.external.trim().to_string())
                     .collect();
                 let mut n = 0;
-                for m in &msgs {
-                    if seen.contains(&m.id) {
+                for it in &items {
+                    if seen.contains(&it.reference) {
                         continue;
                     }
-                    let (title, body) = noet_core::connectors::gmail::message_to_note(m);
                     if let Ok(note) = s.backend.new_note() {
-                        if s.backend.save_note(&note.id, &title, &body).is_ok() {
+                        if s.backend.save_note(&note.id, &it.title, &it.body).is_ok() {
                             n += 1;
                         }
                     }
                 }
-                ui.set_status_text(format!("Imported {n} new from Gmail").into());
+                ui.set_status_text(format!("Imported {n} new item(s)").into());
                 refresh(&ui, &s);
             },
         );
     }
 
-    Ok(AppCtx { ui, state, spawn_reindex, indexing, dirty, gmail_timer })
+    Ok(AppCtx { ui, state, spawn_reindex, indexing, dirty, import_timer })
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let vault = resolve_vault();
-    let AppCtx { ui, state, spawn_reindex, indexing, dirty, gmail_timer: _gmail_timer } =
+    let AppCtx { ui, state, spawn_reindex, indexing, dirty, import_timer: _import_timer } =
         setup_app(vault.clone())?;
 
     // Opt-in: sync flagged Outlook mail once at startup (Windows only). The slow

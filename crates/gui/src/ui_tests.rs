@@ -82,6 +82,14 @@ fn headless_ui_smoke() {
     ui.invoke_save_gmail("cid.apps.googleusercontent.com".into(), "secret".into());
     assert!(noet_core::connectors::gmail::GmailConfig::load().unwrap().has_client());
 
+    // saving the Todoist token persists to todoist.json
+    ui.invoke_save_todoist("tok123".into());
+    assert!(noet_core::connectors::todoist::TodoistConfig::load().unwrap().is_configured());
+
+    // Google Tasks import guards on connection (no token yet → status, no panic)
+    ui.invoke_import_gtasks();
+    assert!(ui.get_status_text().contains("Connect Google"));
+
     // The Outlook connector reports a status rather than panicking when it can't
     // run (off-Windows it's "only available on Windows"; on a Windows runner
     // without Outlook installed it's a COM error — either way, no crash).

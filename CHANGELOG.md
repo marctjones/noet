@@ -7,6 +7,16 @@ All notable changes to Noet are documented here. Format follows
 ## [Unreleased]
 
 ### Added
+- **Google Tasks connector** — shares the **same Google sign-in** as Gmail (one
+  Desktop-app client, one consent requests both `gmail.readonly` +
+  `tasks.readonly`). File ▸ Import from Google Tasks brings in incomplete tasks
+  across all lists, filed under their list (`+[[List]]`) with due dates and a
+  `src:gtask:` ref.
+- **Todoist connector** — personal API token (Settings ▸ Todoist; no OAuth/IT).
+  File ▸ Import from Todoist maps tasks onto Noet's typed todos: priority →
+  `[#A/B/C]`, project → `+[[Workstream]]`, labels → `#tags`, due → `due:`, plus a
+  `src:todoist:` ref. All connector imports now share one worker-thread pipeline
+  and dedup by `src:` ref.
 - **Gmail connector** (`noet_core::connectors::gmail` + `::oauth`). Register your
   own Google OAuth "Desktop app" (Internal to a Workspace you admin → no Google
   verification), enter the client id/secret in **Settings ▸ Gmail**, and

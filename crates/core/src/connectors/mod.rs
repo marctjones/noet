@@ -4,9 +4,11 @@
 //! that errors elsewhere).
 
 pub mod gmail;
+pub mod gtasks;
 pub mod jira;
 pub mod oauth;
 pub mod outlook;
+pub mod todoist;
 
 /// Resolve an `external` ref (the token Noet lifts off a todo line, e.g.
 /// `jira:PROJ-12`, `gh:owner/repo#3`, or a bare URL) into a browsable URL.
@@ -22,6 +24,15 @@ pub fn resolve_external_url(external: &str, jira_cfg: Option<&jira::JiraConfig>)
         let id = id.trim();
         if !id.is_empty() {
             return Some(gmail::message_url(id));
+        }
+    }
+    if ext.starts_with(gtasks::GTASK_REF_PREFIX) {
+        return Some(gtasks::tasks_url().to_string());
+    }
+    if let Some(id) = ext.strip_prefix(todoist::TODOIST_REF_PREFIX) {
+        let id = id.trim();
+        if !id.is_empty() {
+            return Some(todoist::task_url(id));
         }
     }
     if let Some(rest) = ext.strip_prefix("jira:") {
@@ -81,6 +92,12 @@ mod tests {
         assert_eq!(
             resolve_external_url("src:gmail:18abc", None).as_deref(),
             Some("https://mail.google.com/mail/u/0/#all/18abc")
+        );
+        // google task -> Tasks web app; todoist -> the task URL
+        assert_eq!(resolve_external_url("src:gtask:T1", None).as_deref(), Some("https://tasks.google.com/"));
+        assert_eq!(
+            resolve_external_url("src:todoist:678", None).as_deref(),
+            Some("https://app.todoist.com/app/task/678")
         );
 
         // bare + ref: URLs pass through

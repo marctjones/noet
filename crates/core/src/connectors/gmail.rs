@@ -17,14 +17,22 @@ use std::time::{Duration, Instant};
 /// back-to-back imports don't each hit the token endpoint.
 static ACCESS_CACHE: Mutex<Option<(String, Instant)>> = Mutex::new(None);
 
-const AUTH_ENDPOINT: &str = "https://accounts.google.com/o/oauth2/v2/auth";
-const TOKEN_ENDPOINT: &str = "https://oauth2.googleapis.com/token";
-const SCOPE: &str = "https://www.googleapis.com/auth/gmail.readonly";
+pub(crate) const AUTH_ENDPOINT: &str = "https://accounts.google.com/o/oauth2/v2/auth";
+pub(crate) const TOKEN_ENDPOINT: &str = "https://oauth2.googleapis.com/token";
+/// Scopes requested at connect — read Gmail *and* Google Tasks, so one consent
+/// covers both connectors.
+const SCOPES: &[&str] = &[
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/tasks.readonly",
+];
 const API: &str = "https://gmail.googleapis.com/gmail/v1/users/me";
 
 /// The `external` prefix linking a note/todo back to a Gmail message.
 pub const GMAIL_REF_PREFIX: &str = "src:gmail:";
 
+/// Google OAuth credentials. Despite the name this covers **both** Gmail and
+/// Google Tasks — one Desktop-app client, one consent, one refresh token (the
+/// scopes requested include both). Stored in `gmail.json`.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct GmailConfig {
     /// OAuth client id (`*.apps.googleusercontent.com`).
@@ -78,7 +86,7 @@ pub fn connect(mut cfg: GmailConfig, open_browser: impl FnOnce(&str)) -> Result<
     let state = ulid::Ulid::new().to_string();
     let (listener, redirect_uri) = oauth::loopback()?;
     let url = oauth::authorize_url(
-        AUTH_ENDPOINT, &cfg.client_id, &redirect_uri, &[SCOPE], &pkce.challenge, &state,
+        AUTH_ENDPOINT, &cfg.client_id, &redirect_uri, SCOPES, &pkce.challenge, &state,
     );
     open_browser(&url);
     let code = oauth::wait_for_code(&listener, &state)?;
@@ -94,7 +102,8 @@ pub fn connect(mut cfg: GmailConfig, open_browser: impl FnOnce(&str)) -> Result<
 }
 
 /// A valid access token, reusing the cached one until ~1 min before it expires.
-fn access_token(cfg: &GmailConfig) -> Result<String> {
+/// Shared by the Gmail and Google Tasks connectors (same Google account).
+pub(crate) fn access_token(cfg: &GmailConfig) -> Result<String> {
     if !cfg.is_connected() {
         anyhow::bail!("Gmail isn't connected — connect it in Settings");
     }
@@ -112,9 +121,10 @@ fn access_token(cfg: &GmailConfig) -> Result<String> {
     Ok(t.access_token)
 }
 
-/// GET a Gmail API URL, surfacing Google's error `message` (e.g. "Gmail API has
+/// GET a Google API URL, surfacing Google's error `message` (e.g. "Gmail API has
 /// not been used in project … or it is disabled") instead of a bare status.
-fn get_json(req: ureq::Request) -> Result<serde_json::Value> {
+/// Shared by the Gmail and Google Tasks connectors.
+pub(crate) fn get_json(req: ureq::Request) -> Result<serde_json::Value> {
     match req.call() {
         Ok(r) => r.into_json().context("unexpected Gmail response"),
         Err(ureq::Error::Status(code, resp)) => {
