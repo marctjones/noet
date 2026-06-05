@@ -1,7 +1,8 @@
 name: Release
 
-# Build the Windows 11 binary and publish a GitHub Release whenever a version
-# tag is pushed (e.g. `git tag v0.1.0 && git push origin v0.1.0`).
+# Build the Windows 11 + Linux binaries and publish a GitHub Release whenever a
+# version tag is pushed (e.g. `git tag v0.1.0 && git push origin v0.1.0`). Both
+# jobs upload to the same release for the tag.
 on:
   push:
     tags: ["v*"]
@@ -38,9 +39,63 @@ jobs:
             target/release/noet.exe
           generate_release_notes: true
           body: |
-            Noet ${{ github.ref_name }} — Windows 11 build.
+            Noet ${{ github.ref_name }}. No installer — portable.
 
-            See CHANGELOG.md for what's included. Download `noet.exe` (or the
-            `.zip`) and run it; your notes live in `~/Documents/NoetVault` (change
-            it in Settings, or set `NOET_VAULT`). The rebuildable index is kept in
-            your OS cache dir, never inside the vault.
+            **Windows:** download `noet.exe` (or the `.zip`) and run it.
+            **Linux:** download the `.tar.gz` (unpack, run `./noet`) or the `.deb`
+            (`sudo apt install ./noet_*_amd64.deb`).
+
+            Your notes live in `~/Documents/NoetVault` (change it in Settings, or
+            set `NOET_VAULT`); the rebuildable index lives in your OS cache dir,
+            never inside the vault. See CHANGELOG.md for what's included.
+
+  linux:
+    name: Build Linux binary (tarball + .deb)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # Slint's FemtoVG renderer needs fontconfig headers to build.
+      - name: Install build deps
+        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
+
+      - name: Build release (GUI)
+        run: cargo build --release -p noet-gui
+
+      - name: Stage tarball
+        run: |
+          mkdir -p dist
+          cp target/release/noet dist/noet
+          cp README.md CHANGELOG.md dist/
+          tar -C dist -czf "noet-${GITHUB_REF_NAME}-linux-x86_64.tar.gz" .
+
+      - name: Build .deb
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          PKG=pkgroot
+          mkdir -p "$PKG/DEBIAN" "$PKG/usr/bin" "$PKG/usr/share/doc/noet"
+          install -m 0755 target/release/noet "$PKG/usr/bin/noet"
+          cp CHANGELOG.md "$PKG/usr/share/doc/noet/changelog"
+          # Build the control file with echo so YAML indentation can't corrupt it.
+          {
+            echo "Package: noet"
+            echo "Version: ${VERSION}"
+            echo "Section: utils"
+            echo "Priority: optional"
+            echo "Architecture: amd64"
+            echo "Depends: libfontconfig1, libgl1, libxkbcommon0"
+            echo "Maintainer: Marc Jones <marc.t.jones@gmail.com>"
+            echo "Description: Native notes + typed-todos + projects over plain markdown"
+            echo " Noet is a native (Rust + Slint) personal-information manager that"
+            echo " keeps plain markdown files as the source of truth."
+          } > "$PKG/DEBIAN/control"
+          dpkg-deb --build --root-owner-group "$PKG" "noet_${VERSION}_amd64.deb"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            noet-${{ github.ref_name }}-linux-x86_64.tar.gz
+            noet_*_amd64.deb
