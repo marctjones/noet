@@ -521,7 +521,7 @@ component RenderedView inherits Rectangle {
                                     height: 19px; y: 1px; border-radius: 4px;
                                     background: pta.has-hover ? #1f7a44 : #e7f7ec;
                                     HorizontalLayout { padding-left: 5px; padding-right: 5px;
-                                        Text { text: s.text; font-size: (12px * Z.f); color: pta.has-hover ? white : #1f7a44; vertical-alignment: center; }
+                                        Text { text: s.text; font-size: (12px * Z.f); font-weight: 600; color: pta.has-hover ? white : #1f7a44; vertical-alignment: center; }
                                     }
                                     pta := TouchArea { mouse-cursor: pointer; clicked => { root.filter-entity("project", s.value); } }
                                 }
@@ -529,7 +529,7 @@ component RenderedView inherits Rectangle {
                                     height: 19px; y: 1px; border-radius: 4px;
                                     background: peta.has-hover ? #9a5b1b : #fdeede;
                                     HorizontalLayout { padding-left: 5px; padding-right: 5px;
-                                        Text { text: s.text; font-size: (12px * Z.f); color: peta.has-hover ? white : #9a5b1b; vertical-alignment: center; }
+                                        Text { text: s.text; font-size: (12px * Z.f); font-weight: 600; color: peta.has-hover ? white : #9a5b1b; vertical-alignment: center; }
                                     }
                                     peta := TouchArea { mouse-cursor: pointer; clicked => { root.filter-entity("person", s.value); } }
                                 }
@@ -537,7 +537,7 @@ component RenderedView inherits Rectangle {
                                     height: 19px; y: 1px; border-radius: 4px;
                                     background: tta.has-hover ? #5b1b9a : #f3ecfb;
                                     HorizontalLayout { padding-left: 5px; padding-right: 5px;
-                                        Text { text: s.text; font-size: (12px * Z.f); color: tta.has-hover ? white : #5b1b9a; vertical-alignment: center; }
+                                        Text { text: s.text; font-size: (12px * Z.f); font-weight: 600; color: tta.has-hover ? white : #5b1b9a; vertical-alignment: center; }
                                     }
                                     tta := TouchArea { mouse-cursor: pointer; clicked => { root.filter-entity("tag", s.value); } }
                                 }
@@ -1217,6 +1217,21 @@ export component AppWindow inherits Window {
                                         text <=> root.current-title;
                                         font-size: (17px * Z.f);
                                         edited(t) => { root.note-edited(); }
+                                    }
+                                    // Labels / people / tags in this note — highlighted + clickable, kept
+                                    // live as you type. (The raw editor can't colour tokens inline — Slint
+                                    // TextEdit is single-style — so this strip surfaces them instead.)
+                                    if (root.current-projects.length + root.current-people.length + root.current-tags.length > 0): Rectangle {
+                                        height: ent.preferred-height + 8px;
+                                        background: Theme.surface2;
+                                        border-radius: 6px;
+                                        ent := HorizontalLayout {
+                                            padding: 4px; spacing: 6px; alignment: start;
+                                            Text { text: "In this note:"; font-size: (10px * Z.f); color: Theme.text3; vertical-alignment: center; }
+                                            for p in root.current-projects: LinkChip { text: "▸ " + p; tint: #e7f7ec; ink: #1f7a44; clicked => { root.toggle-project(p); } }
+                                            for pe in root.current-people: LinkChip { text: "◷ " + pe; tint: #fdeede; ink: #9a5b1b; clicked => { root.toggle-person(pe); } }
+                                            for tg in root.current-tags: LinkChip { text: "# " + tg; tint: #f3ecfb; ink: #5b1b9a; clicked => { root.toggle-tag(tg); } }
+                                        }
                                     }
                                     HorizontalLayout {
                                         vertical-stretch: 1;

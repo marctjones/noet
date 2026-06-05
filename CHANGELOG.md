@@ -6,6 +6,13 @@ All notable changes to Noet are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+- **Entity highlighting in the note views.** The rendered view's inline
+  `#tag` / `[[label]]` / `@person` chips are bolder so they're easier to spot, and
+  the **edit view** gained a live "In this note:" chip strip (above the editor)
+  surfacing the note's labels/people/tags as you type — clickable to filter. (The
+  raw `TextEdit` itself stays single-style; Slint has no inline-styled editor.)
+
 ## [0.2.1] - 2026-06-04
 
 ### Fixed

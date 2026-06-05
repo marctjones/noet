@@ -1270,6 +1270,12 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let body = ui.get_current_body().to_string();
             let kind = ui.get_current_kind().to_string();
             set_doc_counts(&ui, &body);
+            // Keep the entity chip strip (labels / people / tags) live while typing,
+            // so they stay easy to find in the editor as you add them.
+            let (projects, people, tags) = backend::Backend::note_entities(&body);
+            ui.set_current_projects(str_model(&projects));
+            ui.set_current_people(str_model(&people));
+            ui.set_current_tags(str_model(&tags));
             if backend::effective_kind(&kind, &body) == "markdown" {
                 ui.set_current_is_typst(false);
                 let id = ui.get_current_id().to_string();
