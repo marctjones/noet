@@ -137,9 +137,61 @@ pub struct GmailMessage {
     pub from_email: String,
     pub date: String,
     pub snippet: String,
+    /// Decoded plain-text body (HTML stripped if that's all there was). Empty if
+    /// the message had no text part.
+    pub body: String,
 }
 
-/// Parse a Gmail `messages.get` (format=metadata) JSON body.
+/// Walk a Gmail `payload` MIME tree and return the best text body: the first
+/// `text/plain` part, else stripped `text/html`. Bodies are base64url-encoded.
+fn extract_body(payload: &serde_json::Value) -> String {
+    fn walk(node: &serde_json::Value, plain: &mut Option<String>, html: &mut Option<String>) {
+        let mime = node.get("mimeType").and_then(|v| v.as_str()).unwrap_or("");
+        if let Some(data) = node.pointer("/body/data").and_then(|v| v.as_str()) {
+            let decoded = || String::from_utf8_lossy(&oauth::base64url_decode(data)).into_owned();
+            if mime == "text/plain" && plain.is_none() {
+                *plain = Some(decoded());
+            } else if mime == "text/html" && html.is_none() {
+                *html = Some(decoded());
+            }
+        }
+        if let Some(parts) = node.get("parts").and_then(|v| v.as_array()) {
+            for p in parts {
+                walk(p, plain, html);
+            }
+        }
+    }
+    let (mut plain, mut html) = (None, None);
+    walk(payload, &mut plain, &mut html);
+    if let Some(p) = plain {
+        return p.trim().to_string();
+    }
+    html.map(|h| strip_html(&h)).unwrap_or_default()
+}
+
+/// Crude HTML→text: drop tags, decode a few entities, collapse whitespace.
+fn strip_html(html: &str) -> String {
+    let mut text = String::with_capacity(html.len());
+    let mut in_tag = false;
+    for c in html.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => text.push(c),
+            _ => {}
+        }
+    }
+    let text = text
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&nbsp;", " ");
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Parse a Gmail `messages.get` (format=full) JSON body.
 pub(crate) fn parse_message(json: &serde_json::Value) -> GmailMessage {
     let header = |name: &str| -> String {
         json.pointer("/payload/headers")
@@ -162,6 +214,7 @@ pub(crate) fn parse_message(json: &serde_json::Value) -> GmailMessage {
         from_email,
         date: header("Date"),
         snippet: json.get("snippet").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        body: json.get("payload").map(extract_body).unwrap_or_default(),
     }
 }
 
@@ -201,10 +254,7 @@ pub fn list_recent(cfg: &GmailConfig, query: &str, max: u32) -> Result<Vec<Gmail
         let msg = get_json(
             ureq::get(&format!("{API}/messages/{id}"))
                 .set("Authorization", &format!("Bearer {token}"))
-                .query("format", "metadata")
-                .query("metadataHeaders", "Subject")
-                .query("metadataHeaders", "From")
-                .query("metadataHeaders", "Date"),
+                .query("format", "full"),
         )?;
         out.push(parse_message(&msg));
     }
@@ -232,8 +282,10 @@ pub fn message_to_note(msg: &GmailMessage) -> (String, String) {
         body.push_str(&format!("**Received:** {}\n", msg.date.trim()));
     }
     body.push('\n');
-    if !msg.snippet.trim().is_empty() {
-        body.push_str(msg.snippet.trim());
+    // Prefer the full decoded body; fall back to the snippet preview.
+    let content = if !msg.body.trim().is_empty() { msg.body.trim() } else { msg.snippet.trim() };
+    if !content.is_empty() {
+        body.push_str(content);
         body.push_str("\n\n");
     }
     let subj_for_todo = if subject.is_empty() { "this email".to_string() } else { format!("\"{subject}\"") };
@@ -308,20 +360,46 @@ mod tests {
     }
 
     #[test]
-    fn message_to_note_shapes_a_followup() {
+    fn message_to_note_uses_full_body_then_falls_back_to_snippet() {
         let m = GmailMessage {
             id: "18abc".into(),
             subject: "Q3 budget".into(),
             from_name: "Jane Doe".into(),
             from_email: "jane@x.com".into(),
             date: "Thu, 5 Jun 2026 09:00:00 -0700".into(),
-            snippet: "Let's sync.".into(),
+            snippet: "preview…".into(),
+            body: "The full email body.\nSecond line.".into(),
         };
         let (title, body) = message_to_note(&m);
         assert_eq!(title, "Q3 budget");
         assert!(body.contains("**From:** Jane Doe <jane@x.com>"));
-        assert!(body.contains("Let's sync."));
+        assert!(body.contains("The full email body."));
+        assert!(!body.contains("preview…"), "full body should win over the snippet");
         assert!(body.contains(r#"TODO(followup) Follow up: "Q3 budget" @[[Jane Doe]] src:gmail:18abc"#));
+        // with no body, the snippet is the fallback
+        let m2 = GmailMessage { body: String::new(), ..m };
+        assert!(message_to_note(&m2).1.contains("preview…"));
+    }
+
+    #[test]
+    fn extract_body_walks_mime_and_decodes() {
+        // multipart/alternative with text/plain (preferred) + text/html
+        let plain = oauth::base64url(b"Hello in plain text.");
+        let html = oauth::base64url(b"<p>Hello in <b>HTML</b></p>");
+        let json = serde_json::json!({
+            "id": "1",
+            "payload": { "mimeType": "multipart/alternative", "parts": [
+                { "mimeType": "text/plain", "body": { "data": plain } },
+                { "mimeType": "text/html", "body": { "data": html } }
+            ]}
+        });
+        assert_eq!(parse_message(&json).body, "Hello in plain text.");
+        // html-only -> tags stripped
+        let json2 = serde_json::json!({
+            "id": "2",
+            "payload": { "mimeType": "text/html", "body": { "data": html } }
+        });
+        assert_eq!(parse_message(&json2).body, "Hello in HTML");
     }
 
     #[test]

@@ -52,6 +52,35 @@ pub(crate) fn base64url(input: &[u8]) -> String {
     out
 }
 
+/// Decode URL-safe base64 (tolerant: accepts standard `+/` too, ignores padding
+/// and whitespace). Used for Gmail message bodies.
+pub(crate) fn base64url_decode(input: &str) -> Vec<u8> {
+    fn val(c: u8) -> Option<u8> {
+        match c {
+            b'A'..=b'Z' => Some(c - b'A'),
+            b'a'..=b'z' => Some(c - b'a' + 26),
+            b'0'..=b'9' => Some(c - b'0' + 52),
+            b'-' | b'+' => Some(62),
+            b'_' | b'/' => Some(63),
+            _ => None,
+        }
+    }
+    let mut out = Vec::new();
+    let mut buf = 0u32;
+    let mut bits = 0u32;
+    for &c in input.as_bytes() {
+        if let Some(v) = val(c) {
+            buf = (buf << 6) | v as u32;
+            bits += 6;
+            if bits >= 8 {
+                bits -= 8;
+                out.push((buf >> bits) as u8);
+            }
+        }
+    }
+    out
+}
+
 fn enc(s: &str) -> String {
     // Minimal percent-encoding for query values (encode everything not unreserved).
     let mut o = String::with_capacity(s.len());
@@ -278,6 +307,16 @@ mod tests {
         assert_eq!(base64url(b"foobar"), "Zm9vYmFy");
         assert_eq!(base64url(&[0xfb, 0xff, 0xbf]), "-_-_"); // exercises - and _
         assert!(!base64url(b"any").contains('='));
+    }
+
+    #[test]
+    fn base64url_decode_roundtrips_and_tolerates_padding() {
+        assert_eq!(base64url_decode("Zm9vYmFy"), b"foobar");
+        assert_eq!(base64url_decode("Zg"), b"f"); // no padding
+        assert_eq!(base64url_decode("Zm8="), b"fo"); // padding ignored
+        assert_eq!(base64url_decode(&base64url(b"hello world")), b"hello world");
+        // Gmail bodies may wrap with newlines — those are skipped
+        assert_eq!(base64url_decode("Zm9v\nYmFy"), b"foobar");
     }
 
     #[test]
