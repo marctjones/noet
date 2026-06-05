@@ -6,6 +6,14 @@ All notable changes to Noet are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-06-05
+
+### Added
+- **Linux release artifacts.** Releases now also ship a Linux build: a portable
+  `noet-<ver>-linux-x86_64.tar.gz` (unpack and run `./noet`) and a
+  `noet_<ver>_amd64.deb` (`sudo apt install ./noet_*_amd64.deb`). No code change
+  vs. 0.2.4 — Windows stays `noet.exe` + `.zip` (no installer).
+
 ## [0.2.4] - 2026-06-05
 
 ### Added
