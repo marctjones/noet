@@ -673,6 +673,7 @@ export component AppWindow inherits Window {
     in-out property <string> todoist-token;
     in-out property <bool> todoist-configured;
     // About / open-source licenses view.
+    in-out property <string> app-version;
     in-out property <[LicenseRow]> license-rows;
     in-out property <string> license-summary;
     // "Needs review" inbox: open todos linked to a flagged Outlook item.
@@ -684,6 +685,7 @@ export component AppWindow inherits Window {
     callback save-jira(string, string, string); // base-url, email, token
     callback open-external(string); // open a jira:/gh:/URL ref in the browser
     callback open-licenses(); // open the full third-party license notices
+    callback open-vault-folder(); // open the vault folder in the file manager
     callback save-outlook-sync(bool); // persist the sync-on-startup setting
     callback save-gmail(string, string); // Google client id, client secret
     callback connect-gmail(); // run the Google OAuth consent flow (Gmail + Tasks)
@@ -762,6 +764,8 @@ export component AppWindow inherits Window {
                     editTitle := MenuTitle { label: "Edit"; menu-id: "edit"; open-menu <=> root.open-menu; }
                     noteTitle := MenuTitle { label: "Note"; menu-id: "note"; open-menu <=> root.open-menu; }
                     viewTitle := MenuTitle { label: "View"; menu-id: "view"; open-menu <=> root.open-menu; }
+                    connTitle := MenuTitle { label: "Connectors"; menu-id: "connectors"; open-menu <=> root.open-menu; }
+                    helpTitle := MenuTitle { label: "Help"; menu-id: "help"; open-menu <=> root.open-menu; }
                 }
             }
 
@@ -2196,19 +2200,38 @@ export component AppWindow inherits Window {
             MenuItem { icon: "@"; label: "New 1:1 note"; clicked => { root.open-menu = ""; root.new-from-template("oneonone"); } }
             MenuItem { icon: "◆"; label: "New decision note"; clicked => { root.open-menu = ""; root.new-from-template("decision"); } }
             MenuSep {}
-            MenuItem { icon: "✉"; label: "Import from Outlook"; clicked => { root.open-menu = ""; root.import-outlook(); } }
-            MenuItem { icon: "⇄"; label: "Sync flagged Outlook mail"; clicked => { root.open-menu = ""; root.sync-outlook(); } }
-            MenuItem { icon: "✉"; label: "Import from Gmail (starred)"; clicked => { root.open-menu = ""; root.import-gmail(); } }
-            MenuItem { icon: "✓"; label: "Import from Google Tasks"; clicked => { root.open-menu = ""; root.import-gtasks(); } }
-            MenuItem { icon: "✓"; label: "Import from Todoist"; clicked => { root.open-menu = ""; root.import-todoist(); } }
-            MenuSep {}
             MenuItem { icon: "⤓"; label: "Export note as Markdown"; clicked => { root.open-menu = ""; root.export-note("md"); } }
             MenuItem { icon: "⎙"; label: "Export note as PDF"; clicked => { root.open-menu = ""; root.export-note("pdf"); } }
             MenuSep {}
+            MenuItem { icon: "🗀"; label: "Open vault folder"; clicked => { root.open-menu = ""; root.open-vault-folder(); } }
             MenuItem { icon: "⟳"; label: "Reindex from files"; clicked => { root.open-menu = ""; root.reindex(); } }
             MenuItem { icon: "⌫"; label: "Open Trash"; clicked => { root.open-menu = ""; root.set-view("trash"); } }
             MenuSep {}
             MenuItem { icon: "⏻"; label: "Exit Noet"; shortcut: "Ctrl+Q"; clicked => { root.open-menu = ""; root.quit(); } }
+        }
+        if root.open-menu == "connectors": MenuPanel {
+            x: connTitle.absolute-position.x;
+            y: connTitle.absolute-position.y + connTitle.height + 3px;
+            width: 250px;
+            MenuItem { icon: "✉"; label: "Import from Gmail (starred)"; clicked => { root.open-menu = ""; root.import-gmail(); } }
+            MenuItem { icon: "✓"; label: "Import from Google Tasks"; clicked => { root.open-menu = ""; root.import-gtasks(); } }
+            MenuItem { icon: "✓"; label: "Import from Todoist"; clicked => { root.open-menu = ""; root.import-todoist(); } }
+            MenuSep {}
+            MenuItem { icon: "✉"; label: "Import selected Outlook email"; clicked => { root.open-menu = ""; root.import-outlook(); } }
+            MenuItem { icon: "⇄"; label: "Sync flagged Outlook mail"; clicked => { root.open-menu = ""; root.sync-outlook(); } }
+            MenuSep {}
+            MenuItem { icon: "⚙"; label: "Connection settings…"; clicked => { root.open-menu = ""; root.set-view("settings"); } }
+        }
+        if root.open-menu == "help": MenuPanel {
+            x: helpTitle.absolute-position.x;
+            y: helpTitle.absolute-position.y + helpTitle.height + 3px;
+            width: 250px;
+            MenuItem { icon: "ⓘ"; label: "About Noet " + root.app-version; clicked => { root.open-menu = ""; root.set-view("about"); } }
+            MenuItem { icon: "§"; label: "Open-source licenses"; clicked => { root.open-menu = ""; root.set-view("about"); } }
+            MenuSep {}
+            MenuItem { icon: "⎇"; label: "Noet on GitHub"; clicked => { root.open-menu = ""; root.open-url("https://github.com/marctjones/noet"); } }
+            MenuItem { icon: "⚑"; label: "Report an issue"; clicked => { root.open-menu = ""; root.open-url("https://github.com/marctjones/noet/issues"); } }
+            MenuItem { icon: "⤓"; label: "Releases / check for updates"; clicked => { root.open-menu = ""; root.open-url("https://github.com/marctjones/noet/releases"); } }
         }
         if root.open-menu == "edit": MenuPanel {
             x: editTitle.absolute-position.x;

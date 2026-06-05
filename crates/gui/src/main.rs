@@ -788,7 +788,10 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 }
             })
             .collect();
-        ui.set_license_summary(format!("Bundles {} third-party components:", rows.len()).into());
+        ui.set_app_version(format!("v{}", env!("CARGO_PKG_VERSION")).into());
+        ui.set_license_summary(
+            format!("Noet v{} — bundles {} third-party components:", env!("CARGO_PKG_VERSION"), rows.len()).into(),
+        );
         ui.set_license_rows(ModelRc::new(VecModel::from(rows)));
     }
 
@@ -806,6 +809,19 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                     let _ = open::that(&path);
                 }
                 Err(e) => ui.set_status_text(format!("Couldn't open licenses: {e}").into()),
+            }
+        });
+    }
+
+    // Open the vault folder in the OS file manager.
+    {
+        let ui_w = ui.as_weak();
+        let state = state.clone();
+        ui.on_open_vault_folder(move || {
+            let ui = ui_w.unwrap();
+            let vault = state.borrow().backend.vault.clone();
+            if open::that(&vault).is_err() {
+                ui.set_status_text(format!("Couldn't open {}", vault.display()).into());
             }
         });
     }

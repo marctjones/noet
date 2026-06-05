@@ -6,6 +6,18 @@ All notable changes to Noet are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+- **Menu bar reorganized.** Connectors moved out of the crowded File menu into a
+  dedicated **Connectors** menu (Gmail / Google Tasks / Todoist / Outlook import +
+  sync + "Connection settings…"). New **Help** menu: About Noet (with version),
+  Open-source licenses, Noet on GitHub, Report an issue, Releases. File gains
+  "Open vault folder".
+
+### Fixed
+- **Settings view scrolls** — it was a non-scrolling card stack that ran off the
+  bottom (and, because the window sizes to the active view, ballooned the window
+  past the screen, making Today look unscrollable too). Wrapped it in a ScrollView.
+
 ## [0.2.5] - 2026-06-05
 
 ### Added
