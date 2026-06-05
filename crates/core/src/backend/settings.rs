@@ -4,10 +4,14 @@
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Settings {
     /// Where the markdown vault lives.
     pub vault: PathBuf,
+    /// Run the Outlook flag/category sync once at app startup (Windows only).
+    /// Off by default so the app never launches Outlook/PowerShell unasked.
+    #[serde(default)]
+    pub outlook_sync_on_open: bool,
 }
 
 impl Settings {

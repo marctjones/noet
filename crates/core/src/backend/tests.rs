@@ -586,7 +586,7 @@ fn settings_roundtrip() {
     // absent file -> None
     assert!(Settings::load_from(&path).is_none());
 
-    let s = Settings { vault: dir.join("MyVault") };
+    let s = Settings { vault: dir.join("MyVault"), ..Default::default() };
     s.save_to(&path).unwrap();
     assert!(path.exists());
 

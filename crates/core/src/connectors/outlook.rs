@@ -170,8 +170,8 @@ pub fn mail_to_note(mail: &OutlookMail) -> (String, String) {
     // workstream, links back to the live message, and carries the flag due.
     let (kind, workstream) = parse_categories(&mail.categories);
     let kind = kind.unwrap_or_else(|| "followup".to_string());
-    let subj_for_todo = if subject.is_empty() { "this email".to_string() } else { format!("\"{subject}\"") };
-    let mut todo = format!("TODO({kind}) reply to {subj_for_todo}");
+    let subj_for_todo = if subject.is_empty() { "this item".to_string() } else { format!("\"{subject}\"") };
+    let mut todo = format!("TODO({kind}) Follow up: {subj_for_todo}");
     if !who.is_empty() {
         todo.push_str(&format!(" @[[{who}]]"));
     }
@@ -242,22 +242,36 @@ pub(crate) fn flagged_script() -> &'static str {
 $ErrorActionPreference = 'Stop'
 $ol = New-Object -ComObject Outlook.Application
 $ns = $ol.GetNamespace('MAPI')
-$inbox = $ns.GetDefaultFolder(6)  # olFolderInbox
-# olFlagMarked = 2 ; category 'Noet' opts an item in explicitly
-$marked = $inbox.Items.Restrict("[FlagStatus] = 2 OR [Categories] = 'Noet'")
 $out = @()
-foreach ($m in $marked) {
-  if ($m.Class -ne 43) { continue }  # 43 = olMail
-  $out += [pscustomobject]@{
+function Emit($m) {
+  $sender = ''; $sender_email = ''; $received = ''; $due = ''
+  switch ($m.Class) {
+    43 { # olMail
+      $sender = [string]$m.SenderName; $sender_email = [string]$m.SenderEmailAddress
+      if ($m.ReceivedTime) { $received = $m.ReceivedTime.ToString('s') }
+      if ($m.TaskDueDate -and $m.TaskDueDate.Year -lt 4500) { $due = $m.TaskDueDate.ToString('yyyy-MM-dd') }
+    }
+    26 { if ($m.Start) { $received = $m.Start.ToString('s'); $due = $m.Start.ToString('yyyy-MM-dd') } } # olAppointment
+    48 { if ($m.DueDate -and $m.DueDate.Year -lt 4500) { $due = $m.DueDate.ToString('yyyy-MM-dd') } }  # olTask
+  }
+  return [pscustomobject]@{
     subject      = [string]$m.Subject
-    sender       = [string]$m.SenderName
-    sender_email = [string]$m.SenderEmailAddress
-    received     = if ($m.ReceivedTime) { $m.ReceivedTime.ToString('s') } else { '' }
+    sender       = $sender
+    sender_email = $sender_email
+    received     = $received
     body         = [string]$m.Body
     entry_id     = [string]$m.EntryID
-    due          = if ($m.TaskDueDate -and $m.TaskDueDate.Year -lt 4500) { $m.TaskDueDate.ToString('yyyy-MM-dd') } else { '' }
+    due          = $due
     categories   = [string]$m.Categories
   }
+}
+# Inbox: flagged (olFlagMarked = 2) or the 'Noet' category opts an item in.
+foreach ($m in $ns.GetDefaultFolder(6).Items.Restrict("[FlagStatus] = 2 OR [Categories] = 'Noet'")) {
+  if ($m.Class -eq 43) { $out += Emit $m }
+}
+# Calendar (9) and Tasks (13): 'Noet'-categorized items (flags don't apply there).
+foreach ($fid in 9, 13) {
+  foreach ($m in $ns.GetDefaultFolder($fid).Items.Restrict("[Categories] = 'Noet'")) { $out += Emit $m }
 }
 $out | ConvertTo-Json -Compress
 "#
@@ -514,14 +528,14 @@ mod tests {
         assert!(body.contains("**From:** Jane Doe <jane@x.com>"));
         assert!(body.contains("**Received:** 2026-06-04T09:00:00"));
         assert!(body.contains("Numbers attached."));
-        assert!(body.contains(r#"TODO(followup) reply to "Budget review" @[[Jane Doe]]"#));
+        assert!(body.contains(r#"TODO(followup) Follow up: "Budget review" @[[Jane Doe]]"#));
     }
 
     #[test]
     fn mail_to_note_degrades_when_fields_missing() {
         let (title, body) = mail_to_note(&OutlookMail::default());
         assert_eq!(title, "Email"); // empty subject -> fallback title
-        assert!(body.contains("TODO(followup) reply to this email"));
+        assert!(body.contains("TODO(followup) Follow up: this item"));
         assert!(!body.contains("@[[")); // no sender -> no mention
         assert!(!body.contains("**From:**"));
         assert!(!body.contains("src:outlook:")); // no entry id -> no back-link
@@ -565,12 +579,12 @@ mod tests {
             ..Default::default()
         };
         let (_t, body) = mail_to_note(&mail);
-        assert!(body.contains("TODO(delegated) reply to \"NDA\""));
+        assert!(body.contains("TODO(delegated) Follow up: \"NDA\""));
         assert!(body.contains("+[[Legal]]"));
         assert!(body.contains("src:outlook:X1"));
         // no category -> defaults to followup, no workstream
         let (_t2, body2) = mail_to_note(&OutlookMail { subject: "Hi".into(), ..Default::default() });
-        assert!(body2.contains("TODO(followup) reply to \"Hi\""));
+        assert!(body2.contains("TODO(followup) Follow up: \"Hi\""));
         assert!(!body2.contains("+[["));
     }
 
@@ -597,6 +611,7 @@ mod tests {
         assert!(flagged.contains("FlagStatus"));
         assert!(flagged.contains("Categories"));
         assert!(flagged.contains("ConvertTo-Json"));
+        assert!(flagged.contains("9, 13")); // also scans Calendar + Tasks folders
     }
 
     #[test]

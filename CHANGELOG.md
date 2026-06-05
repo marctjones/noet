@@ -7,6 +7,14 @@ All notable changes to Noet are documented here. Format follows
 ## [Unreleased]
 
 ### Added
+- **"Needs review" view** (left nav) — lists the open todos linked to a flagged
+  Outlook item (`src:outlook:`); open one to jump to its note.
+- **Sync flagged Outlook mail on startup** — an opt-in toggle in Settings ▸
+  Outlook (off by default; settings.json). When on, Noet runs the flag/category
+  sync once each launch on a worker thread (Windows only; the UI never blocks).
+- **Outlook Calendar + Tasks** — the sync now also imports `Noet`-categorized
+  calendar appointments and tasks (not just flagged mail); review-todo wording is
+  type-neutral ("Follow up: …").
 - **Outlook semantic categories.** An item's Outlook categories now shape the
   review todo: `Noet: <kind>` (a valid todo kind, e.g. `Noet: delegated`) sets the
   kind, and `Noet/<Workstream>` or `Noet: <Workstream>` files it under that

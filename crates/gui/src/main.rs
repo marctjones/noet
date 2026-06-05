@@ -92,7 +92,7 @@ fn resolve_vault() -> PathBuf {
     let vault = dirs::document_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("NoetVault");
-    let _ = (backend::Settings { vault: vault.clone() }).save();
+    let _ = (backend::Settings { vault: vault.clone(), ..Default::default() }).save();
     vault
 }
 
@@ -273,6 +273,14 @@ fn refresh(ui: &AppWindow, state: &State) {
         if let Ok(todos) = b.query_todos(f) {
             let items: Vec<TodoItem> = todos.iter().map(to_todo_item).collect();
             ui.set_tasks(ModelRc::new(VecModel::from(items)));
+        }
+    }
+
+    // "Needs review" inbox: open todos linked to a flagged Outlook item.
+    if view == "review" {
+        if let Ok(todos) = b.todos_by_external_prefix("src:outlook:") {
+            let items: Vec<TodoItem> = todos.iter().filter(|t| !t.done).map(to_todo_item).collect();
+            ui.set_review_todos(ModelRc::new(VecModel::from(items)));
         }
     }
 
@@ -658,6 +666,28 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.set_jira_configured(cfg.is_configured());
     }
 
+    // Reflect the persisted Outlook "sync on startup" opt-in.
+    ui.set_outlook_sync_on_open(
+        backend::Settings::load().map(|s| s.outlook_sync_on_open).unwrap_or(false),
+    );
+
+    // Persist the Outlook sync-on-startup toggle (merges into settings.json).
+    {
+        let ui_w = ui.as_weak();
+        ui.on_save_outlook_sync(move |on: bool| {
+            let ui = ui_w.unwrap();
+            if let Some(mut cfg) = backend::Settings::load() {
+                cfg.outlook_sync_on_open = on;
+                match cfg.save() {
+                    Ok(()) => ui.set_status_text(
+                        if on { "Outlook will sync on startup." } else { "Outlook startup sync off." }.into(),
+                    ),
+                    Err(e) => ui.set_status_text(format!("Couldn't save: {e}").into()),
+                }
+            }
+        });
+    }
+
     // Populate the open-source licenses view from the embedded component list.
     {
         let rows: Vec<LicenseRow> = THIRD_PARTY_COMPONENTS
@@ -706,7 +736,9 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 ui.set_status_text("Vault path can't be empty.".into());
                 return;
             }
-            match (backend::Settings { vault: PathBuf::from(&path) }).save() {
+            let mut cfg = backend::Settings::load().unwrap_or_default();
+            cfg.vault = PathBuf::from(&path);
+            match cfg.save() {
                 Ok(()) => {
                     ui.set_vault_path(path.clone().into());
                     ui.set_status_text(format!("Saved — restart Noet to switch to {path}").into());
@@ -1793,7 +1825,47 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let vault = resolve_vault();
-    let AppCtx { ui, spawn_reindex, indexing, dirty, state: _state } = setup_app(vault.clone())?;
+    let AppCtx { ui, state, spawn_reindex, indexing, dirty } = setup_app(vault.clone())?;
+
+    // Opt-in: sync flagged Outlook mail once at startup (Windows only). The slow
+    // COM call runs on a worker thread; a timer drains the result on the UI thread
+    // and applies it (sync_into touches the Backend, so it must stay on this
+    // thread). Held in `_outlook_timer` so it lives for the session.
+    let _outlook_timer = if noet_core::connectors::outlook::is_supported()
+        && backend::Settings::load().map(|s| s.outlook_sync_on_open).unwrap_or(false)
+    {
+        let (otx, orx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = otx.send(noet_core::connectors::outlook::fetch_flagged());
+        });
+        let ui_w = ui.as_weak();
+        let state = state.clone();
+        let timer = slint::Timer::default();
+        timer.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_millis(500),
+            move || {
+                let Ok(result) = orx.try_recv() else { return };
+                let Some(ui) = ui_w.upgrade() else { return };
+                if let Ok(mails) = result {
+                    let mut s = state.borrow_mut();
+                    if let Ok(sum) = noet_core::connectors::outlook::sync_into(&mut s.backend, &mails) {
+                        ui.set_status_text(
+                            format!(
+                                "Outlook sync: {} new, {} resolved, {} reopened, {} pushed back",
+                                sum.created, sum.resolved, sum.reopened, sum.pushed_back
+                            )
+                            .into(),
+                        );
+                        refresh(&ui, &s);
+                    }
+                }
+            },
+        );
+        Some(timer)
+    } else {
+        None
+    };
 
     // Live file-reload: watch the vault for external edits (another editor,
     // OneDrive/Drive sync) and rebuild in the BACKGROUND so the UI never blocks.

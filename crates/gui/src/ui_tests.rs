@@ -70,6 +70,14 @@ fn headless_ui_smoke() {
     assert!(ui.get_jira_configured());
     assert!(noet_core::connectors::jira::JiraConfig::load().unwrap().is_configured());
 
+    // the new "Needs review" view switches like any other view
+    ui.invoke_set_view("review".into());
+    assert_eq!(ui.get_view(), "review");
+
+    // the Outlook sync-on-startup opt-in persists to settings.json
+    ui.invoke_save_outlook_sync(true);
+    assert!(noet_core::backend::Settings::load().unwrap().outlook_sync_on_open);
+
     // The Outlook connector reports a status rather than panicking when it can't
     // run (off-Windows it's "only available on Windows"; on a Windows runner
     // without Outlook installed it's a COM error — either way, no crash).
