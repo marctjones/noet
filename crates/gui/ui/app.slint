@@ -52,6 +52,11 @@ export struct TodoItem {
 
 export struct NoteRef { id: string, title: string }
 
+// A command-palette result. `id` is a typed ref the Rust side dispatches:
+// "v:<view>" (open view), "n:<note-id>" (open note), "c:<command>" (run command),
+// "p:<project>" / "t:<tag>" / "@:<person>" (apply a facet filter).
+export struct PaletteItem { id: string, label: string, kind: string, hint: string }
+
 export struct LicenseRow { crate-name: string, version: string, license: string }
 
 export struct FilterChip { label: string, dim: string }
@@ -642,6 +647,10 @@ export component AppWindow inherits Window {
     in property <int> current-word-count;
     in property <int> current-char-count;
     in-out property <string> status-text;
+    // Command palette (Ctrl/⌘+K): fuzzy jump to notes / views / commands / facets.
+    in-out property <bool> palette-open: false;
+    in-out property <string> palette-query;
+    in property <[PaletteItem]> palette-results;
     in-out property <bool> editing: false;
     in-out property <bool> preview-on: true;
     in-out property <string> tag-input;
@@ -744,6 +753,9 @@ export component AppWindow inherits Window {
     callback add-tag(string);
     callback note-edited();
     callback stop-editing();
+    // Command palette
+    callback palette-search(string);   // query changed → repopulate palette-results
+    callback palette-activate(string); // an item's id was chosen
     // sred editor wiring — forwarded into the sred Editor on the Rust side.
     callback rich-insert-text(string);    // a typed character / newline
     callback rich-chord(string) -> bool;  // a Ctrl-chord (bold/copy/undo/…)
@@ -819,6 +831,7 @@ export component AppWindow inherits Window {
                         horizontal-stretch: 1;
                         edited(t) => { root.set-search(t); }
                     }
+                    Button { text: "⌘K  Go to…"; clicked => { root.palette-query = ""; root.palette-search(""); root.palette-open = true; } }
                     Button { text: "＋ New note"; primary: true; clicked => { root.new-note(); } }
                     Button { text: "⟳"; clicked => { root.reindex(); } }
                     Button { text: "A−"; clicked => { Z.f = max(Z.f - 0.1, 0.6); } }
@@ -2386,6 +2399,69 @@ export component AppWindow inherits Window {
             MenuSep {}
             MenuItem { icon: "⊙"; label: "Reset zoom"; clicked => { root.open-menu = ""; Z.f = 1.0; } }
             MenuItem { icon: Theme.dark ? "☀" : "☾"; label: Theme.dark ? "Light theme" : "Dark theme"; clicked => { root.open-menu = ""; Theme.dark = !Theme.dark; Palette.color-scheme = Theme.dark ? ColorScheme.dark : ColorScheme.light; } }
+        }
+
+        // ===== Command palette overlay (Ctrl/⌘+K) =====
+        if (root.palette-open): Rectangle {
+            background: #00000066;
+            // click outside the box closes it
+            TouchArea { clicked => { root.palette-open = false; } }
+            Rectangle {
+                width: min(640px, parent.width - 40px);
+                height: min(440px, parent.height - 100px);
+                x: (parent.width - self.width) / 2;
+                y: 70px;
+                background: Theme.surface;
+                border-radius: 10px;
+                border-width: 1px;
+                border-color: Theme.border;
+                drop-shadow-blur: 24px;
+                drop-shadow-color: #00000055;
+                forward-focus: palinput;
+                // swallow clicks so they don't fall through to the backdrop
+                TouchArea {}
+                VerticalLayout {
+                    padding: 10px;
+                    spacing: 8px;
+                    palinput := LineEdit {
+                        placeholder-text: "Jump to a note, view, command, or #tag / ▸project…";
+                        text <=> root.palette-query;
+                        font-size: (15px * Z.f);
+                        edited(t) => { root.palette-search(t); }
+                        accepted => {
+                            if (root.palette-results.length > 0) {
+                                root.palette-activate(root.palette-results[0].id);
+                                root.palette-open = false;
+                            }
+                        }
+                    }
+                    ListView {
+                        vertical-stretch: 1;
+                        for it in root.palette-results: Rectangle {
+                            height: 42px;
+                            border-radius: 6px;
+                            background: pita.has-hover ? Theme.hover : transparent;
+                            HorizontalLayout {
+                                padding-left: 8px; padding-right: 8px; spacing: 10px;
+                                Rectangle {
+                                    width: 58px;
+                                    Text { text: it.kind; font-size: (9px * Z.f); letter-spacing: 0.5px; color: Theme.text3; vertical-alignment: center; horizontal-alignment: center; }
+                                }
+                                VerticalLayout {
+                                    alignment: center;
+                                    Text { text: it.label; font-size: (13px * Z.f); font-weight: 600; color: Theme.text; overflow: elide; }
+                                    if (it.hint != ""): Text { text: it.hint; font-size: (10px * Z.f); color: Theme.text3; overflow: elide; }
+                                }
+                            }
+                            pita := TouchArea { clicked => { root.palette-activate(it.id); root.palette-open = false; } }
+                        }
+                    }
+                    Text {
+                        text: "Enter opens the top match · Esc/click outside to close";
+                        font-size: (9px * Z.f); color: Theme.text3; horizontal-alignment: center;
+                    }
+                }
+            }
         }
     }
 }

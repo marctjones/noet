@@ -193,6 +193,23 @@ fn headless_ui_smoke() {
         .match_accessible_role(AccessibleRole::Button)
         .find_all();
 
+    // ----- Level 5: command palette -----
+    ui.invoke_palette_search("".into()); // empty query → views + commands + recent notes
+    assert!(ui.get_palette_results().row_count() > 0, "empty palette query yields default results");
+    ui.invoke_palette_search("Board".into());
+    let pr = ui.get_palette_results();
+    assert!(
+        (0..pr.row_count()).any(|i| pr.row_data(i).unwrap().id == "v:board"),
+        "searching 'Board' surfaces the Board view"
+    );
+    // activating a view item navigates there
+    ui.invoke_palette_activate("v:board".into());
+    assert_eq!(ui.get_view(), "board", "palette activate → view changed");
+    // activating a note opens the notes view + selects it
+    let nid = ctx.state.borrow().backend.query_notes(&noet_core::backend::Filter::default()).unwrap()[0].id.clone();
+    ui.invoke_palette_activate(format!("n:{nid}").into());
+    assert_eq!(ui.get_view(), "notes", "palette activate note → notes view");
+
     // (Slint's lightweight testing backend renders no pixels — its window is a
     // measurement-only renderer — so Window::take_snapshot is unavailable here.
     // Pixel/visual-regression testing would need the software-renderer backend +
