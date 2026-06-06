@@ -7,9 +7,10 @@ use chrono::NaiveDate;
 use slint::{ModelRc, SharedString, VecModel};
 use sred_core::{
     BlockKind as SredBlock, Command as SredCmd, Editor as SredEditor, Format as SredFormat,
-    MarkSet as SredMark, Motion as SredMotion, Theme as SredTheme, TokenMatch as SredMatch,
-    TokenSpec as SredToken,
+    MarkSet as SredMark, Motion as SredMotion, Theme as SredTheme,
+    TokenMatch as SredMatch, TokenSpec as SredToken,
 };
+use sred_core::editor::SearchOpts as SredSearch;
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -31,6 +32,30 @@ thread_local! {
     static RICH: RefCell<SredEditor> = RefCell::new(SredEditor::new(SredFormat::Markdown));
     /// Last known sred viewport (width px, height px) from the `rich-resized` callback.
     static RICH_VP: Cell<(u32, f32)> = const { Cell::new((800, 600.0)) };
+    /// Find/replace: current match ranges + active index.
+    static FIND_HITS: RefCell<Vec<(usize, usize)>> = RefCell::new(Vec::new());
+    static FIND_CUR: Cell<usize> = const { Cell::new(0) };
+}
+
+fn find_opts() -> SredSearch {
+    SredSearch { case_sensitive: false, whole_word: false }
+}
+
+/// Push the current find state into the editor (highlights + caret to the active
+/// match) and re-render; update the bar's count/position.
+fn find_apply(ui: &AppWindow) {
+    let hits = FIND_HITS.with(|h| h.borrow().clone());
+    let cur = FIND_CUR.with(|c| c.get());
+    RICH.with(|r| {
+        let mut e = r.borrow_mut();
+        e.set_search_highlights(&hits, if hits.is_empty() { None } else { Some(cur) });
+        if let Some(m) = hits.get(cur) {
+            e.core_mut().set_cursor(m.0);
+        }
+    });
+    rich_render(ui, true);
+    ui.set_find_count(hits.len() as i32);
+    ui.set_find_current(if hits.is_empty() { 0 } else { (cur + 1) as i32 });
 }
 
 // ---- WYSIWYG (sred) editor bridge ---------------------------------------------
@@ -1183,6 +1208,12 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 ui.set_palette_open(true);
                 return true;
             }
+            // Ctrl/⌘+F opens the find / replace bar.
+            if chord == "f" {
+                ui.set_find_open(true);
+                ui.invoke_find_search(ui.get_find_query());
+                return true;
+            }
             let name = match chord.as_str() {
                 "b" => "bold",
                 "i" => "italic",
@@ -2049,6 +2080,61 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 let body = ui.get_current_body().to_string();
                 rich_load(&ui, &body);
             }
+        });
+    }
+
+    // Find / replace (sred v0.6.0).
+    {
+        let ui_w = ui.as_weak();
+        ui.on_find_search(move |q| {
+            let ui = ui_w.unwrap();
+            let q = q.to_string();
+            let hits = if q.is_empty() {
+                Vec::new()
+            } else {
+                RICH.with(|r| r.borrow().find(&q, find_opts()))
+            };
+            FIND_HITS.with(|h| *h.borrow_mut() = hits);
+            FIND_CUR.with(|c| c.set(0));
+            find_apply(&ui);
+        });
+    }
+    {
+        let ui_w = ui.as_weak();
+        ui.on_find_step(move |fwd| {
+            let ui = ui_w.unwrap();
+            let n = FIND_HITS.with(|h| h.borrow().len());
+            if n > 0 {
+                FIND_CUR.with(|c| {
+                    let cur = c.get();
+                    c.set(if fwd { (cur + 1) % n } else { (cur + n - 1) % n });
+                });
+            }
+            find_apply(&ui);
+        });
+    }
+    {
+        let ui_w = ui.as_weak();
+        ui.on_find_replace_all(move || {
+            let ui = ui_w.unwrap();
+            let q = ui.get_find_query().to_string();
+            if !q.is_empty() {
+                let with = ui.get_find_replace().to_string();
+                let n = RICH.with(|r| r.borrow_mut().replace_all(&q, &with, find_opts()));
+                rich_after_edit(&ui); // mirror body + autosave + render
+                ui.set_status_text(format!("Replaced {n} match(es)").into());
+                ui.invoke_find_search(q.into()); // refresh match set
+            }
+        });
+    }
+    {
+        let ui_w = ui.as_weak();
+        ui.on_find_close(move || {
+            let ui = ui_w.unwrap();
+            FIND_HITS.with(|h| h.borrow_mut().clear());
+            RICH.with(|r| r.borrow_mut().set_search_highlights(&[], None));
+            ui.set_find_open(false);
+            rich_render(&ui, true);
         });
     }
 

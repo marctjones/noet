@@ -696,6 +696,16 @@ export component AppWindow inherits Window {
     // Plaintext/source mode: show the raw markdown in a TextEdit instead of the
     // WYSIWYG sred surface.
     in-out property <bool> source-mode: false;
+    // Find / replace bar (Ctrl/⌘+F) over the sred editor.
+    in-out property <bool> find-open: false;
+    in-out property <string> find-query;
+    in-out property <string> find-replace;
+    in property <int> find-count;
+    in property <int> find-current; // 1-based; 0 = none
+    callback find-search(string);
+    callback find-step(bool);       // true = next, false = prev
+    callback find-replace-all();
+    callback find-close();
     in-out property <bool> preview-on: true;
     in-out property <string> tag-input;
     in-out property <string> edit-action; // "cut"/"copy"/"paste"/"selectall" from the Edit menu
@@ -1365,6 +1375,34 @@ export component AppWindow inherits Window {
                                         alignment: start;
                                         Text { text: "↩ referenced by:"; font-size: (11px * Z.f); color: Theme.text3; vertical-alignment: center; }
                                         for r in root.current-backlinks: LinkChip { text: r.title; tint: #eef2f7; ink: #4a5560; clicked => { root.select-note(r.id); } }
+                                    }
+                                    // Find / replace bar (Ctrl/⌘+F) — operates on the sred editor.
+                                    if (root.find-open && !root.source-mode): Rectangle {
+                                        height: fbar.preferred-height + 10px;
+                                        background: Theme.surface2;
+                                        border-radius: 6px;
+                                        border-width: 1px;
+                                        border-color: Theme.border;
+                                        fbar := HorizontalLayout {
+                                            padding: 5px; spacing: 6px;
+                                            findinput := LineEdit {
+                                                placeholder-text: "Find…";
+                                                text <=> root.find-query;
+                                                horizontal-stretch: 1;
+                                                edited(t) => { root.find-search(t); }
+                                                accepted => { root.find-step(true); }
+                                            }
+                                            Text { text: root.find-count > 0 ? (root.find-current + "/" + root.find-count) : "0/0"; font-size: (11px * Z.f); color: Theme.text3; vertical-alignment: center; }
+                                            Button { text: "↑"; clicked => { root.find-step(false); } }
+                                            Button { text: "↓"; clicked => { root.find-step(true); } }
+                                            LineEdit {
+                                                placeholder-text: "Replace…";
+                                                text <=> root.find-replace;
+                                                horizontal-stretch: 1;
+                                            }
+                                            Button { text: "Replace all"; clicked => { root.find-replace-all(); } }
+                                            CloseX { closed => { root.find-close(); } }
+                                        }
                                     }
                                     // WYSIWYG sred surface (default) — markers hidden off-caret,
                                     // headings/bullets/code rendered in place, colored entity chips.
