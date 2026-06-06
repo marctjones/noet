@@ -973,11 +973,11 @@ fn open_in_editor(ui: &AppWindow, b: &Backend, note_id: &str) {
         ui.set_current_body(n.body.clone().into());
         ui.set_current_kind(n.kind.clone().into());
         set_doc_counts(ui, &n.body);
-        // The sred WYSIWYG editor is the sole editor — always load the body so it's
-        // ready when edit mode opens. The read view (RenderedView) still renders
-        // markdown blocks / the compiled Typst image when not editing.
+        // The sred WYSIWYG editor is the sole note surface (it renders + scrolls);
+        // opening a note enters the edit state so autosave/edit flows are active.
+        ui.set_editing(true);
         rich_load(ui, &n.body);
-        render_read(ui, b, &n);
+        render_read(ui, b, &n); // still feeds entity-chip / backlink models
     }
 }
 

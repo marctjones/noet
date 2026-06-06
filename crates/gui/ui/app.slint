@@ -890,7 +890,6 @@ export component AppWindow inherits Window {
                     alignment: start;
                     if (root.view == "today"): Button { text: "＋ Capture"; clicked => { root.set-view("inbox"); } }
                     if (root.view == "today"): Button { text: "⟳ Refresh"; clicked => { root.reindex(); } }
-                    if (root.view == "notes"): Button { text: root.editing ? "✓ Done" : "✎ Edit"; primary: !root.editing; clicked => { if (root.editing) { root.stop-editing(); } else { root.editing = true; } } }
                     if (root.view == "notes"): Button { text: "⎇ Related note"; clicked => { root.new-related-note(); } }
                     if (root.view == "notes"): Button { text: "✓ Add todo"; clicked => { root.open-add-todo(); } }
                     if (root.view == "notes"): Button { text: "⤓ Export PDF"; clicked => { root.export-note("pdf"); } }
@@ -1202,7 +1201,9 @@ export component AppWindow inherits Window {
                                 }
 
                                 // ---- READ MODE (rendered) ----
-                                if (!root.editing): VerticalLayout {
+                                // Read-only RenderedView removed — the sred editor is the single note
+                                // surface (it renders WYSIWYG and scrolls). This block is disabled.
+                                if (false): VerticalLayout {
                                     spacing: 8px;
                                     HorizontalLayout {
                                         spacing: 8px;
@@ -1277,8 +1278,8 @@ export component AppWindow inherits Window {
                                     }
                                 }
 
-                                // ---- EDIT MODE (autosaving, live preview) ----
-                                if (root.editing): editpane := VerticalLayout {
+                                // ---- The note editor (always shown — single surface) ----
+                                editpane := VerticalLayout {
                                     spacing: 8px;
                                     // Insert a snippet / copy the selection through the sred editor.
                                     function snip(s: string) { root.rich-insert(s); }
@@ -1408,6 +1409,13 @@ export component AppWindow inherits Window {
                                             for tg in root.current-tags: LinkChip { text: "# " + tg; tint: #f3ecfb; ink: #5b1b9a; clicked => { root.toggle-tag(tg); } }
                                         }
                                     }
+                                    // backlinks — other notes that reference this one
+                                    if (root.current-backlinks.length > 0): HorizontalLayout {
+                                        spacing: 5px;
+                                        alignment: start;
+                                        Text { text: "↩ referenced by:"; font-size: (11px * Z.f); color: Theme.text3; vertical-alignment: center; }
+                                        for r in root.current-backlinks: LinkChip { text: r.title; tint: #eef2f7; ink: #4a5560; clicked => { root.select-note(r.id); } }
+                                    }
                                     // The sred WYSIWYG editor is the sole editor (no raw TextEdit, no
                                     // split preview). It renders the note inline — markers hidden
                                     // off-caret, headings/bullets/code in place, colored entity chips.
@@ -1435,13 +1443,15 @@ export component AppWindow inherits Window {
                                     }
                                     HorizontalLayout {
                                         spacing: 8px;
-                                        Button { text: "✓ Done"; primary: true; clicked => { root.stop-editing(); } }
                                         Button { text: "＋ Add todo"; clicked => { root.open-add-todo(); } }
+                                        Button { text: "↳ Related note"; clicked => { root.new-related-note(); } }
                                         Button {
                                             text: "⬚ " + root.current-kind;  // auto / markdown / typst
                                             clicked => { root.toggle-kind(); }
                                         }
-                                        Text { text: root.status-text; color: #67727d; font-size: (12px * Z.f); vertical-alignment: center; }
+                                        Rectangle { horizontal-stretch: 1; }
+                                        LineEdit { placeholder-text: "📎 attach path…"; text <=> root.attach-input; horizontal-stretch: 1; accepted => { root.attach-path(root.attach-input); } }
+                                        Button { text: "📎"; clicked => { root.attach-path(root.attach-input); } }
                                     }
                                 }
                             }
