@@ -19,6 +19,13 @@ import sys
 
 OUT = "crates/gui/src/third_party_licenses.md"
 TSV = "crates/gui/src/third_party_components.tsv"  # name\tversion\tlicense  (in-app list)
+
+# Vendored (non-crate) assets bundled in the repo — not in `cargo metadata`, so
+# tracked explicitly here: (name, version, SPDX, repo, verbatim-license-path).
+VENDORED_ASSETS = [
+    ("lucide (SVG icons)", "—", "ISC", "https://lucide.dev",
+     "crates/gui/ui/icons/LICENSE-lucide.txt"),
+]
 # Our own crates — not "third party".
 OWN = {"noet-core", "noet-gui"}
 LICENSE_FILE_RE = re.compile(r"^(LICENSE|LICENCE|COPYING|NOTICE|UNLICENSE)", re.IGNORECASE)
@@ -72,6 +79,18 @@ def main():
             h = hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()
             entry = texts.setdefault(h, {"text": text, "crates": set()})
             entry["crates"].add(f'{p["name"]} {p["version"]}')
+
+    # Vendored non-crate assets (bundled SVG icons, etc.).
+    for name, ver, lic, repo, lic_path in VENDORED_ASSETS:
+        rows.append((name, ver, lic, repo))
+        try:
+            with open(lic_path, encoding="utf-8") as fh:
+                text = fh.read().strip()
+            h = hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()
+            entry = texts.setdefault(h, {"text": text, "crates": set()})
+            entry["crates"].add(f"{name} {ver}")
+        except OSError:
+            unknown.append(f"{name} (missing {lic_path})")
 
     lines = []
     lines.append("# Third-party open-source licenses")

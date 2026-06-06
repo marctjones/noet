@@ -1,5 +1,6 @@
 import { Button, LineEdit, TextEdit, ComboBox, ListView, ScrollView, Palette, CheckBox } from "std-widgets.slint";
 import { RichTextEditor } from "rich_editor.slint";
+import { Icons } from "icons.slint";
 
 // Global font-zoom factor — multiplies every font size for live magnification.
 export global Z {
@@ -158,7 +159,7 @@ component LinkChip inherits Rectangle {
 
 // A left-nav entry (icon + label) for the NavigationView.
 component NavItem inherits Rectangle {
-    in property <string> icon;
+    in property <image> icon;
     in property <string> label;
     in property <string> view;
     in property <string> current;
@@ -174,7 +175,7 @@ component NavItem inherits Rectangle {
     accessible-action-default => { root.clicked(); }
     HorizontalLayout {
         padding-left: 9px; padding-right: 6px; spacing: 9px;
-        Text { text: icon; font-size: (13px * Z.f); color: active ? #2d6cdf : Theme.text2; vertical-alignment: center; }
+        Image { source: icon; colorize: active ? #2d6cdf : Theme.text2; width: 18px * Z.f; height: 18px * Z.f; vertical-alignment: center; }
         Text { text: label; font-size: (13px * Z.f); font-weight: active ? 700 : 500; color: active ? #2d6cdf : Theme.text; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
     }
     nt := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
@@ -925,31 +926,31 @@ export component AppWindow inherits Window {
                         spacing: 1px;
                         // Collapse / expand toggle
                         NavItem {
-                            icon: "☰"; label: "Collapse"; view: "__toggle"; current: "";
+                            icon: Icons.collapse; label: "Collapse"; view: "__toggle"; current: "";
                             clicked => { root.nav-collapsed = !root.nav-collapsed; }
                         }
                         if !root.nav-eff-collapsed : Text { text: "PLAN"; font-size: (9px * Z.f); letter-spacing: 1px; color: Theme.text3; }
                         Rectangle { height: root.nav-eff-collapsed ? 4px : 0px; }
-                        NavItem { icon: "◴"; label: "Today"; view: "today"; current: root.view; clicked => { root.set-view("today"); } }
-                        NavItem { icon: "≣"; label: "Agenda"; view: "agenda"; current: root.view; clicked => { root.set-view("agenda"); } }
-                        NavItem { icon: "▦"; label: "Calendar"; view: "calendar"; current: root.view; clicked => { root.set-view("calendar"); } }
+                        NavItem { icon: Icons.today; label: "Today"; view: "today"; current: root.view; clicked => { root.set-view("today"); } }
+                        NavItem { icon: Icons.agenda; label: "Agenda"; view: "agenda"; current: root.view; clicked => { root.set-view("agenda"); } }
+                        NavItem { icon: Icons.calendar; label: "Calendar"; view: "calendar"; current: root.view; clicked => { root.set-view("calendar"); } }
                         if !root.nav-eff-collapsed : Text { text: "WORK"; font-size: (9px * Z.f); letter-spacing: 1px; color: Theme.text3; }
                         Rectangle { height: root.nav-eff-collapsed ? 4px : 0px; }
-                        NavItem { icon: "✓"; label: "Tasks"; view: "tasks"; current: root.view; clicked => { root.set-view("tasks"); } }
-                        NavItem { icon: "▤"; label: "Board"; view: "board"; current: root.view; clicked => { root.set-view("board"); } }
-                        NavItem { icon: "▭"; label: "Gantt"; view: "gantt"; current: root.view; clicked => { root.set-view("gantt"); } }
+                        NavItem { icon: Icons.tasks; label: "Tasks"; view: "tasks"; current: root.view; clicked => { root.set-view("tasks"); } }
+                        NavItem { icon: Icons.board; label: "Board"; view: "board"; current: root.view; clicked => { root.set-view("board"); } }
+                        NavItem { icon: Icons.gantt; label: "Gantt"; view: "gantt"; current: root.view; clicked => { root.set-view("gantt"); } }
                         if !root.nav-eff-collapsed : Text { text: "NOTES"; font-size: (9px * Z.f); letter-spacing: 1px; color: Theme.text3; }
                         Rectangle { height: root.nav-eff-collapsed ? 4px : 0px; }
-                        NavItem { icon: "▢"; label: "Notes"; view: "notes"; current: root.view; clicked => { root.set-view("notes"); } }
-                        NavItem { icon: "⬇"; label: "Inbox"; view: "inbox"; current: root.view; clicked => { root.set-view("inbox"); } }
-                        NavItem { icon: "✉"; label: "Review"; view: "review"; current: root.view; clicked => { root.set-view("review"); } }
+                        NavItem { icon: Icons.notes; label: "Notes"; view: "notes"; current: root.view; clicked => { root.set-view("notes"); } }
+                        NavItem { icon: Icons.inbox; label: "Inbox"; view: "inbox"; current: root.view; clicked => { root.set-view("inbox"); } }
+                        NavItem { icon: Icons.review; label: "Review"; view: "review"; current: root.view; clicked => { root.set-view("review"); } }
                         if !root.nav-eff-collapsed : Text { text: "ORGANIZE"; font-size: (9px * Z.f); letter-spacing: 1px; color: Theme.text3; }
                         Rectangle { height: root.nav-eff-collapsed ? 4px : 0px; }
-                        NavItem { icon: "@"; label: "People"; view: "people"; current: root.view; clicked => { root.set-view("people"); } }
-                        NavItem { icon: "#"; label: "Labels"; view: "labels"; current: root.view; clicked => { root.set-view("labels"); } }
+                        NavItem { icon: Icons.people; label: "People"; view: "people"; current: root.view; clicked => { root.set-view("people"); } }
+                        NavItem { icon: Icons.labels; label: "Labels"; view: "labels"; current: root.view; clicked => { root.set-view("labels"); } }
                         Rectangle { vertical-stretch: 1; }
                         // App-level settings, pinned to the bottom (Win11 pattern).
-                        NavItem { icon: "⚙"; label: "Settings"; view: "settings"; current: root.view; clicked => { root.set-view("settings"); } }
+                        NavItem { icon: Icons.settings; label: "Settings"; view: "settings"; current: root.view; clicked => { root.set-view("settings"); } }
                     }
                 }
                 // ----- Filter rail -----
