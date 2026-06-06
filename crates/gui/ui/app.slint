@@ -672,6 +672,9 @@ export component AppWindow inherits Window {
     // Transient toast (mirrors status-text changes; auto-clears).
     in-out property <string> toast-text;
     in-out property <bool> editing: false;
+    // Plaintext/source mode: show the raw markdown in a TextEdit instead of the
+    // WYSIWYG sred surface.
+    in-out property <bool> source-mode: false;
     in-out property <bool> preview-on: true;
     in-out property <string> tag-input;
     in-out property <string> edit-action; // "cut"/"copy"/"paste"/"selectall" from the Edit menu
@@ -772,6 +775,7 @@ export component AppWindow inherits Window {
     callback save-todo();
     callback add-tag(string);
     callback note-edited();
+    callback set-source-mode(bool); // switched plaintext/WYSIWYG; reload sred on return
     callback stop-editing();
     // Command palette
     callback palette-search(string);   // query changed → repopulate palette-results
@@ -816,6 +820,7 @@ export component AppWindow inherits Window {
     callback cal-today();
 
     // Surface status messages as a transient toast (auto-clears via the timer below).
+    changed source-mode => { root.set-source-mode(root.source-mode); }
     changed status-text => {
         if (root.status-text != "") {
             root.toast-text = root.status-text;
@@ -1293,10 +1298,10 @@ export component AppWindow inherits Window {
                                         if (self.ea == "selectall") { root.rich-chord("a"); }
                                         if (self.ea != "") { root.edit-action = ""; }
                                     }
-                                    // formatting + selection toolbar (min-width 0 so the
-                                    // wide button row doesn't floor the note pane width;
-                                    // overflow clips within the content pane's clip rect)
-                                    HorizontalLayout {
+                                    // formatting + selection toolbar (WYSIWYG only — its buttons
+                                    // act on the sred buffer; min-width 0 so the wide row doesn't
+                                    // floor the pane width; overflow clips in the content pane)
+                                    if (!root.source-mode): HorizontalLayout {
                                         spacing: 4px;
                                         min-width: 0px;
                                         ToolBtn { label: "B"; clicked => { editpane.snip("**bold**"); } }
@@ -1416,10 +1421,9 @@ export component AppWindow inherits Window {
                                         Text { text: "↩ referenced by:"; font-size: (11px * Z.f); color: Theme.text3; vertical-alignment: center; }
                                         for r in root.current-backlinks: LinkChip { text: r.title; tint: #eef2f7; ink: #4a5560; clicked => { root.select-note(r.id); } }
                                     }
-                                    // The sred WYSIWYG editor is the sole editor (no raw TextEdit, no
-                                    // split preview). It renders the note inline — markers hidden
-                                    // off-caret, headings/bullets/code in place, colored entity chips.
-                                    rich := RichTextEditor {
+                                    // WYSIWYG sred surface (default) — markers hidden off-caret,
+                                    // headings/bullets/code rendered in place, colored entity chips.
+                                    if (!root.source-mode): rich := RichTextEditor {
                                         vertical-stretch: 1;
                                         horizontal-stretch: 1;
                                         bg: Theme.surface;
@@ -1441,8 +1445,18 @@ export component AppWindow inherits Window {
                                         resized(w, h) => { root.rich-resized(w, h); }
                                         scrolled(y) => { root.rich-scrolled(y); }
                                     }
+                                    // Plaintext / source mode — raw markdown in a TextEdit.
+                                    if (root.source-mode): TextEdit {
+                                        vertical-stretch: 1;
+                                        horizontal-stretch: 1;
+                                        text <=> root.current-body;
+                                        wrap: word-wrap;
+                                        placeholder-text: "Raw markdown / Typst source…";
+                                        edited => { root.note-edited(); }
+                                    }
                                     HorizontalLayout {
                                         spacing: 8px;
+                                        Button { text: root.source-mode ? "✦ Rich text" : "</> Source"; clicked => { root.source-mode = !root.source-mode; } }
                                         Button { text: "＋ Add todo"; clicked => { root.open-add-todo(); } }
                                         Button { text: "↳ Related note"; clicked => { root.new-related-note(); } }
                                         Button {

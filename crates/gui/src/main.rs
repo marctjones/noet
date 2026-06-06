@@ -2036,6 +2036,19 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         });
     }
 
+    // Plaintext/source mode toggle: when returning to WYSIWYG, reload the sred
+    // editor from current-body so edits made in the raw TextEdit are reflected.
+    {
+        let ui_w = ui.as_weak();
+        ui.on_set_source_mode(move |on| {
+            let ui = ui_w.unwrap();
+            if !on {
+                let body = ui.get_current_body().to_string();
+                rich_load(&ui, &body);
+            }
+        });
+    }
+
     let live = Rc::new(slint::Timer::default());
     {
         let ui_w = ui.as_weak();
