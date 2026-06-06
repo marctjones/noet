@@ -1,6 +1,11 @@
 import { Button, LineEdit, TextEdit, ComboBox, ListView, ScrollView, Palette, CheckBox } from "std-widgets.slint";
 import { RichTextEditor } from "rich_editor.slint";
 import { Icons } from "icons.slint";
+// Brand typography — IBM Plex (OFL), the Skeptical Engineering type family.
+// Chrome uses Plex Sans; the raw-source editor uses Plex Mono.
+import "fonts/IBMPlexSans-Regular.ttf";
+import "fonts/IBMPlexSans-SemiBold.ttf";
+import "fonts/IBMPlexMono-Regular.ttf";
 
 // Global font-zoom factor — multiplies every font size for live magnification.
 export global Z {
@@ -591,6 +596,7 @@ component RenderedView inherits Rectangle {
 
 export component AppWindow inherits Window {
     title: "Noet";
+    default-font-family: "IBM Plex Sans"; // brand chrome font (the editor uses sred)
     // Keep the floor low so the window can shrink; the editor/content pane is
     // stretch (shrinks freely) and the fixed sidebars can be collapsed (✕).
     min-width: 480px;
@@ -1377,6 +1383,7 @@ export component AppWindow inherits Window {
                                         horizontal-stretch: 1;
                                         text <=> root.current-body;
                                         wrap: word-wrap;
+                                        font-family: "IBM Plex Mono";
                                         placeholder-text: "Raw markdown / Typst source…";
                                         edited => { root.note-edited(); }
                                     }

@@ -25,6 +25,8 @@ TSV = "crates/gui/src/third_party_components.tsv"  # name\tversion\tlicense  (in
 VENDORED_ASSETS = [
     ("lucide (SVG icons)", "—", "ISC", "https://lucide.dev",
      "crates/gui/ui/icons/LICENSE-lucide.txt"),
+    ("IBM Plex (fonts)", "—", "OFL-1.1", "https://github.com/IBM/plex",
+     "crates/gui/ui/fonts/OFL.txt"),
 ]
 # Our own crates — not "third party".
 OWN = {"noet-core", "noet-gui"}
