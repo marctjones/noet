@@ -256,13 +256,14 @@ component FacetRow inherits Rectangle {
 
 component KindDot inherits Rectangle {
     in property <string> kind;
+    // Muted, cohesive with the restrained brand palette (still distinguishable).
     property <color> tint:
         kind == "do" ? Theme.accent :
-        kind == "followup" ? #d98324 :
-        kind == "delegated" ? #1f9d57 :
-        kind == "todelegate" ? #9a5bd6 :
+        kind == "followup" ? #b8742e :
+        kind == "delegated" ? #3a8c63 :
+        kind == "todelegate" ? #7a5b9a :
         kind == "someday" ? #6b7280 :
-        kind == "reading" ? #c0398b : #888;
+        kind == "reading" ? #a3548a : #888;
     width: 15px; height: 15px;
     Image {
         width: 100%; height: 100%;
