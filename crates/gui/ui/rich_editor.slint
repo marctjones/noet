@@ -1,0 +1,203 @@
+// Reusable WYSIWYG editor surface backed by sred-core (the `sred_core::Editor`
+// facade lives on the Rust side). All heavy lifting — shaping, cursor, markdown
+// Live Preview, syntect — happens in Rust; this is a thin render + input surface
+// that shows a rasterized frame, draws the caret, and forwards key/pointer events.
+//
+// Adapted from sred-slint/ui/sred.slint (the upstream reference wiring), trimmed
+// to the component only and themed via properties so it matches Noet's palette.
+export component RichTextEditor inherits Rectangle {
+    in property <image> frame;
+    in property <length> doc-height: 400px;
+    in property <length> caret-x;
+    in property <length> caret-y;
+    in property <length> caret-h: 22px;
+    in property <bool> caret-on: true;
+
+    // Host theme hooks (set from Noet's Theme global on the instance).
+    in property <color> bg: #fdfdfa;
+    in property <color> border-col: #d8d8d2;
+    in property <color> focus-col: #4080ff;
+    in property <color> caret-col: #1166dd;
+
+    callback insert-text(string);
+    callback chord(string) -> bool;
+    callback special(string);
+    callback pointer-down(length, length);
+    callback pointer-drag(length, length);
+    callback pointer-double(length, length);
+    // Reports the viewport size (px). Driven by a Timer below — NOT by the
+    // Flickable's changed/init handlers, which fire during a layout pass and would
+    // re-enter the property system ("Recursion detected"). The host must only
+    // record the size here (no synchronous re-render).
+    callback resized(length, length);
+
+    // Vertical scroll offset (px from top); driven by the wheel, the scrollbar,
+    // and caret-follow autoscroll from Rust.
+    in-out property <length> scroll-y;
+
+    // Pointer-press origin + a small drag threshold so a plain click never
+    // creates a stray 1-character selection.
+    property <length> down-x;
+    property <length> down-y;
+    property <bool> dragging;
+
+    // Last viewport size reported to the host (so the Timer only fires on change).
+    property <length> last-w;
+    property <length> last-h;
+
+    background: root.bg;
+    border-color: scope.has-focus ? root.focus-col : root.border-col;
+    border-width: 1px;
+    border-radius: 6px;
+    clip: true;
+    forward-focus: scope;
+
+    // Pin the preferred size so this component does NOT derive it from children
+    // (the Image/TouchArea reference `flick.width`/`doc-height`, so a derived
+    // preferred would cycle: root.preferred ← child ← root.size). A host gives it
+    // size via the layout (stretch); definite size then flows down to the children.
+    preferred-width: 0px;
+    preferred-height: 0px;
+
+    scope := FocusScope {
+        // Fill the (now definite, layout-sized) root explicitly so neither the
+        // FocusScope nor the Flickable derives its size from children — which would
+        // re-create the preferred-size cycle one level down (img/TouchArea
+        // reference flick.width). Together with the pinned root preferred above,
+        // all sizes flow strictly top-down.
+        width: 100%;
+        height: 100%;
+        key-pressed(event) => {
+            // Swallow every Ctrl-combo (handled as a shortcut) so control
+            // characters are never inserted as text.
+            if (event.modifiers.control) {
+                root.chord(event.text);
+                return EventResult.accept;
+            }
+            if (event.text == Key.Backspace)   { root.special("backspace"); return EventResult.accept; }
+            if (event.text == Key.Delete)      { root.special("delete");    return EventResult.accept; }
+            if (event.text == Key.LeftArrow)   { root.special(event.modifiers.shift ? "select-left" : "left");   return EventResult.accept; }
+            if (event.text == Key.RightArrow)  { root.special(event.modifiers.shift ? "select-right" : "right"); return EventResult.accept; }
+            if (event.text == Key.UpArrow)     { root.special("up");   return EventResult.accept; }
+            if (event.text == Key.DownArrow)   { root.special("down"); return EventResult.accept; }
+            if (event.text == Key.Home)        { root.special("home"); return EventResult.accept; }
+            if (event.text == Key.End)         { root.special("end");  return EventResult.accept; }
+            if (event.text == Key.Return)      { root.insert-text("\n"); return EventResult.accept; }
+            if (event.text != "") {
+                root.insert-text(event.text);
+                return EventResult.accept;
+            }
+            return EventResult.reject;
+        }
+
+        flick := Flickable {
+            // Non-interactive so drags go to text selection, not scrolling.
+            interactive: false;
+            width: 100%;
+            height: 100%;
+            viewport-height: root.doc-height;
+            viewport-width: self.width;
+            viewport-y: -root.scroll-y;
+
+            img := Image {
+                x: 0;
+                y: 0;
+                width: flick.width;
+                height: root.doc-height;
+                source: root.frame;
+                image-fit: ImageFit.fill;
+            }
+
+            TouchArea {
+                width: flick.width;
+                height: root.doc-height;
+                scroll-event(e) => {
+                    root.scroll-y = max(0px, min(root.scroll-y - e.delta-y,
+                                                 max(0px, root.doc-height - flick.height)));
+                    return EventResult.accept;
+                }
+                pointer-event(e) => {
+                    if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
+                        scope.focus();
+                        root.down-x = self.mouse-x;
+                        root.down-y = self.mouse-y;
+                        root.dragging = false;
+                        root.pointer-down(self.mouse-x, self.mouse-y);
+                    }
+                }
+                moved => {
+                    if (self.pressed) {
+                        if (!root.dragging
+                            && (self.mouse-x - root.down-x > 4px || root.down-x - self.mouse-x > 4px
+                                || self.mouse-y - root.down-y > 4px || root.down-y - self.mouse-y > 4px)) {
+                            root.dragging = true;
+                        }
+                        if (root.dragging) {
+                            root.pointer-drag(self.mouse-x, self.mouse-y);
+                        }
+                    }
+                }
+                double-clicked => { root.pointer-double(self.mouse-x, self.mouse-y); }
+            }
+
+            Rectangle {
+                x: root.caret-x;
+                y: root.caret-y;
+                width: 2px;
+                height: root.caret-h;
+                background: root.caret-col;
+                visible: root.caret-on && scope.has-focus;
+            }
+        }
+
+        // Vertical scrollbar (shown only when the doc is taller than the view).
+        Rectangle {
+            visible: root.doc-height > flick.height;
+            x: parent.width - 11px;
+            y: 2px;
+            width: 9px;
+            height: flick.height - 4px;
+            background: transparent;
+            thumb := Rectangle {
+                width: 7px;
+                x: 1px;
+                height: max(28px, flick.height * flick.height / max(1px, root.doc-height));
+                y: (parent.height - self.height)
+                   * (root.scroll-y / max(1px, root.doc-height - flick.height));
+                border-radius: 3px;
+                background: sbar.pressed ? #8a8a8a : (sbar.has-hover ? #a8a8a8 : #c4c4c4);
+            }
+            sbar := TouchArea {
+                moved => {
+                    if (self.pressed) {
+                        root.scroll-y = max(0px, min(
+                            self.mouse-y / parent.height * root.doc-height - flick.height / 2,
+                            max(0px, root.doc-height - flick.height)));
+                    }
+                }
+                clicked => {
+                    root.scroll-y = max(0px, min(
+                        self.mouse-y / parent.height * root.doc-height - flick.height / 2,
+                        max(0px, root.doc-height - flick.height)));
+                }
+            }
+        }
+    }
+
+    // Report the viewport size to the host. A Timer fires on the event loop
+    // (post-layout), so reading geometry and invoking the callback here does NOT
+    // re-enter the property system — unlike the Flickable's changed/init handlers,
+    // which fire mid-layout and cycle "Recursion detected". Polls cheaply and only
+    // reports on an actual size change.
+    Timer {
+        interval: 250ms;
+        running: true;
+        triggered => {
+            if (flick.width != root.last-w || flick.height != root.last-h) {
+                root.last-w = flick.width;
+                root.last-h = flick.height;
+                root.resized(flick.width, flick.height);
+            }
+        }
+    }
+}

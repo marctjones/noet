@@ -12,6 +12,11 @@ pub struct Settings {
     /// Off by default so the app never launches Outlook/PowerShell unasked.
     #[serde(default)]
     pub outlook_sync_on_open: bool,
+    /// Use the sred WYSIWYG editor (beta) instead of the raw-markdown TextEdit.
+    /// Off by default — the raw editor stays the safe fallback until sred is the
+    /// proven default. Editor integration is opt-in.
+    #[serde(default)]
+    pub wysiwyg_editor: bool,
 }
 
 impl Settings {

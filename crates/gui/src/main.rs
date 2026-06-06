@@ -1134,10 +1134,11 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
     {
         let ui_w = ui.as_weak();
         ui.on_rich_resized(move |w, h| {
+            // Driven by the component's Timer (post-layout, NOT during a layout
+            // flush — see rich_editor.slint), and only on an actual size change.
+            // So it's safe to record the viewport and queue a re-render: the
+            // deferred render runs on a later loop tick, outside any layout pass.
             RICH_VP.with(|v| v.set((w.max(1.0) as u32, h.max(1.0))));
-            // Fires from the Flickable's init/changed-geometry handlers, i.e. during
-            // a layout/property pass; rendering writes back doc-height/scroll-y, so
-            // defer it to the next loop tick to avoid re-entering the property system.
             let ui_w = ui_w.clone();
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(ui) = ui_w.upgrade() {
@@ -1876,7 +1877,6 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         let autosave = autosave.clone();
         let live = live.clone();
         ui.on_note_edited(move || {
-            let ui = ui_w.unwrap();
             // Debounced live update — heavy O(document) work moved off the keystroke.
             {
                 let ui_w = ui_w.clone();
