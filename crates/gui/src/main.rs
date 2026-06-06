@@ -5,7 +5,12 @@ use noet_core::backend;
 use noet_core::backend::{Backend, Filter, TodoFields};
 use chrono::NaiveDate;
 use slint::{ModelRc, SharedString, VecModel};
-use std::cell::RefCell;
+use sred_core::{
+    BlockKind as SredBlock, Command as SredCmd, Editor as SredEditor, Format as SredFormat,
+    MarkSet as SredMark, Motion as SredMotion, Theme as SredTheme, TokenMatch as SredMatch,
+    TokenSpec as SredToken,
+};
+use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -20,6 +25,296 @@ const THIRD_PARTY_COMPONENTS: &str = include_str!("third_party_components.tsv");
 thread_local! {
     /// Indices of folded headings in the currently-open note (read view).
     static FOLDS: RefCell<std::collections::HashSet<usize>> = RefCell::new(std::collections::HashSet::new());
+
+    /// The sred WYSIWYG editor (beta). One per UI thread; reloaded with the open
+    /// note's body whenever a markdown note is opened with the beta toggle on.
+    static RICH: RefCell<SredEditor> = RefCell::new(SredEditor::new(SredFormat::Markdown));
+    /// The persistent "WYSIWYG editor" preference (mirror of settings.json), read
+    /// by `open_in_editor` (a free fn) to decide whether to drive the sred surface.
+    static WYSIWYG_PREF: Cell<bool> = const { Cell::new(false) };
+    /// Last known sred viewport (width px, height px) from the `rich-resized` callback.
+    static RICH_VP: Cell<(u32, f32)> = const { Cell::new((800, 600.0)) };
+}
+
+// ---- WYSIWYG (sred) editor bridge ---------------------------------------------
+// The raw TextEdit binds `text <=> current-body`; sred instead owns the buffer in
+// RICH and we mirror `current-body` from `ed.text()` after each edit, so the
+// existing autosave / preview / chip pipeline (driven by `note-edited`) is reused
+// unchanged. sred renders the whole document to an RGBA image; the Slint surface
+// shows it in a Flickable and forwards key/pointer events back here.
+
+/// Build a sred [`SredTheme`] from Noet's live palette (dark flag) + font zoom.
+fn sred_theme(ui: &AppWindow) -> SredTheme {
+    let dark = ui.global::<Theme>().get_dark();
+    let z = ui.global::<Z>().get_f().max(0.5);
+    let mut t = SredTheme::default();
+    t.font_size *= z;
+    t.line_height *= z;
+    t.margin_x *= z;
+    t.margin_y *= z;
+    if dark {
+        t.fg = [231, 234, 239, 255];
+        t.bg = [30, 33, 39, 255];
+        t.link = [110, 165, 255, 255];
+        t.code = [210, 150, 230, 255];
+        t.selection = [60, 110, 170, 110];
+    }
+    t
+}
+
+fn rgba_to_image(rgba: &[u8], width: u32, height: u32) -> slint::Image {
+    let mut buf = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::new(width, height);
+    buf.make_mut_bytes().copy_from_slice(rgba);
+    slint::Image::from_rgba8(buf)
+}
+
+/// Re-rasterize the sred document and push frame + caret + scroll to the UI.
+/// Honors any wheel/scrollbar offset the Slint side set since the last render.
+fn rich_render(ui: &AppWindow) {
+    let (w, h) = RICH_VP.with(|v| v.get());
+    let theme = sred_theme(ui);
+    let ui_scroll = ui.get_rich_scroll_y();
+    RICH.with(|r| {
+        let mut e = r.borrow_mut();
+        e.set_theme(theme);
+        e.set_viewport(w, h);
+        e.scroll_to(ui_scroll);
+        let out = e.render(true);
+        ui.set_rich_frame(rgba_to_image(&out.frame.rgba, out.frame.width, out.frame.height));
+        ui.set_rich_doc_height(out.doc_height as f32);
+        ui.set_rich_caret_x(out.caret.x);
+        ui.set_rich_caret_y(out.caret.y);
+        ui.set_rich_caret_h(out.caret.h);
+        ui.set_rich_scroll_y(out.scroll_y);
+    });
+}
+
+/// After a content-changing edit: mirror the buffer into `current-body`, re-render
+/// the frame, then run the shared live-update + debounced-autosave pipeline.
+fn rich_after_edit(ui: &AppWindow) {
+    let body = RICH.with(|r| r.borrow().text());
+    ui.set_current_body(body.into());
+    rich_render(ui);
+    ui.invoke_note_edited();
+}
+
+/// Load a note body into the sred editor and show it from the top.
+fn rich_load(ui: &AppWindow, body: &str) {
+    RICH.with(|r| r.borrow_mut().set_text(body));
+    ui.set_rich_scroll_y(0.0);
+    rich_render(ui);
+}
+
+// ---- sred domain tokens: color `[[wikilink]]` / `@mention` / `#tag` / url in
+// the editor and make them clickable (route to the existing facet filters). ----
+
+/// Find `[[Name]]` runs in a line; value = the inner name.
+fn find_wikilinks(line: &str) -> Vec<SredMatch> {
+    let c: Vec<char> = line.chars().collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i + 1 < c.len() {
+        if c[i] == '[' && c[i + 1] == '[' {
+            if let Some(close) = (i + 2..c.len().saturating_sub(1)).find(|&k| c[k] == ']' && c[k + 1] == ']') {
+                out.push(SredMatch { start: i, end: close + 2, value: c[i + 2..close].iter().collect() });
+                i = close + 2;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    out
+}
+
+/// Find `@[[Name]]` or bare `@name` mentions.
+fn find_mentions(line: &str) -> Vec<SredMatch> {
+    let c: Vec<char> = line.chars().collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < c.len() {
+        let boundary = i == 0 || c[i - 1].is_whitespace();
+        if boundary && c[i] == '@' {
+            if i + 2 < c.len() && c[i + 1] == '[' && c[i + 2] == '[' {
+                if let Some(close) = (i + 3..c.len().saturating_sub(1)).find(|&k| c[k] == ']' && c[k + 1] == ']') {
+                    out.push(SredMatch { start: i, end: close + 2, value: c[i + 3..close].iter().collect() });
+                    i = close + 2;
+                    continue;
+                }
+            }
+            let mut j = i + 1;
+            while j < c.len() && (c[j].is_alphanumeric() || matches!(c[j], '.' | '-' | '_')) {
+                j += 1;
+            }
+            if j > i + 1 {
+                out.push(SredMatch { start: i, end: j, value: c[i + 1..j].iter().collect() });
+                i = j;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    out
+}
+
+/// Find `#tag` labels (word-boundary).
+fn find_tags(line: &str) -> Vec<SredMatch> {
+    let c: Vec<char> = line.chars().collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < c.len() {
+        let boundary = i == 0 || c[i - 1].is_whitespace();
+        if boundary && c[i] == '#' && i + 1 < c.len() && c[i + 1].is_alphabetic() {
+            let mut j = i + 1;
+            while j < c.len() && (c[j].is_alphanumeric() || matches!(c[j], '_' | '-')) {
+                j += 1;
+            }
+            out.push(SredMatch { start: i, end: j, value: c[i + 1..j].iter().collect() });
+            i = j;
+            continue;
+        }
+        i += 1;
+    }
+    out
+}
+
+/// Find `http(s)://…` URLs.
+fn find_urls(line: &str) -> Vec<SredMatch> {
+    let c: Vec<char> = line.chars().collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < c.len() {
+        let rest: String = c[i..].iter().collect();
+        if rest.starts_with("http://") || rest.starts_with("https://") {
+            let mut j = i;
+            while j < c.len() && !c[j].is_whitespace() {
+                j += 1;
+            }
+            out.push(SredMatch { start: i, end: j, value: c[i..j].iter().collect() });
+            i = j;
+            continue;
+        }
+        i += 1;
+    }
+    out
+}
+
+/// Register Noet's domain tokens on the sred editor (call once at startup).
+fn rich_register_tokens() {
+    RICH.with(|r| {
+        let mut e = r.borrow_mut();
+        e.clear_tokens();
+        e.register_token(SredToken {
+            id: "project".into(),
+            fg: [31, 122, 68, 255],
+            bg: Some([231, 247, 236, 255]),
+            matcher: Box::new(find_wikilinks),
+        });
+        e.register_token(SredToken {
+            id: "person".into(),
+            fg: [154, 91, 27, 255],
+            bg: Some([253, 238, 222, 255]),
+            matcher: Box::new(find_mentions),
+        });
+        e.register_token(SredToken {
+            id: "tag".into(),
+            fg: [91, 27, 154, 255],
+            bg: Some([243, 236, 251, 255]),
+            matcher: Box::new(find_tags),
+        });
+        e.register_token(SredToken {
+            id: "url".into(),
+            fg: [45, 108, 223, 255],
+            bg: None,
+            matcher: Box::new(find_urls),
+        });
+    });
+}
+
+/// Normalize a Ctrl-chord key to a lowercase letter (control chars U+0001..=U+001A
+/// map back to 'a'..='z'). Mirrors sred-slint's handling.
+fn normalize_chord(key: &str) -> String {
+    let mut chars = key.chars();
+    match (chars.next(), chars.next()) {
+        (Some(c), None) => {
+            let code = c as u32;
+            if (1..=26).contains(&code) {
+                ((b'a' + (code as u8 - 1)) as char).to_string()
+            } else {
+                c.to_lowercase().to_string()
+            }
+        }
+        _ => key.to_string(),
+    }
+}
+
+/// Apply a named command to the sred editor. Returns `(handled, changed_text)`.
+fn rich_named(name: &str) -> (bool, bool) {
+    RICH.with(|r| {
+        let mut e = r.borrow_mut();
+        let cmd = match name {
+            "bold" => Some(SredCmd::ToggleMark(SredMark::BOLD)),
+            "italic" => Some(SredCmd::ToggleMark(SredMark::ITALIC)),
+            "code" => Some(SredCmd::ToggleMark(SredMark::CODE)),
+            "strike" => Some(SredCmd::ToggleMark(SredMark::STRIKE)),
+            "h1" => Some(SredCmd::ToggleBlock(SredBlock::Heading(1))),
+            "h2" => Some(SredCmd::ToggleBlock(SredBlock::Heading(2))),
+            "bullet" => Some(SredCmd::ToggleBlock(SredBlock::Bullet)),
+            "quote" => Some(SredCmd::ToggleBlock(SredBlock::Quote)),
+            "undo" => Some(SredCmd::Undo),
+            "redo" => Some(SredCmd::Redo),
+            _ => None,
+        };
+        if let Some(c) = cmd {
+            e.apply(c); // toggles + undo/redo all mutate the buffer
+            return (true, true);
+        }
+        match name {
+            "selectall" => {
+                e.apply(SredCmd::SelectAll);
+                (true, false)
+            }
+            "copy" => {
+                let t = e.selected_text();
+                if !t.is_empty() {
+                    clip_set(&t);
+                }
+                (true, false)
+            }
+            "cut" => {
+                let t = e.selected_text();
+                let had = !t.is_empty();
+                if had {
+                    clip_set(&t);
+                    e.apply(SredCmd::DeleteSelection);
+                }
+                (true, had)
+            }
+            "paste" => {
+                let t = clip_get();
+                if !t.is_empty() {
+                    e.apply(SredCmd::Insert(t));
+                    (true, true)
+                } else {
+                    (true, false)
+                }
+            }
+            "link" => {
+                if e.selected_text().is_empty() {
+                    e.apply(SredCmd::Insert("[text](https://)".into()));
+                } else {
+                    e.apply(SredCmd::Link("https://".into()));
+                }
+                (true, true)
+            }
+            "openlink" => {
+                if let Some(u) = e.link_at_cursor() {
+                    let _ = open::that(u);
+                }
+                (true, false)
+            }
+            _ => (false, false),
+        }
+    })
 }
 
 /// Backend + the live, unified filter shared by every view.
@@ -517,6 +812,14 @@ fn open_in_editor(ui: &AppWindow, b: &Backend, note_id: &str) {
         ui.set_current_body(n.body.clone().into());
         ui.set_current_kind(n.kind.clone().into());
         set_doc_counts(ui, &n.body);
+        // WYSIWYG (beta): drive the sred surface only for markdown notes — Typst
+        // notes always use the raw editor + compiled-image preview.
+        let want = WYSIWYG_PREF.with(|p| p.get())
+            && backend::effective_kind(&n.kind, &n.body) == "markdown";
+        ui.set_wysiwyg_on(want);
+        if want {
+            rich_load(ui, &n.body);
+        }
         render_read(ui, b, &n);
     }
 }
@@ -680,6 +983,167 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
     ui.set_outlook_sync_on_open(
         backend::Settings::load().map(|s| s.outlook_sync_on_open).unwrap_or(false),
     );
+
+    // Reflect the persisted WYSIWYG (beta) editor preference.
+    {
+        let pref = backend::Settings::load().map(|s| s.wysiwyg_editor).unwrap_or(false);
+        WYSIWYG_PREF.with(|p| p.set(pref));
+        ui.set_wysiwyg_pref(pref);
+    }
+
+    // WYSIWYG editor (beta): persist the toggle and apply it to the open note.
+    {
+        let ui_w = ui.as_weak();
+        ui.on_save_wysiwyg(move |on: bool| {
+            let ui = ui_w.unwrap();
+            WYSIWYG_PREF.with(|p| p.set(on));
+            let mut cfg = backend::Settings::load().unwrap_or_default();
+            cfg.wysiwyg_editor = on;
+            let _ = cfg.save();
+            // Apply immediately to the note in the editor (markdown only).
+            let body = ui.get_current_body().to_string();
+            let kind = ui.get_current_kind().to_string();
+            let want = on && backend::effective_kind(&kind, &body) == "markdown";
+            ui.set_wysiwyg_on(want);
+            if want {
+                rich_load(&ui, &body);
+            }
+            ui.set_status_text(
+                if on { "WYSIWYG editor on (beta)." } else { "Raw markdown editor." }.into(),
+            );
+        });
+    }
+
+    // WYSIWYG editor (beta): forward key / pointer / command events into sred.
+    {
+        let ui_w = ui.as_weak();
+        ui.on_rich_insert_text(move |s| {
+            let ui = ui_w.unwrap();
+            RICH.with(|r| r.borrow_mut().apply(SredCmd::Insert(s.to_string())));
+            rich_after_edit(&ui);
+        });
+    }
+    {
+        let ui_w = ui.as_weak();
+        ui.on_rich_insert(move |s| {
+            let ui = ui_w.unwrap();
+            RICH.with(|r| r.borrow_mut().apply(SredCmd::Insert(s.to_string())));
+            rich_after_edit(&ui);
+        });
+    }
+    {
+        let ui_w = ui.as_weak();
+        ui.on_rich_copy(move || {
+            let _ui = ui_w.unwrap();
+            let t = RICH.with(|r| r.borrow().selected_text());
+            if !t.is_empty() {
+                clip_set(&t);
+            }
+        });
+    }
+    {
+        let ui_w = ui.as_weak();
+        ui.on_rich_chord(move |key| {
+            let ui = ui_w.unwrap();
+            let name = match normalize_chord(&key).as_str() {
+                "b" => "bold",
+                "i" => "italic",
+                "e" | "`" => "code",
+                "z" => "undo",
+                "y" => "redo",
+                "c" => "copy",
+                "x" => "cut",
+                "v" => "paste",
+                "a" => "selectall",
+                "k" => "link",
+                _ => return false,
+            };
+            let (handled, changed) = rich_named(name);
+            if handled {
+                if changed {
+                    rich_after_edit(&ui);
+                } else {
+                    rich_render(&ui);
+                }
+            }
+            handled
+        });
+    }
+    {
+        let ui_w = ui.as_weak();
+        ui.on_rich_special(move |name| {
+            let ui = ui_w.unwrap();
+            let changed = RICH.with(|r| {
+                let mut e = r.borrow_mut();
+                match name.as_str() {
+                    "backspace" => { e.apply(SredCmd::DeleteBackward); true }
+                    "delete" => { e.apply(SredCmd::DeleteForward); true }
+                    "left" => { e.apply(SredCmd::Move(SredMotion::Left)); false }
+                    "right" => { e.apply(SredCmd::Move(SredMotion::Right)); false }
+                    "home" => { e.apply(SredCmd::Move(SredMotion::LineStart)); false }
+                    "end" => { e.apply(SredCmd::Move(SredMotion::LineEnd)); false }
+                    "select-left" => { e.apply(SredCmd::Select(SredMotion::Left)); false }
+                    "select-right" => { e.apply(SredCmd::Select(SredMotion::Right)); false }
+                    "up" => { e.move_vertical(false); false }
+                    "down" => { e.move_vertical(true); false }
+                    _ => false,
+                }
+            });
+            if changed { rich_after_edit(&ui) } else { rich_render(&ui) }
+        });
+    }
+    rich_register_tokens();
+    {
+        let ui_w = ui.as_weak();
+        ui.on_rich_pointer_down(move |x, y| {
+            let ui = ui_w.unwrap();
+            let s = ui.get_rich_scroll_y();
+            // If the click landed on a domain token chip, route it to the facet
+            // filter / url opener instead of moving the caret.
+            let tok = RICH.with(|r| {
+                let mut e = r.borrow_mut();
+                e.scroll_to(s);
+                e.token_at(x, y)
+            });
+            if let Some((id, value)) = tok {
+                match id.as_str() {
+                    "project" => ui.invoke_toggle_project(value.into()),
+                    "tag" => ui.invoke_toggle_tag(value.into()),
+                    "person" => ui.invoke_toggle_person(value.into()),
+                    "url" => ui.invoke_open_url(value.into()),
+                    _ => {}
+                }
+                return;
+            }
+            RICH.with(|r| { let mut e = r.borrow_mut(); e.scroll_to(s); e.click(x, y); });
+            rich_render(&ui);
+        });
+    }
+    {
+        let ui_w = ui.as_weak();
+        ui.on_rich_pointer_drag(move |x, y| {
+            let ui = ui_w.unwrap();
+            let s = ui.get_rich_scroll_y();
+            RICH.with(|r| { let mut e = r.borrow_mut(); e.scroll_to(s); e.drag(x, y); });
+            rich_render(&ui);
+        });
+    }
+    {
+        let ui_w = ui.as_weak();
+        ui.on_rich_pointer_double(move |x, y| {
+            let ui = ui_w.unwrap();
+            let s = ui.get_rich_scroll_y();
+            RICH.with(|r| { let mut e = r.borrow_mut(); e.scroll_to(s); e.double_click(x, y); });
+            rich_render(&ui);
+        });
+    }
+    {
+        let ui_w = ui.as_weak();
+        ui.on_rich_resized(move |w, h| {
+            RICH_VP.with(|v| v.set((w.max(1.0) as u32, h.max(1.0))));
+            let _ = &ui_w; // DIAGNOSTIC: render disabled to isolate recursion source
+        });
+    }
 
     // Persist the Outlook sync-on-startup toggle (merges into settings.json).
     {
