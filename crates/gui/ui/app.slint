@@ -17,11 +17,14 @@ export global Theme {
     out property <color> surface2: dark ? #23272e : #f7f8fa;
     out property <color> surface3: dark ? #2c313a : #f1f3f6;
     out property <color> hover: dark ? #313742 : #e9ecf0;
-    out property <color> sel: dark ? #20374f : #e8f0fe;
+    out property <color> sel: dark ? #1d3a37 : #e3efed;
     out property <color> text: dark ? #e7eaef : #1b2a3a;
     out property <color> text2: dark ? #aeb6c0 : #59636e;
     out property <color> text3: dark ? #79838d : #8a96a3;
     out property <color> border: dark ? #39404a : #d8dee5;
+    // Restrained single accent (muted teal) — matches the Skeptical Engineering
+    // "boring is a feature" feel rather than a generic bright blue.
+    out property <color> accent: dark ? #6cb5ad : #2c6e68;
 }
 
 // --- Data shapes shared with Rust ---------------------------------------
@@ -175,8 +178,8 @@ component NavItem inherits Rectangle {
     accessible-action-default => { root.clicked(); }
     HorizontalLayout {
         padding-left: 9px; padding-right: 6px; spacing: 9px;
-        Image { source: icon; colorize: active ? #2d6cdf : Theme.text2; width: 18px * Z.f; height: 18px * Z.f; vertical-alignment: center; }
-        Text { text: label; font-size: (13px * Z.f); font-weight: active ? 700 : 500; color: active ? #2d6cdf : Theme.text; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+        Image { source: icon; colorize: active ? Theme.accent : Theme.text2; width: 18px * Z.f; height: 18px * Z.f; vertical-alignment: center; }
+        Text { text: label; font-size: (13px * Z.f); font-weight: active ? 700 : 500; color: active ? Theme.accent : Theme.text; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
     }
     nt := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
@@ -202,7 +205,7 @@ component SegBtn inherits Rectangle {
     height: 28px;
     horizontal-stretch: 1;
     border-radius: 6px;
-    background: active ? #2d6cdf : (t.has-hover ? Theme.sel : Theme.surface3);
+    background: active ? Theme.accent : (t.has-hover ? Theme.sel : Theme.surface3);
     animate background { duration: 120ms; easing: ease-out; }
     HorizontalLayout {
         padding-left: 10px; padding-right: 10px;
@@ -235,7 +238,7 @@ component FacetRow inherits Rectangle {
         Text {
             text: name;
             font-size: (12px * Z.f);
-            color: active ? #2d6cdf : Theme.text2;
+            color: active ? Theme.accent : Theme.text2;
             font-weight: active ? 700 : 500;
             vertical-alignment: center;
             horizontal-stretch: 1;
@@ -250,7 +253,7 @@ component KindDot inherits Rectangle {
     in property <string> kind;
     width: 8px; height: 8px; border-radius: 4px;
     background:
-        kind == "do" ? #2d6cdf :
+        kind == "do" ? Theme.accent :
         kind == "followup" ? #d98324 :
         kind == "delegated" ? #1f9d57 :
         kind == "todelegate" ? #9a5bd6 :
@@ -300,7 +303,7 @@ component ToolBtn inherits Rectangle {
     animate background { duration: 100ms; easing: ease-out; }
     HorizontalLayout {
         padding-left: 7px; padding-right: 7px;
-        Text { text: label; font-size: (11px * Z.f); font-weight: 600; color: root.on ? #2d6cdf : #4a5560; vertical-alignment: center; horizontal-alignment: center; }
+        Text { text: label; font-size: (11px * Z.f); font-weight: 600; color: root.on ? Theme.accent : #4a5560; vertical-alignment: center; horizontal-alignment: center; }
     }
     tb := TouchArea { clicked => { root.clicked(); } }
 }
@@ -321,9 +324,9 @@ component AgendaRow inherits Rectangle {
         Rectangle {
             width: 18px; height: 18px; y: 2px;
             border-radius: 4px; border-width: 1.5px;
-            border-color: (t.status == "doing" || cbx.has-hover) ? #2d6cdf : Theme.text3;
+            border-color: (t.status == "doing" || cbx.has-hover) ? Theme.accent : Theme.text3;
             background: t.status == "done" ? #1f9d57 : (t.status == "doing" ? Theme.sel : white);
-            Text { text: t.status == "done" ? "✓" : (t.status == "doing" ? "•" : ""); color: t.status == "done" ? white : #2d6cdf; font-size: (13px * Z.f); horizontal-alignment: center; vertical-alignment: center; }
+            Text { text: t.status == "done" ? "✓" : (t.status == "doing" ? "•" : ""); color: t.status == "done" ? white : Theme.accent; font-size: (13px * Z.f); horizontal-alignment: center; vertical-alignment: center; }
             cbx := TouchArea { mouse-cursor: pointer; clicked => { root.cycle(t.id); } }
         }
         Text {
@@ -422,7 +425,7 @@ component MenuTitle inherits Rectangle {
     background: (open-menu == menu-id) ? Theme.sel : (mta.has-hover ? Theme.hover : transparent);
     txt := Text {
         text: root.label; font-size: (12.5px * Z.f);
-        color: (open-menu == menu-id) ? #2d6cdf : Theme.text2;
+        color: (open-menu == menu-id) ? Theme.accent : Theme.text2;
         horizontal-alignment: center; vertical-alignment: center;
     }
     mta := TouchArea {
@@ -499,10 +502,10 @@ component RenderedView inherits Rectangle {
                                 width: 18px; height: 18px; y: 1px;
                                 border-radius: 4px;
                                 border-width: 1.5px;
-                                border-color: (b.status == "doing" || cb.has-hover) ? #2d6cdf : Theme.text3;
+                                border-color: (b.status == "doing" || cb.has-hover) ? Theme.accent : Theme.text3;
                                 background: b.status == "done" ? #1f9d57 : (b.status == "doing" ? Theme.sel : white);
                                 animate border-color { duration: 100ms; easing: ease-out; }
-                                Text { text: b.status == "done" ? "✓" : (b.status == "doing" ? "•" : ""); color: b.status == "done" ? white : #2d6cdf; font-size: (13px * Z.f); horizontal-alignment: center; vertical-alignment: center; }
+                                Text { text: b.status == "done" ? "✓" : (b.status == "doing" ? "•" : ""); color: b.status == "done" ? white : Theme.accent; font-size: (13px * Z.f); horizontal-alignment: center; vertical-alignment: center; }
                                 cb := TouchArea { mouse-cursor: pointer; clicked => { root.toggle-todo(b.todo-id); } }
                             }
                             Text {
@@ -518,7 +521,7 @@ component RenderedView inherits Rectangle {
                             spacing: 4px;
                             Rectangle {
                                 width: 16px;
-                                Text { text: b.folded ? "▸" : "▾"; font-size: 11px * Z.f; color: ft.has-hover ? #2d6cdf : Theme.text3; horizontal-alignment: center; vertical-alignment: center; }
+                                Text { text: b.folded ? "▸" : "▾"; font-size: 11px * Z.f; color: ft.has-hover ? Theme.accent : Theme.text3; horizontal-alignment: center; vertical-alignment: center; }
                                 ft := TouchArea { mouse-cursor: pointer; clicked => { root.toggle-fold(b.block-id); } }
                             }
                             Text {
@@ -543,7 +546,7 @@ component RenderedView inherits Rectangle {
                             for s in b.segments: Rectangle {
                                 if (s.kind == ""): Text { text: s.text; font-size: (13px * Z.f); color: Theme.text; vertical-alignment: center; }
                                 if (s.kind == "url"): Rectangle {
-                                    Text { text: s.text; font-size: (13px * Z.f); color: #2d6cdf; vertical-alignment: center; }
+                                    Text { text: s.text; font-size: (13px * Z.f); color: Theme.accent; vertical-alignment: center; }
                                     urlta := TouchArea { mouse-cursor: pointer; clicked => { root.open-url(s.value); } }
                                 }
                                 if (s.kind == "project"): Rectangle {
@@ -1049,7 +1052,7 @@ export component AppWindow inherits Window {
                                 slt := TouchArea { clicked => { root.apply-smart-list(sl); } }
                                 HorizontalLayout {
                                     padding-left: 6px; padding-right: 4px; spacing: 4px;
-                                    Text { text: "★ " + sl; font-size: (12px * Z.f); color: #2d6cdf; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                                    Text { text: "★ " + sl; font-size: (12px * Z.f); color: Theme.accent; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
                                     Rectangle {
                                         width: 18px;
                                         Text { text: "✕"; font-size: (11px * Z.f); color: slx.has-hover ? #c82333 : Theme.text3; horizontal-alignment: center; vertical-alignment: center; }
@@ -1170,7 +1173,7 @@ export component AppWindow inherits Window {
                                         border-radius: 6px;
                                         background: n.id == root.current-id ? Theme.sel : (nt.has-hover ? Theme.hover : transparent);
                                         animate background { duration: 120ms; easing: ease-out; }
-                                        Rectangle { x: 0; width: 3px; border-radius: 2px; background: #2d6cdf; visible: n.id == root.current-id; }
+                                        Rectangle { x: 0; width: 3px; border-radius: 2px; background: Theme.accent; visible: n.id == root.current-id; }
                                         VerticalLayout {
                                             padding: 6px;
                                             Text { text: n.title; font-size: (13px * Z.f); font-weight: 600; color: Theme.text; overflow: elide; }
@@ -1351,7 +1354,7 @@ export component AppWindow inherits Window {
                                         horizontal-stretch: 1;
                                         bg: Theme.surface;
                                         border-col: Theme.border;
-                                        focus-col: #2d6cdf;
+                                        focus-col: Theme.accent;
                                         caret-col: Theme.text;
                                         frame: root.rich-frame;
                                         doc-height: root.rich-doc-height;
@@ -1526,11 +1529,11 @@ export component AppWindow inherits Window {
                                 background: cell.day == 0 ? transparent : (cell.today ? Theme.sel : white);
                                 border-radius: 5px;
                                 border-width: cell.today ? 1.5px : 0px;
-                                border-color: #2d6cdf;
+                                border-color: Theme.accent;
                                 VerticalLayout {
                                     padding: 3px;
                                     spacing: 1px;
-                                    Text { text: cell.day == 0 ? "" : cell.day; font-size: 11px * Z.f; font-weight: cell.today ? 800 : 500; color: cell.today ? #2d6cdf : Theme.text2; }
+                                    Text { text: cell.day == 0 ? "" : cell.day; font-size: 11px * Z.f; font-weight: cell.today ? 800 : 500; color: cell.today ? Theme.accent : Theme.text2; }
                                     for it in cell.items: Rectangle {
                                         height: 15px;
                                         border-radius: 3px;
@@ -1932,7 +1935,7 @@ export component AppWindow inherits Window {
                                         }
                                         VerticalLayout {
                                             spacing: 2px;
-                                            Text { text: "OTHER TODOS (" + root.person-other.length + ")"; font-size: (11px * Z.f); font-weight: 700; color: #2d6cdf; }
+                                            Text { text: "OTHER TODOS (" + root.person-other.length + ")"; font-size: (11px * Z.f); font-weight: 700; color: Theme.accent; }
                                             for t in root.person-other: AgendaRow { t: t; cycle(id) => { root.cycle-todo(id); } edit(id) => { root.edit-todo(id); } open(id) => { root.open-note(id); } }
                                         }
                                         VerticalLayout {
@@ -1984,7 +1987,7 @@ export component AppWindow inherits Window {
                                     }
                                     if (root.agenda-week.length > 0): VerticalLayout {
                                         spacing: 2px;
-                                        Text { text: "NEXT 7 DAYS (" + root.agenda-week.length + ")"; font-size: (11px * Z.f); font-weight: 700; color: #2d6cdf; }
+                                        Text { text: "NEXT 7 DAYS (" + root.agenda-week.length + ")"; font-size: (11px * Z.f); font-weight: 700; color: Theme.accent; }
                                         for t in root.agenda-week: AgendaRow { t: t; cycle(id) => { root.cycle-todo(id); } edit(id) => { root.edit-todo(id); } open(id) => { root.open-note(id); } }
                                     }
                                     if (root.agenda-later.length > 0): VerticalLayout {
@@ -2079,9 +2082,9 @@ export component AppWindow inherits Window {
                                             width: 20px;
                                             border-radius: 4px;
                                             border-width: 1.5px;
-                                            border-color: (t.status == "doing" || cbox.has-hover) ? #2d6cdf : Theme.text3;
+                                            border-color: (t.status == "doing" || cbox.has-hover) ? Theme.accent : Theme.text3;
                                             background: t.status == "done" ? #1f9d57 : (t.status == "doing" ? Theme.sel : transparent);
-                                            Text { text: t.status == "done" ? "✓" : (t.status == "doing" ? "•" : ""); color: t.status == "done" ? white : #2d6cdf; font-size: (13px * Z.f); horizontal-alignment: center; vertical-alignment: center; }
+                                            Text { text: t.status == "done" ? "✓" : (t.status == "doing" ? "•" : ""); color: t.status == "done" ? white : Theme.accent; font-size: (13px * Z.f); horizontal-alignment: center; vertical-alignment: center; }
                                             cbox := TouchArea { mouse-cursor: pointer; clicked => { root.cycle-todo(t.id); } }
                                         }
                                         KindDot { kind: t.kind; }
@@ -2197,7 +2200,7 @@ export component AppWindow inherits Window {
                                                 y: (parent.height - self.height) / 2;
                                                 border-radius: 5px;
                                                 background:
-                                                    g.kind == "do" ? #2d6cdf :
+                                                    g.kind == "do" ? Theme.accent :
                                                     g.kind == "followup" ? #d98324 :
                                                     g.kind == "delegated" ? #1f9d57 :
                                                     g.kind == "todelegate" ? #9a5bd6 : #6b7280;
