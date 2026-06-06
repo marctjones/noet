@@ -277,6 +277,16 @@ component CloseX inherits Rectangle {
     cx := TouchArea { clicked => { root.closed(); } }
 }
 
+// One row in the keyboard-shortcuts cheat sheet.
+component KbRow inherits HorizontalLayout {
+    in property <string> keys;
+    in property <string> desc;
+    height: 26px;
+    spacing: 12px;
+    Text { text: root.keys; font-size: (12px * Z.f); font-weight: 600; color: Theme.text2; width: 150px; vertical-alignment: center; }
+    Text { text: root.desc; font-size: (12px * Z.f); color: Theme.text; horizontal-stretch: 1; vertical-alignment: center; overflow: elide; }
+}
+
 // Compact, content-sized toolbar button for the editor formatting bar.
 component ToolBtn inherits Rectangle {
     in property <string> label;
@@ -657,6 +667,10 @@ export component AppWindow inherits Window {
     in-out property <bool> palette-open: false;
     in-out property <string> palette-query;
     in property <[PaletteItem]> palette-results;
+    // Keyboard-shortcuts cheat sheet overlay.
+    in-out property <bool> shortcuts-open: false;
+    // Transient toast (mirrors status-text changes; auto-clears).
+    in-out property <string> toast-text;
     in-out property <bool> editing: false;
     in-out property <bool> preview-on: true;
     in-out property <string> tag-input;
@@ -800,6 +814,15 @@ export component AppWindow inherits Window {
     callback cal-prev();
     callback cal-next();
     callback cal-today();
+
+    // Surface status messages as a transient toast (auto-clears via the timer below).
+    changed status-text => {
+        if (root.status-text != "") {
+            root.toast-text = root.status-text;
+            toast-timer.running = false;
+            toast-timer.running = true;
+        }
+    }
 
     Rectangle {
         VerticalLayout {
@@ -2364,6 +2387,8 @@ export component AppWindow inherits Window {
             x: helpTitle.absolute-position.x;
             y: helpTitle.absolute-position.y + helpTitle.height + 3px;
             width: 250px;
+            MenuItem { icon: "⌨"; label: "Keyboard shortcuts"; clicked => { root.open-menu = ""; root.shortcuts-open = true; } }
+            MenuSep {}
             MenuItem { icon: "ⓘ"; label: "About Noet " + root.app-version; clicked => { root.open-menu = ""; root.set-view("about"); } }
             MenuItem { icon: "§"; label: "Open-source licenses"; clicked => { root.open-menu = ""; root.set-view("about"); } }
             MenuSep {}
@@ -2470,6 +2495,68 @@ export component AppWindow inherits Window {
                         font-size: (9px * Z.f); color: Theme.text3; horizontal-alignment: center;
                     }
                 }
+            }
+        }
+
+        // ===== Keyboard-shortcuts cheat sheet =====
+        if (root.shortcuts-open): Rectangle {
+            background: #00000066;
+            TouchArea { clicked => { root.shortcuts-open = false; } }
+            Rectangle {
+                width: min(520px, parent.width - 40px);
+                height: min(440px, parent.height - 100px);
+                x: (parent.width - self.width) / 2;
+                y: 70px;
+                background: Theme.surface;
+                border-radius: 10px;
+                border-width: 1px;
+                border-color: Theme.border;
+                drop-shadow-blur: 24px;
+                drop-shadow-color: #00000055;
+                TouchArea {}
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 5px;
+                    HorizontalLayout {
+                        Text { text: "Keyboard shortcuts"; font-size: (16px * Z.f); font-weight: 700; color: Theme.text; horizontal-stretch: 1; vertical-alignment: center; }
+                        CloseX { closed => { root.shortcuts-open = false; } }
+                    }
+                    Rectangle { height: 6px; }
+                    KbRow { keys: "⌘K / Ctrl+K"; desc: "Command palette — go to anything"; }
+                    KbRow { keys: "⌘B / Ctrl+B"; desc: "Bold (in editor)"; }
+                    KbRow { keys: "⌘I / Ctrl+I"; desc: "Italic"; }
+                    KbRow { keys: "⌘E / Ctrl+E"; desc: "Inline code"; }
+                    KbRow { keys: "⌘Z / ⌘Y"; desc: "Undo / Redo"; }
+                    KbRow { keys: "⌘C / ⌘X / ⌘V"; desc: "Copy / Cut / Paste"; }
+                    KbRow { keys: "⌘A"; desc: "Select all (in editor)"; }
+                    KbRow { keys: "Enter / Esc"; desc: "Palette: open top match / close overlay"; }
+                    KbRow { keys: "⛶ Focus"; desc: "Focus mode — hide chrome (top bar / View menu)"; }
+                    Rectangle { vertical-stretch: 1; }
+                    Text { text: "Note: ⌘ is the Command key on macOS, Ctrl elsewhere."; font-size: (9px * Z.f); color: Theme.text3; }
+                }
+            }
+        }
+
+        // ===== Transient toast (mirrors status-text) =====
+        toast-timer := Timer {
+            interval: 2600ms;
+            running: false;
+            triggered => { root.toast-text = ""; self.running = false; }
+        }
+        if (root.toast-text != ""): Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: parent.height - self.height - 26px;
+            width: tt.preferred-width + 30px;
+            height: 34px;
+            background: Theme.text;
+            border-radius: 17px;
+            opacity: 0.95;
+            tt := Text {
+                text: root.toast-text;
+                color: Theme.bg;
+                font-size: (12px * Z.f);
+                horizontal-alignment: center;
+                vertical-alignment: center;
             }
         }
     }
