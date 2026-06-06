@@ -402,6 +402,80 @@ fn to_note_item(n: &backend::Note) -> NoteItem {
     }
 }
 
+// ---- Sample / rendering-test note --------------------------------------------
+
+const SAMPLE_TITLE: &str = "Markdown rendering test";
+
+const SAMPLE_BODY: &str = r###"This note exercises Noet's editor and the sred renderer. Edit it freely; delete it to regenerate on next launch.
+
+## Inline styles
+Plain, **bold**, *italic*, ***bold italic***, `inline code`, ~~strikethrough~~, a [labelled link](https://slint.dev), and a bare URL https://github.com/marctjones/noet
+
+## Headings
+# Heading 1
+## Heading 2
+### Heading 3
+
+## Bullet list (with sub-bullets)
+- First item
+- Second item
+  - Sub-bullet A
+  - Sub-bullet B
+    - Sub-sub-bullet (third level)
+- Third item
+
+## Numbered list (with sub-items)
+1. First
+2. Second
+   1. Sub one
+   2. Sub two
+3. Third
+
+## Typed todos
+TODO(do) draft the kickoff agenda [#A] due:2026-06-10
+DOING(do) wire up the API +[[Platform]]
+DONE(do) set up the repo
+
+## Blockquote
+> A quoted line.
+> A second quoted line.
+
+## Code block
+```rust
+fn main() {
+    let greeting = "hello";
+    println!("{greeting}, world"); // syntect highlighting
+}
+```
+
+## Entities
+Workstream [[Acme Onboarding]], person @jane, label #urgent, nested label #area/sub.
+
+## Table
+col a | col b
+---- | ----
+v1 | v2
+v3 | v4
+
+## Horizontal rule
+---
+
+If the sub-bullets and numbered sub-items above don't indent/nest, that's the sred
+list renderer (tracked upstream as sred#3), not your markdown.
+"###;
+
+/// Ensure the markdown sample/test note exists; return its id (existing or new).
+fn ensure_sample_note(b: &mut Backend) -> Option<String> {
+    if let Ok(notes) = b.query_notes(&Filter::default()) {
+        if let Some(n) = notes.iter().find(|n| n.title == SAMPLE_TITLE) {
+            return Some(n.id.clone());
+        }
+    }
+    let note = b.new_note().ok()?;
+    b.save_note(&note.id, SAMPLE_TITLE, SAMPLE_BODY).ok()?;
+    Some(note.id)
+}
+
 // ---- Command palette (Ctrl/⌘+K) ----------------------------------------------
 
 const PALETTE_VIEWS: &[(&str, &str)] = &[
@@ -1502,20 +1576,25 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_reindex_finished(move || {
             let ui = ui_w.unwrap();
             indexing.set(false);
-            let s = state.borrow();
             if !ui.get_editing() {
                 let cur = ui.get_current_id().to_string();
                 if cur.is_empty() {
-                    // first index after launch — open the most recent note
-                    if let Ok(notes) = s.backend.query_notes(&Filter::default()) {
+                    // first index after launch — ensure the sample/test note exists
+                    // and open it (falling back to the most recent note).
+                    let sample_id = ensure_sample_note(&mut state.borrow_mut().backend);
+                    let s = state.borrow();
+                    if let Some(id) = sample_id {
+                        open_in_editor(&ui, &s.backend, &id);
+                    } else if let Ok(notes) = s.backend.query_notes(&Filter::default()) {
                         if let Some(first) = notes.into_iter().next() {
                             open_in_editor(&ui, &s.backend, &first.id);
                         }
                     }
                 } else {
-                    open_in_editor(&ui, &s.backend, &cur);
+                    open_in_editor(&ui, &state.borrow().backend, &cur);
                 }
             }
+            let s = state.borrow();
             refresh(&ui, &s);
             ui.set_status_text("Ready".into());
             drop(s);
