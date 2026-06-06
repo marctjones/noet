@@ -171,17 +171,15 @@ fn headless_ui_smoke() {
     itest::mock_elapsed_time(std::time::Duration::from_millis(250));
     assert_eq!(ui.get_notes().row_count(), 0, "a non-matching search yields no notes");
 
-    // ----- Level 4: WYSIWYG (beta) editor path -----
-    // Open a fresh markdown note in edit mode, then enable the sred surface. This
-    // instantiates RichTextEditor; forcing a layout pass over it is the regression
-    // guard for the property-recursion that an overlapping fill-child caused.
+    // ----- Level 4: the sred WYSIWYG editor (the sole editor) -----
+    // A fresh note opens straight into edit mode, which instantiates the
+    // RichTextEditor. Typing mirrors into current-body, and forcing a layout pass
+    // over the live editor is the regression guard for the property-recursion.
     ui.invoke_set_search("".into());
     itest::mock_elapsed_time(std::time::Duration::from_millis(250));
     ui.invoke_set_view("notes".into());
     ui.invoke_new_note(); // new notes open straight into edit mode (editing = true)
-    ui.invoke_save_wysiwyg(true);
-    assert!(ui.get_wysiwyg_on(), "markdown note + beta on => the sred surface is active");
-    // typing into sred mirrors back into current-body (the autosave/preview source)
+    // typing into sred mirrors back into current-body (the autosave source)
     ui.invoke_rich_insert_text("Hello sred".into());
     assert!(
         ui.get_current_body().contains("Hello sred"),
@@ -194,10 +192,6 @@ fn headless_ui_smoke() {
         .match_descendants()
         .match_accessible_role(AccessibleRole::Button)
         .find_all();
-    // toggling the beta off returns to the raw editor without disturbing the body
-    ui.invoke_save_wysiwyg(false);
-    assert!(!ui.get_wysiwyg_on(), "beta off => raw editor");
-    assert!(ui.get_current_body().contains("Hello sred"), "body survives the editor swap");
 
     // (Slint's lightweight testing backend renders no pixels — its window is a
     // measurement-only renderer — so Window::take_snapshot is unavailable here.

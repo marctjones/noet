@@ -640,12 +640,8 @@ export component AppWindow inherits Window {
     in property <[string]> current-people;
     in property <[string]> current-tags;
 
-    // WYSIWYG (beta) editor — sred surface. `wysiwyg-pref` is the persistent user
-    // setting (bound to the Settings checkbox); `wysiwyg-on` is the per-note
-    // effective flag set by Rust (off for Typst notes) that swaps the surface in.
-    // The frame/caret/scroll props are driven by Rust each keystroke.
-    in-out property <bool> wysiwyg-pref: false;
-    in-out property <bool> wysiwyg-on: false;
+    // sred WYSIWYG editor surface — the sole note editor. The frame/caret/scroll
+    // props are driven by Rust (render_view) each keystroke / scroll.
     in property <image> rich-frame;
     in property <length> rich-doc-height: 400px;
     in property <length> rich-caret-x;
@@ -734,8 +730,7 @@ export component AppWindow inherits Window {
     callback add-tag(string);
     callback note-edited();
     callback stop-editing();
-    // WYSIWYG (beta) editor wiring — forwarded into the sred Editor on the Rust side.
-    callback save-wysiwyg(bool);          // persist the beta editor toggle
+    // sred editor wiring — forwarded into the sred Editor on the Rust side.
     callback rich-insert-text(string);    // a typed character / newline
     callback rich-chord(string) -> bool;  // a Ctrl-chord (bold/copy/undo/…)
     callback rich-special(string);        // backspace/arrows/home/end/…
@@ -1184,30 +1179,16 @@ export component AppWindow inherits Window {
                                 // ---- EDIT MODE (autosaving, live preview) ----
                                 if (root.editing): editpane := VerticalLayout {
                                     spacing: 8px;
-                                    // Insert a snippet / copy the selection through whichever editor
-                                    // is active: the sred WYSIWYG surface (Rust) or the raw TextEdit.
-                                    function snip(s: string) {
-                                        if (root.wysiwyg-on) { root.rich-insert(s); }
-                                        else { root.set-clip(s); ed.paste(); }
-                                    }
-                                    function copysel() {
-                                        if (root.wysiwyg-on) { root.rich-copy(); }
-                                        else { ed.copy(); }
-                                    }
-                                    // Edit-menu actions reach the editor here (ed is in scope)
+                                    // Insert a snippet / copy the selection through the sred editor.
+                                    function snip(s: string) { root.rich-insert(s); }
+                                    function copysel() { root.rich-copy(); }
+                                    // Edit-menu actions (Ctrl+X/C/V/A) routed into the sred editor.
                                     property <string> ea: root.edit-action;
                                     changed ea => {
-                                        if (root.wysiwyg-on) {
-                                            if (self.ea == "cut") { root.rich-chord("x"); }
-                                            if (self.ea == "copy") { root.rich-chord("c"); }
-                                            if (self.ea == "paste") { root.rich-chord("v"); }
-                                            if (self.ea == "selectall") { root.rich-chord("a"); }
-                                        } else {
-                                            if (self.ea == "cut") { ed.cut(); }
-                                            if (self.ea == "copy") { ed.copy(); }
-                                            if (self.ea == "paste") { ed.paste(); }
-                                            if (self.ea == "selectall") { ed.select-all(); }
-                                        }
+                                        if (self.ea == "cut") { root.rich-chord("x"); }
+                                        if (self.ea == "copy") { root.rich-chord("c"); }
+                                        if (self.ea == "paste") { root.rich-chord("v"); }
+                                        if (self.ea == "selectall") { root.rich-chord("a"); }
                                         if (self.ea != "") { root.edit-action = ""; }
                                     }
                                     // formatting + selection toolbar
@@ -1301,7 +1282,6 @@ export component AppWindow inherits Window {
                                             text: root.current-word-count + " words · " + root.current-char-count + " chars";
                                             font-size: (11px * Z.f); color: Theme.text3; vertical-alignment: center;
                                         }
-                                        ToolBtn { label: "Preview"; on: root.preview-on; clicked => { root.preview-on = !root.preview-on; } }
                                     }
                                     LineEdit {
                                         placeholder-text: "Note title…";
@@ -1324,58 +1304,30 @@ export component AppWindow inherits Window {
                                             for tg in root.current-tags: LinkChip { text: "# " + tg; tint: #f3ecfb; ink: #5b1b9a; clicked => { root.toggle-tag(tg); } }
                                         }
                                     }
-                                    HorizontalLayout {
+                                    // The sred WYSIWYG editor is the sole editor (no raw TextEdit, no
+                                    // split preview). It renders the note inline — markers hidden
+                                    // off-caret, headings/bullets/code in place, colored entity chips.
+                                    rich := RichTextEditor {
                                         vertical-stretch: 1;
-                                        spacing: 10px;
-                                        // Editor area: the raw TextEdit and the sred WYSIWYG surface
-                                        // are direct layout children (the reference layout — no plain
-                                        // Rectangle overlap, which cycled "Recursion detected" because a
-                                        // non-layout parent derived its size from 100%-fill children).
-                                        // `ed` stays unconditional so toolbar actions can call `ed.*`,
-                                        // but collapses to 0 width when the beta editor is on; `rich` is
-                                        // instantiated only when on. sred reports its viewport size via a
-                                        // Timer (post-layout), never a layout-time callback (recurses).
-                                        ed := TextEdit {
-                                            horizontal-stretch: root.wysiwyg-on ? 0 : 1;
-                                            max-width: root.wysiwyg-on ? 0px : 100000px;
-                                            visible: !root.wysiwyg-on;
-                                            text <=> root.current-body;
-                                            wrap: word-wrap;
-                                            placeholder-text: "Markdown or Typst.  [[Workstream]] groups the note.  #tag labels it.  @name mentions a person.\nSelect text, then → Todo or → Note.";
-                                            edited => { root.note-edited(); }
-                                        }
-                                        if (root.wysiwyg-on): rich := RichTextEditor {
-                                            horizontal-stretch: 1;
-                                            bg: Theme.surface;
-                                            border-col: Theme.border;
-                                            focus-col: #2d6cdf;
-                                            caret-col: Theme.text;
-                                            frame: root.rich-frame;
-                                            doc-height: root.rich-doc-height;
-                                            caret-x: root.rich-caret-x;
-                                            caret-y: root.rich-caret-y;
-                                            caret-h: root.rich-caret-h;
-                                            scroll-y <=> root.rich-scroll-y;
-                                            insert-text(s) => { root.rich-insert-text(s); }
-                                            chord(k) => { return root.rich-chord(k); }
-                                            special(n) => { root.rich-special(n); }
-                                            pointer-down(px, py) => { root.rich-pointer-down(px, py); }
-                                            pointer-drag(px, py) => { root.rich-pointer-drag(px, py); }
-                                            pointer-double(px, py) => { root.rich-pointer-double(px, py); }
-                                            resized(w, h) => { root.rich-resized(w, h); }
-                                            scrolled(y) => { root.rich-scrolled(y); }
-                                        }
-                                        if (root.preview-on): Rectangle {
-                                            horizontal-stretch: 1;
-                                            background: Theme.surface2;
-                                            border-radius: 6px;
-                                            RenderedView {
-                                                blocks: root.md-blocks;
-                                                is-typst: root.current-is-typst;
-                                                img: root.render-image;
-                                                open-url(u) => { root.open-url(u); }
-                                            }
-                                        }
+                                        horizontal-stretch: 1;
+                                        bg: Theme.surface;
+                                        border-col: Theme.border;
+                                        focus-col: #2d6cdf;
+                                        caret-col: Theme.text;
+                                        frame: root.rich-frame;
+                                        doc-height: root.rich-doc-height;
+                                        caret-x: root.rich-caret-x;
+                                        caret-y: root.rich-caret-y;
+                                        caret-h: root.rich-caret-h;
+                                        scroll-y <=> root.rich-scroll-y;
+                                        insert-text(s) => { root.rich-insert-text(s); }
+                                        chord(k) => { return root.rich-chord(k); }
+                                        special(n) => { root.rich-special(n); }
+                                        pointer-down(px, py) => { root.rich-pointer-down(px, py); }
+                                        pointer-drag(px, py) => { root.rich-pointer-drag(px, py); }
+                                        pointer-double(px, py) => { root.rich-pointer-double(px, py); }
+                                        resized(w, h) => { root.rich-resized(w, h); }
+                                        scrolled(y) => { root.rich-scrolled(y); }
                                     }
                                     HorizontalLayout {
                                         spacing: 8px;
@@ -1795,24 +1747,6 @@ export component AppWindow inherits Window {
                                 HorizontalLayout {
                                     Rectangle { horizontal-stretch: 1; }
                                     Button { text: "Save"; primary: true; clicked => { root.save-todoist(todoist-token-field.text); } }
-                                }
-                            }
-                        }
-
-                        // --- Editor ---
-                        Rectangle {
-                            background: Theme.surface; border-radius: 8px; border-width: 1px; border-color: Theme.border;
-                            VerticalLayout {
-                                padding: 14px; spacing: 8px;
-                                Text { text: "Editor"; font-size: (13px * Z.f); font-weight: 700; color: Theme.text; }
-                                CheckBox {
-                                    text: "WYSIWYG rich-text editor (beta)";
-                                    checked <=> root.wysiwyg-pref;
-                                    toggled => { root.save-wysiwyg(self.checked); }
-                                }
-                                Text {
-                                    text: "Off by default. When on, notes edit in the sred inline editor: markdown markers (#, -, ```) are hidden off the line you're editing and headings/bullets render in place. The raw markdown editor stays the fallback. Markdown notes only — Typst notes always use the raw editor.";
-                                    font-size: (10px * Z.f); color: Theme.text3; wrap: word-wrap;
                                 }
                             }
                         }

@@ -26,12 +26,9 @@ thread_local! {
     /// Indices of folded headings in the currently-open note (read view).
     static FOLDS: RefCell<std::collections::HashSet<usize>> = RefCell::new(std::collections::HashSet::new());
 
-    /// The sred WYSIWYG editor (beta). One per UI thread; reloaded with the open
-    /// note's body whenever a markdown note is opened with the beta toggle on.
+    /// The sred WYSIWYG editor — the sole note editor. One per UI thread; reloaded
+    /// with the open note's body in `open_in_editor`.
     static RICH: RefCell<SredEditor> = RefCell::new(SredEditor::new(SredFormat::Markdown));
-    /// The persistent "WYSIWYG editor" preference (mirror of settings.json), read
-    /// by `open_in_editor` (a free fn) to decide whether to drive the sred surface.
-    static WYSIWYG_PREF: Cell<bool> = const { Cell::new(false) };
     /// Last known sred viewport (width px, height px) from the `rich-resized` callback.
     static RICH_VP: Cell<(u32, f32)> = const { Cell::new((800, 600.0)) };
 }
@@ -816,14 +813,10 @@ fn open_in_editor(ui: &AppWindow, b: &Backend, note_id: &str) {
         ui.set_current_body(n.body.clone().into());
         ui.set_current_kind(n.kind.clone().into());
         set_doc_counts(ui, &n.body);
-        // WYSIWYG (beta): drive the sred surface only for markdown notes — Typst
-        // notes always use the raw editor + compiled-image preview.
-        let want = WYSIWYG_PREF.with(|p| p.get())
-            && backend::effective_kind(&n.kind, &n.body) == "markdown";
-        ui.set_wysiwyg_on(want);
-        if want {
-            rich_load(ui, &n.body);
-        }
+        // The sred WYSIWYG editor is the sole editor — always load the body so it's
+        // ready when edit mode opens. The read view (RenderedView) still renders
+        // markdown blocks / the compiled Typst image when not editing.
+        rich_load(ui, &n.body);
         render_read(ui, b, &n);
     }
 }
@@ -988,37 +981,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         backend::Settings::load().map(|s| s.outlook_sync_on_open).unwrap_or(false),
     );
 
-    // Reflect the persisted WYSIWYG (beta) editor preference.
-    {
-        let pref = backend::Settings::load().map(|s| s.wysiwyg_editor).unwrap_or(false);
-        WYSIWYG_PREF.with(|p| p.set(pref));
-        ui.set_wysiwyg_pref(pref);
-    }
-
-    // WYSIWYG editor (beta): persist the toggle and apply it to the open note.
-    {
-        let ui_w = ui.as_weak();
-        ui.on_save_wysiwyg(move |on: bool| {
-            let ui = ui_w.unwrap();
-            WYSIWYG_PREF.with(|p| p.set(on));
-            let mut cfg = backend::Settings::load().unwrap_or_default();
-            cfg.wysiwyg_editor = on;
-            let _ = cfg.save();
-            // Apply immediately to the note in the editor (markdown only).
-            let body = ui.get_current_body().to_string();
-            let kind = ui.get_current_kind().to_string();
-            let want = on && backend::effective_kind(&kind, &body) == "markdown";
-            ui.set_wysiwyg_on(want);
-            if want {
-                rich_load(&ui, &body);
-            }
-            ui.set_status_text(
-                if on { "WYSIWYG editor on (beta)." } else { "Raw markdown editor." }.into(),
-            );
-        });
-    }
-
-    // WYSIWYG editor (beta): forward key / pointer / command events into sred.
+    // sred editor: forward key / pointer / command events into sred.
     {
         let ui_w = ui.as_weak();
         ui.on_rich_insert_text(move |s| {
