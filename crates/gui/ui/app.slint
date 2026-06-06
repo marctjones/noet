@@ -627,6 +627,11 @@ export component AppWindow inherits Window {
     in-out property <length> rail-width: 232px;
     in-out property <bool> nav-collapsed: false;
     in-out property <bool> rail-hidden: false;
+    // Responsive: below these widths the rails auto-collapse/hide regardless of the
+    // user toggle, so a narrow window stays usable (the toggle takes effect again
+    // once there's room).
+    out property <bool> nav-eff-collapsed: root.nav-collapsed || root.width < 720px;
+    out property <bool> rail-eff-hidden: root.rail-hidden || root.width < 860px;
     in-out property <string> open-menu: ""; // which menu-bar dropdown is open ("" = none)
     in-out property <length> notes-width: 280px;
     in-out property <bool> resizing: false;
@@ -878,7 +883,7 @@ export component AppWindow inherits Window {
             HorizontalLayout {
                 // ----- Navigation rail (Win11 NavigationView) -----
                 Rectangle {
-                    width: root.nav-collapsed ? 52px : 168px;
+                    width: root.nav-eff-collapsed ? 52px : 168px;
                     animate width { duration: 140ms; easing: ease-out; }
                     background: Theme.surface;
                     Rectangle {
@@ -893,23 +898,23 @@ export component AppWindow inherits Window {
                             icon: "☰"; label: "Collapse"; view: "__toggle"; current: "";
                             clicked => { root.nav-collapsed = !root.nav-collapsed; }
                         }
-                        if !root.nav-collapsed : Text { text: "PLAN"; font-size: (9px * Z.f); letter-spacing: 1px; color: Theme.text3; }
-                        Rectangle { height: root.nav-collapsed ? 4px : 0px; }
+                        if !root.nav-eff-collapsed : Text { text: "PLAN"; font-size: (9px * Z.f); letter-spacing: 1px; color: Theme.text3; }
+                        Rectangle { height: root.nav-eff-collapsed ? 4px : 0px; }
                         NavItem { icon: "◴"; label: "Today"; view: "today"; current: root.view; clicked => { root.set-view("today"); } }
                         NavItem { icon: "≣"; label: "Agenda"; view: "agenda"; current: root.view; clicked => { root.set-view("agenda"); } }
                         NavItem { icon: "▦"; label: "Calendar"; view: "calendar"; current: root.view; clicked => { root.set-view("calendar"); } }
-                        if !root.nav-collapsed : Text { text: "WORK"; font-size: (9px * Z.f); letter-spacing: 1px; color: Theme.text3; }
-                        Rectangle { height: root.nav-collapsed ? 4px : 0px; }
+                        if !root.nav-eff-collapsed : Text { text: "WORK"; font-size: (9px * Z.f); letter-spacing: 1px; color: Theme.text3; }
+                        Rectangle { height: root.nav-eff-collapsed ? 4px : 0px; }
                         NavItem { icon: "✓"; label: "Tasks"; view: "tasks"; current: root.view; clicked => { root.set-view("tasks"); } }
                         NavItem { icon: "▤"; label: "Board"; view: "board"; current: root.view; clicked => { root.set-view("board"); } }
                         NavItem { icon: "▭"; label: "Gantt"; view: "gantt"; current: root.view; clicked => { root.set-view("gantt"); } }
-                        if !root.nav-collapsed : Text { text: "NOTES"; font-size: (9px * Z.f); letter-spacing: 1px; color: Theme.text3; }
-                        Rectangle { height: root.nav-collapsed ? 4px : 0px; }
+                        if !root.nav-eff-collapsed : Text { text: "NOTES"; font-size: (9px * Z.f); letter-spacing: 1px; color: Theme.text3; }
+                        Rectangle { height: root.nav-eff-collapsed ? 4px : 0px; }
                         NavItem { icon: "▢"; label: "Notes"; view: "notes"; current: root.view; clicked => { root.set-view("notes"); } }
                         NavItem { icon: "⬇"; label: "Inbox"; view: "inbox"; current: root.view; clicked => { root.set-view("inbox"); } }
                         NavItem { icon: "✉"; label: "Review"; view: "review"; current: root.view; clicked => { root.set-view("review"); } }
-                        if !root.nav-collapsed : Text { text: "ORGANIZE"; font-size: (9px * Z.f); letter-spacing: 1px; color: Theme.text3; }
-                        Rectangle { height: root.nav-collapsed ? 4px : 0px; }
+                        if !root.nav-eff-collapsed : Text { text: "ORGANIZE"; font-size: (9px * Z.f); letter-spacing: 1px; color: Theme.text3; }
+                        Rectangle { height: root.nav-eff-collapsed ? 4px : 0px; }
                         NavItem { icon: "@"; label: "People"; view: "people"; current: root.view; clicked => { root.set-view("people"); } }
                         NavItem { icon: "#"; label: "Labels"; view: "labels"; current: root.view; clicked => { root.set-view("labels"); } }
                         Rectangle { vertical-stretch: 1; }
@@ -919,12 +924,12 @@ export component AppWindow inherits Window {
                 }
                 // ----- Filter rail -----
                 Rectangle {
-                    visible: !root.rail-hidden;
+                    visible: !root.rail-eff-hidden;
                     // preferred width (resizable) but min 0 so it compresses on a
                     // narrow window instead of forcing a large minimum window size.
-                    preferred-width: root.rail-hidden ? 0px : root.rail-width;
+                    preferred-width: root.rail-eff-hidden ? 0px : root.rail-width;
                     min-width: 0px;
-                    max-width: root.rail-hidden ? 0px : root.rail-width;
+                    max-width: root.rail-eff-hidden ? 0px : root.rail-width;
                     clip: true;
                     background: Theme.surface2;
                     Rectangle {

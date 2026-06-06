@@ -2631,6 +2631,45 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         );
     }
 
+    // Restore remembered window + layout state.
+    {
+        let cfg = backend::Settings::load().unwrap_or_default();
+        if cfg.window_w > 200.0 && cfg.window_h > 150.0 {
+            ui.window().set_size(slint::LogicalSize::new(cfg.window_w, cfg.window_h));
+        }
+        if cfg.rail_width > 0.0 {
+            ui.set_rail_width(cfg.rail_width);
+        }
+        if cfg.notes_width > 0.0 {
+            ui.set_notes_width(cfg.notes_width);
+        }
+        ui.set_nav_collapsed(cfg.nav_collapsed);
+        if !cfg.last_view.is_empty() {
+            ui.invoke_set_view(cfg.last_view.into());
+        }
+    }
+
+    // Persist window + layout state on close.
+    {
+        let ui_w = ui.as_weak();
+        ui.window().on_close_requested(move || {
+            if let Some(ui) = ui_w.upgrade() {
+                let mut cfg = backend::Settings::load().unwrap_or_default();
+                let sz = ui.window().size();
+                let sf = ui.window().scale_factor().max(0.1);
+                cfg.window_w = sz.width as f32 / sf;
+                cfg.window_h = sz.height as f32 / sf;
+                cfg.rail_width = ui.get_rail_width();
+                cfg.notes_width = ui.get_notes_width();
+                cfg.nav_collapsed = ui.get_nav_collapsed();
+                cfg.last_view = ui.get_view().to_string();
+                let _ = cfg.save();
+            }
+            slint::quit_event_loop().ok();
+            slint::CloseRequestResponse::HideWindow
+        });
+    }
+
     Ok(AppCtx { ui, state, spawn_reindex, indexing, dirty, import_timer })
 }
 

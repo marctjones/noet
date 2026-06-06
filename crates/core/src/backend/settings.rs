@@ -17,6 +17,19 @@ pub struct Settings {
     /// proven default. Editor integration is opt-in.
     #[serde(default)]
     pub wysiwyg_editor: bool,
+    /// Remembered window + layout state (0 / empty = unset → use defaults).
+    #[serde(default)]
+    pub window_w: f32,
+    #[serde(default)]
+    pub window_h: f32,
+    #[serde(default)]
+    pub rail_width: f32,
+    #[serde(default)]
+    pub notes_width: f32,
+    #[serde(default)]
+    pub nav_collapsed: bool,
+    #[serde(default)]
+    pub last_view: String,
 }
 
 impl Settings {
