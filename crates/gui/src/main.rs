@@ -70,7 +70,10 @@ fn rgba_to_image(rgba: &[u8], width: u32, height: u32) -> slint::Image {
 
 /// Re-rasterize the sred document and push frame + caret + scroll to the UI.
 /// Honors any wheel/scrollbar offset the Slint side set since the last render.
-fn rich_render(ui: &AppWindow) {
+/// Render the visible slice via sred's viewport-bounded path (flat per-keystroke
+/// cost regardless of note length). `follow` keeps the caret on screen after
+/// edits/clicks; pass `false` for plain scrolling so the view doesn't snap back.
+fn rich_render(ui: &AppWindow, follow: bool) {
     let (w, h) = RICH_VP.with(|v| v.get());
     let theme = sred_theme(ui);
     let ui_scroll = ui.get_rich_scroll_y();
@@ -79,7 +82,8 @@ fn rich_render(ui: &AppWindow) {
         e.set_theme(theme);
         e.set_viewport(w, h);
         e.scroll_to(ui_scroll);
-        let out = e.render(true);
+        // Viewport-sized frame + viewport-relative caret + resolved scroll.
+        let out = e.render_view(follow);
         ui.set_rich_frame(rgba_to_image(&out.frame.rgba, out.frame.width, out.frame.height));
         ui.set_rich_doc_height(out.doc_height as f32);
         ui.set_rich_caret_x(out.caret.x);
@@ -94,7 +98,7 @@ fn rich_render(ui: &AppWindow) {
 fn rich_after_edit(ui: &AppWindow) {
     let body = RICH.with(|r| r.borrow().text());
     ui.set_current_body(body.into());
-    rich_render(ui);
+    rich_render(ui, true);
     ui.invoke_note_edited();
 }
 
@@ -102,7 +106,7 @@ fn rich_after_edit(ui: &AppWindow) {
 fn rich_load(ui: &AppWindow, body: &str) {
     RICH.with(|r| r.borrow_mut().set_text(body));
     ui.set_rich_scroll_y(0.0);
-    rich_render(ui);
+    rich_render(ui, true);
 }
 
 // ---- sred domain tokens: color `[[wikilink]]` / `@mention` / `#tag` / url in
@@ -1063,7 +1067,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 if changed {
                     rich_after_edit(&ui);
                 } else {
-                    rich_render(&ui);
+                    rich_render(&ui, true);
                 }
             }
             handled
@@ -1089,7 +1093,17 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                     _ => false,
                 }
             });
-            if changed { rich_after_edit(&ui) } else { rich_render(&ui) }
+            if changed { rich_after_edit(&ui) } else { rich_render(&ui, true) }
+        });
+    }
+    {
+        let ui_w = ui.as_weak();
+        ui.on_rich_scrolled(move |y| {
+            // Plain scroll: re-render the new slice without caret-follow so the
+            // view doesn't snap back to the caret.
+            let ui = ui_w.unwrap();
+            RICH.with(|r| r.borrow_mut().scroll_to(y));
+            rich_render(&ui, false);
         });
     }
     rich_register_tokens();
@@ -1112,7 +1126,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 return;
             }
             RICH.with(|r| r.borrow_mut().click(x, y));
-            rich_render(&ui);
+            rich_render(&ui, true);
         });
     }
     {
@@ -1120,7 +1134,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_rich_pointer_drag(move |x, y| {
             let ui = ui_w.unwrap();
             RICH.with(|r| r.borrow_mut().drag(x, y));
-            rich_render(&ui);
+            rich_render(&ui, true);
         });
     }
     {
@@ -1128,7 +1142,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_rich_pointer_double(move |x, y| {
             let ui = ui_w.unwrap();
             RICH.with(|r| r.borrow_mut().double_click(x, y));
-            rich_render(&ui);
+            rich_render(&ui, true);
         });
     }
     {
@@ -1142,7 +1156,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let ui_w = ui_w.clone();
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(ui) = ui_w.upgrade() {
-                    rich_render(&ui);
+                    rich_render(&ui, true);
                 }
             });
         });

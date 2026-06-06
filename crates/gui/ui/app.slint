@@ -743,6 +743,7 @@ export component AppWindow inherits Window {
     callback rich-pointer-drag(length, length);
     callback rich-pointer-double(length, length);
     callback rich-resized(length, length);
+    callback rich-scrolled(length);       // wheel/scrollbar → re-render the slice
     callback rich-insert(string);         // insert a snippet (entity-picker tokens)
     callback rich-copy();                 // copy the sred selection to the clipboard
     callback toggle-kind();
@@ -1362,6 +1363,7 @@ export component AppWindow inherits Window {
                                             pointer-drag(px, py) => { root.rich-pointer-drag(px, py); }
                                             pointer-double(px, py) => { root.rich-pointer-double(px, py); }
                                             resized(w, h) => { root.rich-resized(w, h); }
+                                            scrolled(y) => { root.rich-scrolled(y); }
                                         }
                                         if (root.preview-on): Rectangle {
                                             horizontal-stretch: 1;

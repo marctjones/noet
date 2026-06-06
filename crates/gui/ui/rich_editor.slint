@@ -25,6 +25,10 @@ export component RichTextEditor inherits Rectangle {
     callback pointer-down(length, length);
     callback pointer-drag(length, length);
     callback pointer-double(length, length);
+    // Scroll changed (wheel / scrollbar). The host re-renders the visible slice
+    // at the new offset (viewport-bounded rendering) WITHOUT caret-follow, so
+    // scrolling away from the caret doesn't snap back.
+    callback scrolled(length);
     // Reports the viewport size (px). Driven by a Timer below — NOT by the
     // Flickable's changed/init handlers, which fire during a layout pass and would
     // re-enter the property system ("Recursion detected"). The host must only
@@ -90,30 +94,35 @@ export component RichTextEditor inherits Rectangle {
             return EventResult.reject;
         }
 
+        // Viewport-bounded rendering: `frame` is a viewport-sized image shown at
+        // a fixed position (no internal Flickable scroll). Pointer coords are
+        // viewport-relative, so we add `scroll-y` to convert to the document
+        // space the editor hit-tests in; the caret arrives already
+        // viewport-relative. Scrolling drives a host re-render of the new slice.
         flick := Flickable {
-            // Non-interactive so drags go to text selection, not scrolling.
             interactive: false;
             width: 100%;
             height: 100%;
-            viewport-height: root.doc-height;
+            viewport-height: self.height;
             viewport-width: self.width;
-            viewport-y: -root.scroll-y;
+            viewport-y: 0;
 
             img := Image {
                 x: 0;
                 y: 0;
                 width: flick.width;
-                height: root.doc-height;
+                height: flick.height;
                 source: root.frame;
                 image-fit: ImageFit.fill;
             }
 
             TouchArea {
                 width: flick.width;
-                height: root.doc-height;
+                height: flick.height;
                 scroll-event(e) => {
                     root.scroll-y = max(0px, min(root.scroll-y - e.delta-y,
                                                  max(0px, root.doc-height - flick.height)));
+                    root.scrolled(root.scroll-y);
                     return EventResult.accept;
                 }
                 pointer-event(e) => {
@@ -122,7 +131,7 @@ export component RichTextEditor inherits Rectangle {
                         root.down-x = self.mouse-x;
                         root.down-y = self.mouse-y;
                         root.dragging = false;
-                        root.pointer-down(self.mouse-x, self.mouse-y);
+                        root.pointer-down(self.mouse-x, self.mouse-y + root.scroll-y);
                     }
                 }
                 moved => {
@@ -133,13 +142,14 @@ export component RichTextEditor inherits Rectangle {
                             root.dragging = true;
                         }
                         if (root.dragging) {
-                            root.pointer-drag(self.mouse-x, self.mouse-y);
+                            root.pointer-drag(self.mouse-x, self.mouse-y + root.scroll-y);
                         }
                     }
                 }
-                double-clicked => { root.pointer-double(self.mouse-x, self.mouse-y); }
+                double-clicked => { root.pointer-double(self.mouse-x, self.mouse-y + root.scroll-y); }
             }
 
+            // Caret arrives in viewport-relative coordinates from render_view.
             Rectangle {
                 x: root.caret-x;
                 y: root.caret-y;
@@ -173,12 +183,14 @@ export component RichTextEditor inherits Rectangle {
                         root.scroll-y = max(0px, min(
                             self.mouse-y / parent.height * root.doc-height - flick.height / 2,
                             max(0px, root.doc-height - flick.height)));
+                        root.scrolled(root.scroll-y);
                     }
                 }
                 clicked => {
                     root.scroll-y = max(0px, min(
                         self.mouse-y / parent.height * root.doc-height - flick.height / 2,
                         max(0px, root.doc-height - flick.height)));
+                    root.scrolled(root.scroll-y);
                 }
             }
         }
