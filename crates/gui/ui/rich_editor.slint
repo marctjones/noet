@@ -12,6 +12,14 @@ export component RichTextEditor inherits Rectangle {
     in property <length> caret-y;
     in property <length> caret-h: 22px;
     in property <bool> caret-on: true;
+    // Accessibility: the editor renders as a bitmap, so expose the document text
+    // (from sred's a11y snapshot) to screen readers via the accessibility tree.
+    in property <string> a11y-value;
+
+    accessible-role: text-input;
+    accessible-label: "Note editor";
+    accessible-value <=> root.a11y-value;
+    accessible-read-only: false;
 
     // Host theme hooks (set from Noet's Theme global on the instance).
     in property <color> bg: #fdfdfa;

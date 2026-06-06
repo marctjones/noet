@@ -87,6 +87,9 @@ fn rich_render(ui: &AppWindow, follow: bool) {
         ui.set_rich_caret_y(out.caret.y);
         ui.set_rich_caret_h(out.caret.h);
         ui.set_rich_scroll_y(out.scroll_y);
+        // Accessibility: expose the document text to the a11y tree (sred renders a
+        // bitmap that screen readers can't see).
+        ui.set_rich_a11y(e.a11y().value.into());
     });
 }
 

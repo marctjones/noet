@@ -710,6 +710,7 @@ export component AppWindow inherits Window {
     // sred WYSIWYG editor surface — the sole note editor. The frame/caret/scroll
     // props are driven by Rust (render_view) each keystroke / scroll.
     in property <image> rich-frame;
+    in property <string> rich-a11y; // editor text for the accessibility tree (sred a11y snapshot)
     in property <length> rich-doc-height: 400px;
     in property <length> rich-caret-x;
     in property <length> rich-caret-y;
@@ -1380,6 +1381,7 @@ export component AppWindow inherits Window {
                                         caret-y: root.rich-caret-y;
                                         caret-h: root.rich-caret-h;
                                         scroll-y <=> root.rich-scroll-y;
+                                        a11y-value: root.rich-a11y;
                                         insert-text(s) => { root.rich-insert-text(s); }
                                         chord(k) => { return root.rich-chord(k); }
                                         special(n) => { root.rich-special(n); }
