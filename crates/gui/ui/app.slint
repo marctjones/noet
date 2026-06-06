@@ -6,9 +6,11 @@ export global Z {
     in-out property <float> f: 1.0;
 }
 
-// Light/dark theme — structural colors resolve from `dark`.
+// Light/dark theme — structural colors resolve from `dark`, which follows the OS
+// color scheme (Palette.color-scheme) so Noet's surfaces and the built-in widgets
+// stay consistent and track the system; the toggle just flips Palette.
 export global Theme {
-    in-out property <bool> dark: false;
+    out property <bool> dark: Palette.color-scheme == ColorScheme.dark;
     out property <color> bg: dark ? #14161a : #eef0f3;
     out property <color> surface: dark ? #1e2127 : #ffffff;
     out property <color> surface2: dark ? #23272e : #f7f8fa;
@@ -582,10 +584,6 @@ export component AppWindow inherits Window {
     preferred-width: 1280px;
     preferred-height: 820px;
     background: Theme.bg;
-    // Noet's surfaces are hardcoded light; force the light scheme so the
-    // built-in widgets (TextEdit, LineEdit, ComboBox) use dark text, not the
-    // OS dark-mode palette (which renders white text on our white surfaces).
-    init => { Palette.color-scheme = ColorScheme.light; }
 
     // Models
     in property <[NoteItem]> notes;
@@ -845,8 +843,7 @@ export component AppWindow inherits Window {
                     Button {
                         text: Theme.dark ? "☀" : "🌙";
                         clicked => {
-                            Theme.dark = !Theme.dark;
-                            Palette.color-scheme = Theme.dark ? ColorScheme.dark : ColorScheme.light;
+                            Palette.color-scheme = Theme.dark ? ColorScheme.light : ColorScheme.dark;
                         }
                     }
                 }
@@ -2403,7 +2400,7 @@ export component AppWindow inherits Window {
             MenuItem { icon: "⊘"; label: "Clear all filters"; clicked => { root.open-menu = ""; root.clear-filters(); } }
             MenuSep {}
             MenuItem { icon: "⊙"; label: "Reset zoom"; clicked => { root.open-menu = ""; Z.f = 1.0; } }
-            MenuItem { icon: Theme.dark ? "☀" : "☾"; label: Theme.dark ? "Light theme" : "Dark theme"; clicked => { root.open-menu = ""; Theme.dark = !Theme.dark; Palette.color-scheme = Theme.dark ? ColorScheme.dark : ColorScheme.light; } }
+            MenuItem { icon: Theme.dark ? "☀" : "☾"; label: Theme.dark ? "Light theme" : "Dark theme"; clicked => { root.open-menu = ""; Palette.color-scheme = Theme.dark ? ColorScheme.light : ColorScheme.dark; } }
         }
 
         // ===== Command palette overlay (Ctrl/⌘+K) =====
