@@ -15,7 +15,7 @@ noet-core = { path = "../core" }
 # WYSIWYG editor engine (UI-free; Slint-version-independent). Pinned to a public
 # rev so CI release builds resolve it without a sibling checkout. Drives the
 # opt-in "WYSIWYG (beta)" editor; the raw TextEdit remains the default/fallback.
-sred-core = { git = "https://github.com/marctjones/sred", tag = "v0.3.0-alpha.1", features = ["syntax-highlight"] }
+sred-core = { git = "https://github.com/marctjones/sred", tag = "v0.4.0", features = ["syntax-highlight"] }
 slint = "1.13"
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "5"
