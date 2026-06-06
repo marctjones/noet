@@ -363,7 +363,7 @@ component AgendaRow inherits Rectangle {
 // A row inside a dropdown menu: leading glyph, label, optional shortcut hint,
 // and a destructive (danger) variant for actions like Delete.
 component MenuItem inherits Rectangle {
-    in property <string> icon;
+    in property <image> icon;
     in property <string> label;
     in property <string> shortcut;
     in property <bool> danger;
@@ -374,10 +374,10 @@ component MenuItem inherits Rectangle {
     animate background { duration: 90ms; easing: ease-out; }
     HorizontalLayout {
         padding-left: 9px; padding-right: 11px; spacing: 9px;
-        Text {
-            text: root.icon; width: 15px; font-size: (12.5px * Z.f);
-            color: root.danger ? #e74c3c : Theme.text3;
-            horizontal-alignment: center; vertical-alignment: center;
+        Image {
+            source: root.icon; width: 15px; height: 15px;
+            colorize: root.danger ? #e74c3c : Theme.text3;
+            vertical-alignment: center;
         }
         Text {
             text: root.label; font-size: (12.5px * Z.f);
@@ -2335,83 +2335,83 @@ export component AppWindow inherits Window {
             x: fileTitle.absolute-position.x;
             y: fileTitle.absolute-position.y + fileTitle.height + 3px;
             width: 232px;
-            MenuItem { icon: "＋"; label: "New note"; shortcut: "Ctrl+N"; clicked => { root.open-menu = ""; root.new-note(); } }
-            MenuItem { icon: "▦"; label: "New meeting note"; clicked => { root.open-menu = ""; root.new-from-template("meeting"); } }
-            MenuItem { icon: "@"; label: "New 1:1 note"; clicked => { root.open-menu = ""; root.new-from-template("oneonone"); } }
-            MenuItem { icon: "◆"; label: "New decision note"; clicked => { root.open-menu = ""; root.new-from-template("decision"); } }
+            MenuItem { icon: Icons.plus; label: "New note"; shortcut: "Ctrl+N"; clicked => { root.open-menu = ""; root.new-note(); } }
+            MenuItem { icon: Icons.meeting; label: "New meeting note"; clicked => { root.open-menu = ""; root.new-from-template("meeting"); } }
+            MenuItem { icon: Icons.person; label: "New 1:1 note"; clicked => { root.open-menu = ""; root.new-from-template("oneonone"); } }
+            MenuItem { icon: Icons.decision; label: "New decision note"; clicked => { root.open-menu = ""; root.new-from-template("decision"); } }
             MenuSep {}
-            MenuItem { icon: "⤓"; label: "Export note as Markdown"; clicked => { root.open-menu = ""; root.export-note("md"); } }
-            MenuItem { icon: "⎙"; label: "Export note as PDF"; clicked => { root.open-menu = ""; root.export-note("pdf"); } }
+            MenuItem { icon: Icons.download; label: "Export note as Markdown"; clicked => { root.open-menu = ""; root.export-note("md"); } }
+            MenuItem { icon: Icons.print; label: "Export note as PDF"; clicked => { root.open-menu = ""; root.export-note("pdf"); } }
             MenuSep {}
-            MenuItem { icon: "🗀"; label: "Open vault folder"; clicked => { root.open-menu = ""; root.open-vault-folder(); } }
-            MenuItem { icon: "⟳"; label: "Reindex from files"; clicked => { root.open-menu = ""; root.reindex(); } }
-            MenuItem { icon: "⌫"; label: "Open Trash"; clicked => { root.open-menu = ""; root.set-view("trash"); } }
+            MenuItem { icon: Icons.folder; label: "Open vault folder"; clicked => { root.open-menu = ""; root.open-vault-folder(); } }
+            MenuItem { icon: Icons.refresh; label: "Reindex from files"; clicked => { root.open-menu = ""; root.reindex(); } }
+            MenuItem { icon: Icons.trash2; label: "Open Trash"; clicked => { root.open-menu = ""; root.set-view("trash"); } }
             MenuSep {}
-            MenuItem { icon: "⏻"; label: "Exit Noet"; shortcut: "Ctrl+Q"; clicked => { root.open-menu = ""; root.quit(); } }
+            MenuItem { icon: Icons.power; label: "Exit Noet"; shortcut: "Ctrl+Q"; clicked => { root.open-menu = ""; root.quit(); } }
         }
         if root.open-menu == "connectors": MenuPanel {
             x: connTitle.absolute-position.x;
             y: connTitle.absolute-position.y + connTitle.height + 3px;
             width: 250px;
-            MenuItem { icon: "✉"; label: "Import from Gmail (starred)"; clicked => { root.open-menu = ""; root.import-gmail(); } }
-            MenuItem { icon: "✓"; label: "Import from Google Tasks"; clicked => { root.open-menu = ""; root.import-gtasks(); } }
-            MenuItem { icon: "✓"; label: "Import from Todoist"; clicked => { root.open-menu = ""; root.import-todoist(); } }
+            MenuItem { icon: Icons.mail; label: "Import from Gmail (starred)"; clicked => { root.open-menu = ""; root.import-gmail(); } }
+            MenuItem { icon: Icons.check; label: "Import from Google Tasks"; clicked => { root.open-menu = ""; root.import-gtasks(); } }
+            MenuItem { icon: Icons.check; label: "Import from Todoist"; clicked => { root.open-menu = ""; root.import-todoist(); } }
             MenuSep {}
-            MenuItem { icon: "✉"; label: "Import selected Outlook email"; clicked => { root.open-menu = ""; root.import-outlook(); } }
-            MenuItem { icon: "⇄"; label: "Sync flagged Outlook mail"; clicked => { root.open-menu = ""; root.sync-outlook(); } }
+            MenuItem { icon: Icons.mail; label: "Import selected Outlook email"; clicked => { root.open-menu = ""; root.import-outlook(); } }
+            MenuItem { icon: Icons.swap; label: "Sync flagged Outlook mail"; clicked => { root.open-menu = ""; root.sync-outlook(); } }
             MenuSep {}
-            MenuItem { icon: "⚙"; label: "Connection settings…"; clicked => { root.open-menu = ""; root.set-view("settings"); } }
+            MenuItem { icon: Icons.settings; label: "Connection settings…"; clicked => { root.open-menu = ""; root.set-view("settings"); } }
         }
         if root.open-menu == "help": MenuPanel {
             x: helpTitle.absolute-position.x;
             y: helpTitle.absolute-position.y + helpTitle.height + 3px;
             width: 250px;
-            MenuItem { icon: "⌨"; label: "Keyboard shortcuts"; clicked => { root.open-menu = ""; root.shortcuts-open = true; } }
+            MenuItem { icon: Icons.keyboard; label: "Keyboard shortcuts"; clicked => { root.open-menu = ""; root.shortcuts-open = true; } }
             MenuSep {}
-            MenuItem { icon: "ⓘ"; label: "About Noet " + root.app-version; clicked => { root.open-menu = ""; root.set-view("about"); } }
-            MenuItem { icon: "§"; label: "Open-source licenses"; clicked => { root.open-menu = ""; root.set-view("about"); } }
+            MenuItem { icon: Icons.info; label: "About Noet " + root.app-version; clicked => { root.open-menu = ""; root.set-view("about"); } }
+            MenuItem { icon: Icons.license; label: "Open-source licenses"; clicked => { root.open-menu = ""; root.set-view("about"); } }
             MenuSep {}
-            MenuItem { icon: "⎇"; label: "Noet on GitHub"; clicked => { root.open-menu = ""; root.open-url("https://github.com/marctjones/noet"); } }
-            MenuItem { icon: "⚑"; label: "Report an issue"; clicked => { root.open-menu = ""; root.open-url("https://github.com/marctjones/noet/issues"); } }
-            MenuItem { icon: "⤓"; label: "Releases / check for updates"; clicked => { root.open-menu = ""; root.open-url("https://github.com/marctjones/noet/releases"); } }
+            MenuItem { icon: Icons.branch; label: "Noet on GitHub"; clicked => { root.open-menu = ""; root.open-url("https://github.com/marctjones/noet"); } }
+            MenuItem { icon: Icons.flag; label: "Report an issue"; clicked => { root.open-menu = ""; root.open-url("https://github.com/marctjones/noet/issues"); } }
+            MenuItem { icon: Icons.download; label: "Releases / check for updates"; clicked => { root.open-menu = ""; root.open-url("https://github.com/marctjones/noet/releases"); } }
         }
         if root.open-menu == "edit": MenuPanel {
             x: editTitle.absolute-position.x;
             y: editTitle.absolute-position.y + editTitle.height + 3px;
             width: 210px;
-            MenuItem { icon: "✂"; label: "Cut"; shortcut: "Ctrl+X"; clicked => { root.open-menu = ""; root.editing = true; root.edit-action = "cut"; } }
-            MenuItem { icon: "⧉"; label: "Copy"; shortcut: "Ctrl+C"; clicked => { root.open-menu = ""; root.editing = true; root.edit-action = "copy"; } }
-            MenuItem { icon: "⎘"; label: "Paste"; shortcut: "Ctrl+V"; clicked => { root.open-menu = ""; root.editing = true; root.edit-action = "paste"; } }
+            MenuItem { icon: Icons.cut; label: "Cut"; shortcut: "Ctrl+X"; clicked => { root.open-menu = ""; root.editing = true; root.edit-action = "cut"; } }
+            MenuItem { icon: Icons.copy; label: "Copy"; shortcut: "Ctrl+C"; clicked => { root.open-menu = ""; root.editing = true; root.edit-action = "copy"; } }
+            MenuItem { icon: Icons.paste; label: "Paste"; shortcut: "Ctrl+V"; clicked => { root.open-menu = ""; root.editing = true; root.edit-action = "paste"; } }
             MenuSep {}
-            MenuItem { icon: "▣"; label: "Select all"; shortcut: "Ctrl+A"; clicked => { root.open-menu = ""; root.editing = true; root.edit-action = "selectall"; } }
+            MenuItem { icon: Icons.selectall; label: "Select all"; shortcut: "Ctrl+A"; clicked => { root.open-menu = ""; root.editing = true; root.edit-action = "selectall"; } }
         }
         if root.open-menu == "note": MenuPanel {
             x: noteTitle.absolute-position.x;
             y: noteTitle.absolute-position.y + noteTitle.height + 3px;
             width: 240px;
-            MenuItem { icon: "✎"; label: "Edit this note"; clicked => { root.open-menu = ""; root.editing = true; root.set-view("notes"); } }
-            MenuItem { icon: "⎇"; label: "New related note"; clicked => { root.open-menu = ""; root.new-related-note(); } }
-            MenuItem { icon: "✓"; label: "Add todo to note"; clicked => { root.open-menu = ""; root.open-add-todo(); } }
+            MenuItem { icon: Icons.edit; label: "Edit this note"; clicked => { root.open-menu = ""; root.editing = true; root.set-view("notes"); } }
+            MenuItem { icon: Icons.branch; label: "New related note"; clicked => { root.open-menu = ""; root.new-related-note(); } }
+            MenuItem { icon: Icons.check; label: "Add todo to note"; clicked => { root.open-menu = ""; root.open-add-todo(); } }
             MenuSep {}
-            MenuItem { icon: "⇄"; label: "Toggle Markdown / Typst"; clicked => { root.open-menu = ""; root.toggle-kind(); } }
-            MenuItem { icon: "▾"; label: "Archive note"; clicked => { root.open-menu = ""; root.archive-note(true); } }
-            MenuItem { icon: "▴"; label: "Unarchive note"; clicked => { root.open-menu = ""; root.archive-note(false); } }
+            MenuItem { icon: Icons.swap; label: "Toggle Markdown / Typst"; clicked => { root.open-menu = ""; root.toggle-kind(); } }
+            MenuItem { icon: Icons.archive; label: "Archive note"; clicked => { root.open-menu = ""; root.archive-note(true); } }
+            MenuItem { icon: Icons.unarchive; label: "Unarchive note"; clicked => { root.open-menu = ""; root.archive-note(false); } }
             MenuSep {}
-            MenuItem { icon: "⌫"; label: "Delete note (to trash)"; danger: true; clicked => { root.open-menu = ""; root.delete-note(); } }
+            MenuItem { icon: Icons.trash2; label: "Delete note (to trash)"; danger: true; clicked => { root.open-menu = ""; root.delete-note(); } }
         }
         if root.open-menu == "view": MenuPanel {
             x: viewTitle.absolute-position.x;
             y: viewTitle.absolute-position.y + viewTitle.height + 3px;
             width: 236px;
-            MenuItem { icon: "⛶"; label: root.focus-mode ? "Exit focus mode" : "Focus mode (hide chrome)"; clicked => { root.open-menu = ""; root.focus-mode = !root.focus-mode; } }
-            MenuItem { icon: "◧"; label: root.nav-collapsed ? "Expand sidebar" : "Collapse sidebar"; clicked => { root.open-menu = ""; root.nav-collapsed = !root.nav-collapsed; } }
-            MenuItem { icon: "▥"; label: root.rail-hidden ? "Show filter rail" : "Hide filter rail"; clicked => { root.open-menu = ""; root.rail-hidden = !root.rail-hidden; } }
+            MenuItem { icon: Icons.focus; label: root.focus-mode ? "Exit focus mode" : "Focus mode (hide chrome)"; clicked => { root.open-menu = ""; root.focus-mode = !root.focus-mode; } }
+            MenuItem { icon: Icons.panel-left; label: root.nav-collapsed ? "Expand sidebar" : "Collapse sidebar"; clicked => { root.open-menu = ""; root.nav-collapsed = !root.nav-collapsed; } }
+            MenuItem { icon: Icons.panel-right; label: root.rail-hidden ? "Show filter rail" : "Hide filter rail"; clicked => { root.open-menu = ""; root.rail-hidden = !root.rail-hidden; } }
             MenuSep {}
-            MenuItem { icon: "◌"; label: root.show-archived ? "Hide archived notes" : "Show archived notes"; clicked => { root.open-menu = ""; root.set-show-archived(!root.show-archived); } }
-            MenuItem { icon: "⊘"; label: "Clear all filters"; clicked => { root.open-menu = ""; root.clear-filters(); } }
+            MenuItem { icon: Icons.eye; label: root.show-archived ? "Hide archived notes" : "Show archived notes"; clicked => { root.open-menu = ""; root.set-show-archived(!root.show-archived); } }
+            MenuItem { icon: Icons.filter-x; label: "Clear all filters"; clicked => { root.open-menu = ""; root.clear-filters(); } }
             MenuSep {}
-            MenuItem { icon: "⊙"; label: "Reset zoom"; clicked => { root.open-menu = ""; Z.f = 1.0; } }
-            MenuItem { icon: Theme.dark ? "☀" : "☾"; label: Theme.dark ? "Light theme" : "Dark theme"; clicked => { root.open-menu = ""; Palette.color-scheme = Theme.dark ? ColorScheme.light : ColorScheme.dark; } }
+            MenuItem { icon: Icons.textsize; label: "Reset zoom"; clicked => { root.open-menu = ""; Z.f = 1.0; } }
+            MenuItem { icon: Theme.dark ? Icons.sun : Icons.moon; label: Theme.dark ? "Light theme" : "Dark theme"; clicked => { root.open-menu = ""; Palette.color-scheme = Theme.dark ? ColorScheme.light : ColorScheme.dark; } }
         }
 
         // ===== Command palette overlay (Ctrl/⌘+K) =====
