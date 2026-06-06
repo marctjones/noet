@@ -1097,14 +1097,10 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         let ui_w = ui.as_weak();
         ui.on_rich_pointer_down(move |x, y| {
             let ui = ui_w.unwrap();
-            let s = ui.get_rich_scroll_y();
+            // Pointer coords are document-space (sred e698997) — pass straight through.
             // If the click landed on a domain token chip, route it to the facet
             // filter / url opener instead of moving the caret.
-            let tok = RICH.with(|r| {
-                let mut e = r.borrow_mut();
-                e.scroll_to(s);
-                e.token_at(x, y)
-            });
+            let tok = RICH.with(|r| r.borrow_mut().token_at(x, y));
             if let Some((id, value)) = tok {
                 match id.as_str() {
                     "project" => ui.invoke_toggle_project(value.into()),
@@ -1115,7 +1111,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 }
                 return;
             }
-            RICH.with(|r| { let mut e = r.borrow_mut(); e.scroll_to(s); e.click(x, y); });
+            RICH.with(|r| r.borrow_mut().click(x, y));
             rich_render(&ui);
         });
     }
@@ -1123,8 +1119,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         let ui_w = ui.as_weak();
         ui.on_rich_pointer_drag(move |x, y| {
             let ui = ui_w.unwrap();
-            let s = ui.get_rich_scroll_y();
-            RICH.with(|r| { let mut e = r.borrow_mut(); e.scroll_to(s); e.drag(x, y); });
+            RICH.with(|r| r.borrow_mut().drag(x, y));
             rich_render(&ui);
         });
     }
@@ -1132,8 +1127,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         let ui_w = ui.as_weak();
         ui.on_rich_pointer_double(move |x, y| {
             let ui = ui_w.unwrap();
-            let s = ui.get_rich_scroll_y();
-            RICH.with(|r| { let mut e = r.borrow_mut(); e.scroll_to(s); e.double_click(x, y); });
+            RICH.with(|r| r.borrow_mut().double_click(x, y));
             rich_render(&ui);
         });
     }
@@ -1141,7 +1135,15 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         let ui_w = ui.as_weak();
         ui.on_rich_resized(move |w, h| {
             RICH_VP.with(|v| v.set((w.max(1.0) as u32, h.max(1.0))));
-            let _ = &ui_w; // DIAGNOSTIC: render disabled to isolate recursion source
+            // Fires from the Flickable's init/changed-geometry handlers, i.e. during
+            // a layout/property pass; rendering writes back doc-height/scroll-y, so
+            // defer it to the next loop tick to avoid re-entering the property system.
+            let ui_w = ui_w.clone();
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(ui) = ui_w.upgrade() {
+                    rich_render(&ui);
+                }
+            });
         });
     }
 
@@ -1863,30 +1865,48 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
 
     // autosave: debounce edits and persist ~1.2s after typing stops
     let autosave = Rc::new(slint::Timer::default());
+    // live update (entity chips + markdown preview): debounced ~120ms so the
+    // whole-document entity parse + preview-block rebuild stay OFF the per-keystroke
+    // path. The typed character paints immediately (the editor renders on its own);
+    // chips/preview catch up a beat after you pause.
+    let live = Rc::new(slint::Timer::default());
     {
         let ui_w = ui.as_weak();
         let state = state.clone();
         let autosave = autosave.clone();
+        let live = live.clone();
         ui.on_note_edited(move || {
             let ui = ui_w.unwrap();
-            // Live preview: markdown re-renders instantly from the buffer; typst
-            // is heavier so it refreshes on the autosave tick below.
-            let body = ui.get_current_body().to_string();
-            let kind = ui.get_current_kind().to_string();
-            set_doc_counts(&ui, &body);
-            // Keep the entity chip strip (labels / people / tags) live while typing,
-            // so they stay easy to find in the editor as you add them.
-            let (projects, people, tags) = backend::Backend::note_entities(&body);
-            ui.set_current_projects(str_model(&projects));
-            ui.set_current_people(str_model(&people));
-            ui.set_current_tags(str_model(&tags));
-            if backend::effective_kind(&kind, &body) == "markdown" {
-                ui.set_current_is_typst(false);
-                let id = ui.get_current_id().to_string();
-                let s = state.borrow();
-                FOLDS.with(|f| {
-                    ui.set_md_blocks(md_blocks_model(&s.backend, &id, &body, false, &f.borrow()));
-                });
+            // Debounced live update — heavy O(document) work moved off the keystroke.
+            {
+                let ui_w = ui_w.clone();
+                let state = state.clone();
+                live.start(
+                    slint::TimerMode::SingleShot,
+                    std::time::Duration::from_millis(120),
+                    move || {
+                        let Some(ui) = ui_w.upgrade() else { return };
+                        let body = ui.get_current_body().to_string();
+                        let kind = ui.get_current_kind().to_string();
+                        set_doc_counts(&ui, &body);
+                        let (projects, people, tags) = backend::Backend::note_entities(&body);
+                        ui.set_current_projects(str_model(&projects));
+                        ui.set_current_people(str_model(&people));
+                        ui.set_current_tags(str_model(&tags));
+                        // Only rebuild the markdown preview blocks when the preview
+                        // pane is actually shown (it's the heaviest part).
+                        if backend::effective_kind(&kind, &body) == "markdown" {
+                            ui.set_current_is_typst(false);
+                            if ui.get_preview_on() {
+                                let id = ui.get_current_id().to_string();
+                                let s = state.borrow();
+                                FOLDS.with(|f| {
+                                    ui.set_md_blocks(md_blocks_model(&s.backend, &id, &body, false, &f.borrow()));
+                                });
+                            }
+                        }
+                    },
+                );
             }
             // debounced autosave (+ typst preview refresh)
             let ui_w = ui_w.clone();
