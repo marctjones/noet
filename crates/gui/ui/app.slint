@@ -1205,84 +1205,6 @@ export component AppWindow inherits Window {
                                     CloseX { closed => { contentpane.open = false; } }
                                 }
 
-                                // ---- READ MODE (rendered) ----
-                                // Read-only RenderedView removed — the sred editor is the single note
-                                // surface (it renders WYSIWYG and scrolls). This block is disabled.
-                                if (false): VerticalLayout {
-                                    spacing: 8px;
-                                    HorizontalLayout {
-                                        spacing: 8px;
-                                        Text { text: root.current-title; font-size: (18px * Z.f); font-weight: 700; color: Theme.text; horizontal-stretch: 1; vertical-alignment: center; overflow: elide; }
-                                        Text {
-                                            text: root.current-word-count + " words · " + root.current-char-count + " chars";
-                                            font-size: (11px * Z.f); color: Theme.text3; vertical-alignment: center;
-                                        }
-                                        Text { text: root.current-is-typst ? "typst" : ""; font-size: (10px * Z.f); color: #9a5bd6; vertical-alignment: center; }
-                                        Button { text: "✎ Edit"; clicked => { root.editing = true; } }
-                                    }
-                                    // clickable entity bar — projects / people / tags in this note
-                                    if (root.current-projects.length + root.current-people.length + root.current-tags.length > 0): HorizontalLayout {
-                                        spacing: 5px;
-                                        alignment: start;
-                                        for p in root.current-projects: LinkChip { text: "▸ " + p; tint: #e7f7ec; ink: #1f7a44; clicked => { root.toggle-project(p); } }
-                                        for pe in root.current-people: LinkChip { text: "◷ " + pe; tint: #fdeede; ink: #9a5b1b; clicked => { root.toggle-person(pe); } }
-                                        for tg in root.current-tags: LinkChip { text: "# " + tg; tint: #f3ecfb; ink: #5b1b9a; clicked => { root.toggle-tag(tg); } }
-                                    }
-                                    // backlinks: notes that link to this note's title
-                                    if (root.current-backlinks.length > 0): HorizontalLayout {
-                                        spacing: 5px;
-                                        alignment: start;
-                                        Text { text: "↩ referenced by:"; font-size: (11px * Z.f); color: Theme.text3; vertical-alignment: center; }
-                                        for r in root.current-backlinks: LinkChip { text: r.title; tint: #eef2f7; ink: #4a5560; clicked => { root.select-note(r.id); } }
-                                    }
-                                    Rectangle {
-                                        vertical-stretch: 1;
-                                        RenderedView {
-                                            blocks: root.md-blocks;
-                                            is-typst: root.current-is-typst;
-                                            img: root.render-image;
-                                            toggle-todo(id) => { root.cycle-todo(id); }
-                                            edit-requested => { root.editing = true; }
-                                            open-url(u) => { root.open-url(u); }
-                                            toggle-fold(i) => { root.toggle-fold(i); }
-                                            filter-entity(k, v) => {
-                                                if (k == "project") { root.toggle-project(v); }
-                                                if (k == "person") { root.toggle-person(v); }
-                                                if (k == "tag") { root.toggle-tag(v); }
-                                            }
-                                        }
-                                    }
-                                    HorizontalLayout {
-                                        spacing: 8px;
-                                        Button { text: "＋ Add todo"; clicked => { root.open-add-todo(); } }
-                                        Button { text: "↳ Related note"; clicked => { root.new-related-note(); } }
-                                        Rectangle { horizontal-stretch: 1; }
-                                        Text { text: root.status-text; color: #67727d; font-size: (12px * Z.f); vertical-alignment: center; }
-                                    }
-                                    HorizontalLayout {
-                                        spacing: 8px;
-                                        LineEdit {
-                                            placeholder-text: "add to a workstream…";
-                                            text <=> root.topic-input;
-                                            horizontal-stretch: 1;
-                                            accepted => { root.add-link(root.topic-input); }
-                                        }
-                                        Button { text: "▸ Add"; clicked => { root.add-link(root.topic-input); } }
-                                        LineEdit {
-                                            placeholder-text: "new #label…";
-                                            text <=> root.tag-input;
-                                            horizontal-stretch: 1;
-                                            accepted => { root.add-tag(root.tag-input); }
-                                        }
-                                        Button { text: "＃ Label"; clicked => { root.add-tag(root.tag-input); } }
-                                    }
-                                    HorizontalLayout {
-                                        spacing: 8px;
-                                        LineEdit { placeholder-text: "📎 attach a file/folder path…"; text <=> root.attach-input; horizontal-stretch: 1; accepted => { root.attach-path(root.attach-input); } }
-                                        Button { text: "📎 Attach"; clicked => { root.attach-path(root.attach-input); } }
-                                    }
-                                }
-
                                 // ---- The note editor (always shown — single surface) ----
                                 editpane := VerticalLayout {
                                     spacing: 8px;
@@ -1453,6 +1375,14 @@ export component AppWindow inherits Window {
                                         wrap: word-wrap;
                                         placeholder-text: "Raw markdown / Typst source…";
                                         edited => { root.note-edited(); }
+                                    }
+                                    // quick-add a (possibly new) workstream or label to this note
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        LineEdit { placeholder-text: "add to a workstream…"; text <=> root.topic-input; horizontal-stretch: 1; accepted => { root.add-link(root.topic-input); } }
+                                        Button { text: "▸ Add"; clicked => { root.add-link(root.topic-input); } }
+                                        LineEdit { placeholder-text: "new #label…"; text <=> root.tag-input; horizontal-stretch: 1; accepted => { root.add-tag(root.tag-input); } }
+                                        Button { text: "＃ Label"; clicked => { root.add-tag(root.tag-input); } }
                                     }
                                     HorizontalLayout {
                                         spacing: 8px;
