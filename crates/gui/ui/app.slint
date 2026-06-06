@@ -256,14 +256,25 @@ component FacetRow inherits Rectangle {
 
 component KindDot inherits Rectangle {
     in property <string> kind;
-    width: 8px; height: 8px; border-radius: 4px;
-    background:
+    property <color> tint:
         kind == "do" ? Theme.accent :
         kind == "followup" ? #d98324 :
         kind == "delegated" ? #1f9d57 :
         kind == "todelegate" ? #9a5bd6 :
         kind == "someday" ? #6b7280 :
         kind == "reading" ? #c0398b : #888;
+    width: 15px; height: 15px;
+    Image {
+        width: 100%; height: 100%;
+        colorize: root.tint;
+        source:
+            kind == "do" ? Icons.kind-do :
+            kind == "followup" ? Icons.kind-followup :
+            kind == "delegated" ? Icons.kind-delegated :
+            kind == "todelegate" ? Icons.kind-todelegate :
+            kind == "someday" ? Icons.kind-someday :
+            kind == "reading" ? Icons.kind-reading : Icons.kind-do;
+    }
 }
 
 component MiniBtn inherits Rectangle {
@@ -869,6 +880,7 @@ export component AppWindow inherits Window {
                 HorizontalLayout {
                     padding: 9px;
                     spacing: 9px;
+                    Image { source: Icons.noet-mark; colorize: Theme.accent; width: 22px * Z.f; height: 22px * Z.f; vertical-alignment: center; }
                     Text { text: "Noet"; font-size: (19px * Z.f); font-weight: 700; color: Theme.text; vertical-alignment: center; }
                     LineEdit {
                         placeholder-text: "Search notes & todos…";
