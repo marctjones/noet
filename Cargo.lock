@@ -4974,8 +4974,8 @@ dependencies = [
 
 [[package]]
 name = "sred-core"
-version = "0.2.0-alpha.4"
-source = "git+https://github.com/marctjones/sred?tag=v0.2.0-alpha.4#90c471e308c90541468f24237bf54ee39111f3f8"
+version = "0.2.0-alpha.5"
+source = "git+https://github.com/marctjones/sred?tag=v0.2.0-alpha.5#7eeb24d588cf1afcaad8e3b7e0cea511488be378"
 dependencies = [
  "bitflags 2.12.1",
  "cosmic-text",
