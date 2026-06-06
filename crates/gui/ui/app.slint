@@ -629,7 +629,7 @@ export component AppWindow inherits Window {
     // user toggle, so a narrow window stays usable (the toggle takes effect again
     // once there's room).
     out property <bool> nav-eff-collapsed: root.nav-collapsed || root.width < 720px;
-    out property <bool> rail-eff-hidden: root.rail-hidden || root.width < 860px;
+    out property <bool> rail-eff-hidden: root.rail-hidden || root.focus-mode || root.width < 860px;
     in-out property <string> open-menu: ""; // which menu-bar dropdown is open ("" = none)
     in-out property <length> notes-width: 280px;
     in-out property <bool> resizing: false;
@@ -650,6 +650,9 @@ export component AppWindow inherits Window {
     in property <int> current-word-count;
     in property <int> current-char-count;
     in-out property <string> status-text;
+    // Focus mode: hide the menu bar, context toolbar, and both sidebars for
+    // distraction-free editing (toggle in the top bar / View menu).
+    in-out property <bool> focus-mode: false;
     // Command palette (Ctrl/⌘+K): fuzzy jump to notes / views / commands / facets.
     in-out property <bool> palette-open: false;
     in-out property <string> palette-query;
@@ -802,7 +805,8 @@ export component AppWindow inherits Window {
         VerticalLayout {
             // ===== Menu bar =====
             Rectangle {
-                height: 30px;
+                height: root.focus-mode ? 0px : 30px;
+                visible: !root.focus-mode;
                 background: Theme.surface2;
                 Rectangle { y: parent.height - 1px; height: 1px; background: Theme.border; }
                 HorizontalLayout {
@@ -835,6 +839,7 @@ export component AppWindow inherits Window {
                         edited(t) => { root.set-search(t); }
                     }
                     Button { text: "⌘K  Go to…"; clicked => { root.palette-query = ""; root.palette-search(""); root.palette-open = true; } }
+                    Button { text: root.focus-mode ? "⛶ Exit focus" : "⛶ Focus"; clicked => { root.focus-mode = !root.focus-mode; } }
                     Button { text: "＋ New note"; primary: true; clicked => { root.new-note(); } }
                     Button { text: "⟳"; clicked => { root.reindex(); } }
                     Button { text: "A−"; clicked => { Z.f = max(Z.f - 0.1, 0.6); } }
@@ -850,10 +855,10 @@ export component AppWindow inherits Window {
             }
 
             // ===== Context toolbar (per-view actions) =====
-            if (root.view == "today" || root.view == "notes" || root.view == "tasks"
+            if (!root.focus-mode && (root.view == "today" || root.view == "notes" || root.view == "tasks"
                 || root.view == "agenda" || root.view == "gantt" || root.view == "inbox"
                 || root.view == "review" || root.view == "board" || root.view == "calendar"
-                || root.view == "labels" || root.view == "people"): Rectangle {
+                || root.view == "labels" || root.view == "people")): Rectangle {
                 height: 40px;
                 background: Theme.surface2;
                 Rectangle { y: parent.height - 1px; height: 1px; width: 100%; background: Theme.border; }
@@ -880,7 +885,8 @@ export component AppWindow inherits Window {
             HorizontalLayout {
                 // ----- Navigation rail (Win11 NavigationView) -----
                 Rectangle {
-                    width: root.nav-eff-collapsed ? 52px : 168px;
+                    width: root.focus-mode ? 0px : (root.nav-eff-collapsed ? 52px : 168px);
+                    visible: !root.focus-mode;
                     animate width { duration: 140ms; easing: ease-out; }
                     background: Theme.surface;
                     Rectangle {
@@ -2393,6 +2399,7 @@ export component AppWindow inherits Window {
             x: viewTitle.absolute-position.x;
             y: viewTitle.absolute-position.y + viewTitle.height + 3px;
             width: 236px;
+            MenuItem { icon: "⛶"; label: root.focus-mode ? "Exit focus mode" : "Focus mode (hide chrome)"; clicked => { root.open-menu = ""; root.focus-mode = !root.focus-mode; } }
             MenuItem { icon: "◧"; label: root.nav-collapsed ? "Expand sidebar" : "Collapse sidebar"; clicked => { root.open-menu = ""; root.nav-collapsed = !root.nav-collapsed; } }
             MenuItem { icon: "▥"; label: root.rail-hidden ? "Show filter rail" : "Hide filter rail"; clicked => { root.open-menu = ""; root.rail-hidden = !root.rail-hidden; } }
             MenuSep {}

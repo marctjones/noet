@@ -72,9 +72,9 @@ export component RichTextEditor inherits Rectangle {
         width: 100%;
         height: 100%;
         key-pressed(event) => {
-            // Swallow every Ctrl-combo (handled as a shortcut) so control
-            // characters are never inserted as text.
-            if (event.modifiers.control) {
+            // Swallow every Ctrl/⌘-combo (handled as a shortcut) so control
+            // characters are never inserted as text. `.meta` is ⌘ on macOS.
+            if (event.modifiers.control || event.modifiers.meta) {
                 root.chord(event.text);
                 return EventResult.accept;
             }
