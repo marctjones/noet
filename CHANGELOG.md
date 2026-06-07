@@ -6,6 +6,12 @@ All notable changes to Noet are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Dark-mode code blocks** — bumped `sred-core` to **v0.7.4**: fenced code is now
+  syntax-highlighted with a light/dark theme chosen by the editor background, so it
+  no longer renders illegibly on Noet's dark theme (sred #21). Also brings bounded
+  editor cache memory (#20) and multi-cursor selections + Ctrl+D (#23).
+
 ## [0.5.0] - 2026-06-07
 
 ### Added
