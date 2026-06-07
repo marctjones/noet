@@ -7,8 +7,34 @@ use super::vault::read_note;
 use super::{Backend, Note};
 use anyhow::Result;
 use rusqlite::Connection;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::time::UNIX_EPOCH;
 use walkdir::WalkDir;
+
+/// File modification time as epoch milliseconds (0 if it can't be read). Used as
+/// the change-detection key for incremental reindexing.
+pub(crate) fn file_mtime(p: &Path) -> i64 {
+    std::fs::metadata(p)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// Remove every index row belonging to one note id (used when its file is gone).
+fn delete_note_rows(tx: &rusqlite::Transaction, id: &str, fts: bool) -> Result<()> {
+    if fts {
+        let _ = tx.execute("DELETE FROM notes_fts WHERE note_id=?", [id]);
+    }
+    tx.execute("DELETE FROM notes WHERE id=?", [id])?;
+    tx.execute("DELETE FROM links WHERE note_id=?", [id])?;
+    tx.execute("DELETE FROM tags WHERE note_id=?", [id])?;
+    tx.execute("DELETE FROM mentions WHERE note_id=?", [id])?;
+    tx.execute("DELETE FROM todos WHERE note_id=?", [id])?;
+    Ok(())
+}
 
 /// Turn a user query into an FTS5 prefix-match expression (sanitized).
 pub(crate) fn fts_query(s: &str) -> String {
@@ -42,6 +68,66 @@ pub fn reindex_connection(conn: &mut Connection, vault: &Path, fts: bool) -> Res
     Ok(())
 }
 
+/// Incrementally reconcile the index against the markdown files on disk: only
+/// re-parse files that are **new or whose mtime changed**, and drop index rows for
+/// files that no longer exist. Equivalent in result to [`reindex_connection`] but,
+/// on a warm index, costs per-edit instead of re-reading the whole vault — the
+/// path the file-watcher and manual ⟳ take while the app runs. On a fresh (empty)
+/// index it naturally indexes everything. Returns the number of files (re)indexed.
+pub fn reindex_incremental_connection(
+    conn: &mut Connection,
+    vault: &Path,
+    fts: bool,
+) -> Result<usize> {
+    // Snapshot what's currently indexed: path -> (note id, stored mtime).
+    let mut indexed: HashMap<String, (String, i64)> = HashMap::new();
+    {
+        let mut stmt = conn.prepare("SELECT id, path, mtime FROM notes")?;
+        let rows = stmt.query_map([], |r| {
+            Ok((r.get::<_, String>(1)?, r.get::<_, String>(0)?, r.get::<_, i64>(2)?))
+        })?;
+        for row in rows {
+            let (path, id, mtime) = row?;
+            indexed.insert(path, (id, mtime));
+        }
+    }
+
+    let tx = conn.transaction()?;
+    let notes_dir = vault.join("notes");
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut reindexed_ids: HashSet<String> = HashSet::new();
+    let mut changed = 0usize;
+    for entry in WalkDir::new(&notes_dir).into_iter().filter_map(|e| e.ok()) {
+        let p = entry.path();
+        if p.extension().map(|e| e == "md").unwrap_or(false) {
+            let path_str = p.to_string_lossy().to_string();
+            seen.insert(path_str.clone());
+            let disk_mtime = file_mtime(p);
+            // Unchanged (same path, same mtime) → skip the parse entirely.
+            if let Some((_, stored)) = indexed.get(&path_str) {
+                if *stored == disk_mtime && disk_mtime != 0 {
+                    continue;
+                }
+            }
+            if let Ok(note) = read_note(p) {
+                reindexed_ids.insert(note.id.clone());
+                Backend::index_note(&tx, &note, fts)?;
+                changed += 1;
+            }
+        }
+    }
+    // Files that vanished from disk → remove their rows. Skip ids we just
+    // re-indexed: a rename is a (gone old path) + (new path, same id), and we must
+    // not delete the row the rename re-created.
+    for (path, (id, _)) in indexed.iter() {
+        if !seen.contains(path) && !reindexed_ids.contains(id) {
+            delete_note_rows(&tx, id, fts)?;
+        }
+    }
+    tx.commit()?;
+    Ok(changed)
+}
+
 /// Run a full reindex on its own SQLite connection to the same on-disk index.
 /// Intended to be called from a background thread; with WAL journaling the UI
 /// connection keeps serving reads while this writes. Blocks the *calling*
@@ -50,7 +136,9 @@ pub fn reindex_connection(conn: &mut Connection, vault: &Path, fts: bool) -> Res
 pub fn background_reindex(index_dir: &Path, vault: &Path, fts: bool) -> Result<()> {
     let mut conn = Connection::open(index_dir.join("index.db"))?;
     let _ = conn.execute_batch("PRAGMA busy_timeout=5000;");
-    reindex_connection(&mut conn, vault, fts)
+    // Incremental: only changed/new files are re-parsed, removed files are dropped.
+    // On the first (empty-index) pass this still indexes everything.
+    reindex_incremental_connection(&mut conn, vault, fts).map(|_| ())
 }
 
 /// The default index location for a vault: a per-vault directory under the OS
@@ -119,7 +207,8 @@ impl Backend {
             DROP TABLE IF EXISTS todos;
             CREATE TABLE notes(
                 id TEXT PRIMARY KEY, title TEXT, path TEXT,
-                created TEXT, updated TEXT, kind TEXT, body TEXT, archived INTEGER);
+                created TEXT, updated TEXT, kind TEXT, body TEXT, archived INTEGER,
+                mtime INTEGER DEFAULT 0);
             CREATE TABLE links(note_id TEXT, target TEXT);
             CREATE TABLE tags(note_id TEXT, tag TEXT);
             CREATE TABLE mentions(note_id TEXT, person TEXT);
@@ -175,6 +264,13 @@ impl Backend {
         reindex_connection(&mut self.conn, &self.vault, self.fts)
     }
 
+    /// Incrementally reconcile the index against disk (only changed/new files are
+    /// re-parsed; removed files are dropped). Returns the number of files
+    /// (re)indexed. See [`reindex_incremental_connection`].
+    pub fn reindex_incremental(&mut self) -> Result<usize> {
+        reindex_incremental_connection(&mut self.conn, &self.vault, self.fts)
+    }
+
     /// Parameters a background-thread reindex needs: the index dir (where
     /// `index.db` lives), the vault path (markdown source), and FTS availability.
     pub fn reindex_params(&self) -> (PathBuf, PathBuf, bool) {
@@ -200,7 +296,7 @@ impl Backend {
         let archived =
             note.path.components().any(|c| c.as_os_str() == "archive") as i64;
         tx.execute(
-            "INSERT OR REPLACE INTO notes(id,title,path,created,updated,kind,body,archived) VALUES(?,?,?,?,?,?,?,?)",
+            "INSERT OR REPLACE INTO notes(id,title,path,created,updated,kind,body,archived,mtime) VALUES(?,?,?,?,?,?,?,?,?)",
             rusqlite::params![
                 note.id,
                 note.title,
@@ -209,7 +305,8 @@ impl Backend {
                 note.updated,
                 note.kind,
                 note.body,
-                archived
+                archived,
+                file_mtime(&note.path)
             ],
         )?;
         tx.execute("DELETE FROM links WHERE note_id=?", [&note.id])?;

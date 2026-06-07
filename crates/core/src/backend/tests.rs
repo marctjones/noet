@@ -179,6 +179,58 @@ fn people_stale_and_project_filters() {
 }
 
 #[test]
+fn incremental_reindex_only_touches_changed_files() {
+    use std::time::{Duration, SystemTime};
+    let dir = std::env::temp_dir().join(format!("noet-test-{}", ulid::Ulid::new()));
+    let notes_dir = dir.join("notes");
+    std::fs::create_dir_all(&notes_dir).unwrap();
+
+    let write = |name: &str, body: &str| std::fs::write(notes_dir.join(name), body).unwrap();
+    // Deterministic mtimes so the test never depends on filesystem timestamp
+    // resolution (incremental reindex keys off mtime).
+    let set_mtime = |name: &str, secs: u64| {
+        let f = std::fs::OpenOptions::new().write(true).open(notes_dir.join(name)).unwrap();
+        f.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(secs)).unwrap();
+    };
+
+    write("a.md", "---\nid: A\ntitle: Alpha\nkind: markdown\n---\nbody a\n");
+    write("b.md", "---\nid: B\ntitle: Beta\nkind: markdown\n---\nTODO(do) bee +[[P]]\n");
+    set_mtime("a.md", 1000);
+    set_mtime("b.md", 1000);
+
+    // open_at runs a full index, which stores each file's mtime.
+    let mut b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();
+    assert_eq!(b.query_notes(&Filter::default()).unwrap().len(), 2);
+
+    // Nothing changed on disk → incremental reconcile is a no-op.
+    assert_eq!(b.reindex_incremental().unwrap(), 0, "no-op when nothing changed");
+
+    // Edit a.md (new title + a todo) and advance its mtime; b.md untouched.
+    write("a.md", "---\nid: A\ntitle: Alpha2\nkind: markdown\n---\nTODO(do) ay +[[P]]\n");
+    set_mtime("a.md", 2000);
+    assert_eq!(b.reindex_incremental().unwrap(), 1, "only the one changed file re-parsed");
+    let notes = b.query_notes(&Filter::default()).unwrap();
+    assert!(notes.iter().any(|n| n.title == "Alpha2"), "changed title reindexed");
+    assert_eq!(b.list_todos("project:P").unwrap().len(), 2, "a's new todo + b's todo");
+
+    // Delete b.md → its rows are dropped; nothing re-parsed.
+    std::fs::remove_file(notes_dir.join("b.md")).unwrap();
+    assert_eq!(b.reindex_incremental().unwrap(), 0, "deletion re-parses nothing");
+    let notes = b.query_notes(&Filter::default()).unwrap();
+    assert_eq!(notes.len(), 1);
+    assert!(notes.iter().all(|n| n.id != "B"), "deleted file removed from the index");
+    assert_eq!(b.list_todos("project:P").unwrap().len(), 1, "b's todo gone");
+
+    // Add c.md → indexed; exactly one file re-parsed.
+    write("c.md", "---\nid: C\ntitle: Gamma\nkind: markdown\n---\nbody c\n");
+    set_mtime("c.md", 3000);
+    assert_eq!(b.reindex_incremental().unwrap(), 1, "new file indexed");
+    assert_eq!(b.query_notes(&Filter::default()).unwrap().len(), 2);
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn status_tags_board_and_moves() {
     let dir = std::env::temp_dir().join(format!("noet-test-{}", ulid::Ulid::new()));
     let mut b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();
