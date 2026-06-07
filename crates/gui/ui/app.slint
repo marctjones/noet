@@ -732,6 +732,10 @@ export component AppWindow inherits Window {
     in property <length> rich-caret-y;
     in property <length> rich-caret-h: 22px;
     in-out property <length> rich-scroll-y;
+    // Inline entity autocomplete (`[[` / `@[[` / `#`) — driven by Rust.
+    in-out property <[string]> rich-ac-items;
+    in-out property <int> rich-ac-index;
+    in-out property <bool> rich-ac-open;
 
     // Todo editor form state
     in-out property <bool> form-visible: false;
@@ -827,6 +831,8 @@ export component AppWindow inherits Window {
     callback rich-pointer-double(length, length);
     callback rich-resized(length, length);
     callback rich-scrolled(length);       // wheel/scrollbar → re-render the slice
+    callback rich-ac-key(string);         // autocomplete nav/accept/dismiss
+    callback rich-ac-pick(int);           // autocomplete row clicked
     callback rich-insert(string);         // insert a snippet (entity-picker tokens)
     callback rich-copy();                 // copy the sred selection to the clipboard
     callback toggle-kind();
@@ -1431,9 +1437,18 @@ export component AppWindow inherits Window {
                                         caret-h: root.rich-caret-h;
                                         scroll-y <=> root.rich-scroll-y;
                                         a11y-value: root.rich-a11y;
+                                        ac-items: root.rich-ac-items;
+                                        ac-index: root.rich-ac-index;
+                                        ac-open: root.rich-ac-open;
+                                        ac-bg: Theme.surface;
+                                        ac-border: Theme.border;
+                                        ac-text: Theme.text;
+                                        ac-sel: Theme.sel;
                                         insert-text(s) => { root.rich-insert-text(s); }
                                         chord(k) => { return root.rich-chord(k); }
                                         special(n) => { root.rich-special(n); }
+                                        ac-key(k) => { root.rich-ac-key(k); }
+                                        ac-pick(i) => { root.rich-ac-pick(i); }
                                         pointer-down(px, py) => { root.rich-pointer-down(px, py); }
                                         pointer-drag(px, py) => { root.rich-pointer-drag(px, py); }
                                         pointer-double(px, py) => { root.rich-pointer-double(px, py); }

@@ -4,7 +4,7 @@
 use noet_core::backend;
 use noet_core::backend::{Backend, Filter, TodoFields};
 use chrono::NaiveDate;
-use slint::{ModelRc, SharedString, VecModel};
+use slint::{Model, ModelRc, SharedString, VecModel};
 use sred_core::{
     BlockKind as SredBlock, Command as SredCmd, Editor as SredEditor, Format as SredFormat,
     MarkSet as SredMark, Motion as SredMotion, Theme as SredTheme,
@@ -107,6 +107,36 @@ thread_local! {
     /// Find/replace: current match ranges + active index.
     static FIND_HITS: RefCell<Vec<(usize, usize)>> = RefCell::new(Vec::new());
     static FIND_CUR: Cell<usize> = const { Cell::new(0) };
+
+    /// Active autocomplete trigger: (kind, text-typed-after-the-trigger). `kind` is
+    /// "project" | "person" | "tag". `None` when the popup is closed.
+    static AC: RefCell<Option<(&'static str, String)>> = const { RefCell::new(None) };
+}
+
+/// Parse the text immediately before the caret for an open entity-autocomplete
+/// trigger. Returns `(kind, typed)` where `kind` is "project" | "person" | "tag"
+/// and `typed` is what's been entered after the trigger so far. Pure (unit-tested).
+fn ac_detect(prefix: &str) -> Option<(&'static str, String)> {
+    // An open wiki-link: the last "[[" with no "]]" / newline after it. The kind
+    // is "person" when preceded by '@' (`@[[`), else "project" (`[[` or `+[[`).
+    if let Some(pos) = prefix.rfind("[[") {
+        let seg = &prefix[pos + 2..];
+        if !seg.contains(']') && !seg.contains('\n') {
+            let kind = if prefix[..pos].ends_with('@') { "person" } else { "project" };
+            return Some((kind, seg.to_string()));
+        }
+    }
+    // A bare `#tag`: last '#' at start-of-line or after whitespace, word chars only.
+    if let Some(pos) = prefix.rfind('#') {
+        let before_ok =
+            prefix[..pos].chars().last().map(|c| c.is_whitespace()).unwrap_or(true);
+        let seg = &prefix[pos + 1..];
+        let word_ok = seg.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-');
+        if before_ok && word_ok {
+            return Some(("tag", seg.to_string()));
+        }
+    }
+    None
 }
 
 fn find_opts() -> SredSearch {
@@ -203,7 +233,94 @@ fn rich_after_edit(ui: &AppWindow) {
 fn rich_load(ui: &AppWindow, body: &str) {
     RICH.with(|r| r.borrow_mut().set_text(body));
     ui.set_rich_scroll_y(0.0);
+    // Start each note with the autocomplete popup closed.
+    ui.set_rich_ac_open(false);
+    AC.with(|a| *a.borrow_mut() = None);
     rich_render(ui, true);
+}
+
+/// Re-evaluate inline autocomplete after a typing/caret change: detect a trigger
+/// in the text before the caret, fetch matching workstream/person/tag names from
+/// the index, and open or close the popup accordingly. Cheap (only on a single
+/// caret); skips the query entirely when no trigger is active.
+fn rich_autocomplete_update(ui: &AppWindow, state: &Rc<RefCell<State>>) {
+    let (text, caret, ncarets) = RICH.with(|r| {
+        let e = r.borrow();
+        let c = e.carets();
+        (e.text(), c.first().copied().unwrap_or(0), c.len())
+    });
+    let prefix: String = text.chars().take(caret).collect();
+    let trig = if ncarets == 1 { ac_detect(&prefix) } else { None };
+    let Some((kind, typed)) = trig else {
+        ui.set_rich_ac_open(false);
+        AC.with(|a| *a.borrow_mut() = None);
+        return;
+    };
+    let lower = typed.to_lowercase();
+    let names: Vec<String> = {
+        let st = state.borrow();
+        let b = &st.backend;
+        let raw = match kind {
+            "project" => b.list_projects(),
+            "person" => b.list_people(),
+            _ => b.list_tags(),
+        };
+        raw.map(|v| v.into_iter().map(|p| p.name).collect()).unwrap_or_default()
+    };
+    let mut items: Vec<String> =
+        names.into_iter().filter(|n| n.to_lowercase().starts_with(&lower)).collect();
+    items.sort();
+    items.dedup();
+    items.truncate(8);
+    if items.is_empty() {
+        ui.set_rich_ac_open(false);
+        AC.with(|a| *a.borrow_mut() = None);
+        return;
+    }
+    let model: Vec<slint::SharedString> = items.iter().map(|s| s.as_str().into()).collect();
+    ui.set_rich_ac_items(slint::ModelRc::new(slint::VecModel::from(model)));
+    ui.set_rich_ac_index(0);
+    ui.set_rich_ac_open(true);
+    AC.with(|a| *a.borrow_mut() = Some((kind, typed)));
+}
+
+/// Accept the currently-highlighted autocomplete candidate: replace the partial
+/// text after the trigger with the full name (canonical casing), closing `]]` for
+/// wiki-links, and move the caret past the token. No-op if the popup is closed.
+fn rich_autocomplete_accept(ui: &AppWindow) {
+    let Some((kind, typed)) = AC.with(|a| a.borrow().clone()) else { return };
+    let idx = ui.get_rich_ac_index().max(0) as usize;
+    let items = ui.get_rich_ac_items();
+    let Some(name) = items.row_data(idx) else { return };
+    let name = name.to_string();
+    RICH.with(|r| {
+        let mut e = r.borrow_mut();
+        // Delete what the user already typed after the trigger (so casing is canonical).
+        for _ in 0..typed.chars().count() {
+            e.apply(SredCmd::DeleteBackward);
+        }
+        if kind == "tag" {
+            e.apply(SredCmd::Insert(name));
+        } else {
+            // Wiki-link: don't double the closing `]]` if it's already there
+            // (auto-pairs may have inserted it); otherwise add it. End past the `]]`.
+            let after_close = {
+                let t = e.text();
+                let c = e.carets().first().copied().unwrap_or(0);
+                t.chars().skip(c).take(2).collect::<String>() == "]]"
+            };
+            e.apply(SredCmd::Insert(name));
+            if after_close {
+                e.apply(SredCmd::Move(SredMotion::Right));
+                e.apply(SredCmd::Move(SredMotion::Right));
+            } else {
+                e.apply(SredCmd::Insert("]]".to_string()));
+            }
+        }
+    });
+    ui.set_rich_ac_open(false);
+    AC.with(|a| *a.borrow_mut() = None);
+    rich_after_edit(ui);
 }
 
 // ---- sred domain tokens: color `[[wikilink]]` / `@mention` / `#tag` / url in
@@ -1244,10 +1361,12 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
     // sred editor: forward key / pointer / command events into sred.
     {
         let ui_w = ui.as_weak();
+        let state = state.clone();
         ui.on_rich_insert_text(move |s| {
             let ui = ui_w.unwrap();
             RICH.with(|r| r.borrow_mut().apply(SredCmd::Insert(s.to_string())));
             rich_after_edit(&ui);
+            rich_autocomplete_update(&ui, &state);
         });
     }
     {
@@ -1311,6 +1430,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
     }
     {
         let ui_w = ui.as_weak();
+        let state = state.clone();
         ui.on_rich_special(move |name| {
             let ui = ui_w.unwrap();
             let changed = RICH.with(|r| {
@@ -1333,6 +1453,34 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 }
             });
             if changed { rich_after_edit(&ui) } else { rich_render(&ui, true) }
+            // Re-evaluate the autocomplete popup (backspace re-filters; a caret
+            // move can open/close it).
+            rich_autocomplete_update(&ui, &state);
+        });
+    }
+    {
+        let ui_w = ui.as_weak();
+        ui.on_rich_ac_key(move |k| {
+            let ui = ui_w.unwrap();
+            let n = ui.get_rich_ac_items().row_count() as i32;
+            match k.as_str() {
+                "up" if n > 0 => ui.set_rich_ac_index((ui.get_rich_ac_index() - 1 + n) % n),
+                "down" if n > 0 => ui.set_rich_ac_index((ui.get_rich_ac_index() + 1) % n),
+                "accept" => rich_autocomplete_accept(&ui),
+                "close" => {
+                    ui.set_rich_ac_open(false);
+                    AC.with(|a| *a.borrow_mut() = None);
+                }
+                _ => {}
+            }
+        });
+    }
+    {
+        let ui_w = ui.as_weak();
+        ui.on_rich_ac_pick(move |i| {
+            let ui = ui_w.unwrap();
+            ui.set_rich_ac_index(i);
+            rich_autocomplete_accept(&ui);
         });
     }
     {
@@ -1373,6 +1521,9 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 return;
             }
             RICH.with(|r| r.borrow_mut().click(x, y));
+            // A click moves the caret — dismiss any open autocomplete popup.
+            ui.set_rich_ac_open(false);
+            AC.with(|a| *a.borrow_mut() = None);
             rich_render(&ui, true);
         });
     }

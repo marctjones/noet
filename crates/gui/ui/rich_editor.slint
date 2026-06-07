@@ -27,6 +27,19 @@ export component RichTextEditor inherits Rectangle {
     in property <color> focus-col: #4080ff;
     in property <color> caret-col: #1166dd;
 
+    // Inline type-ahead autocomplete (`[[` / `@[[` / `#`). The host computes the
+    // candidate list + selection and positions the popup at the caret; this
+    // component draws it and routes nav/accept/dismiss keys back via `ac-key`.
+    in property <[string]> ac-items;
+    in property <int> ac-index;
+    in property <bool> ac-open;
+    in property <color> ac-bg: #ffffff;
+    in property <color> ac-border: #d8d8d2;
+    in property <color> ac-text: #1b2a3a;
+    in property <color> ac-sel: #e3efed;
+    callback ac-key(string);   // "up" | "down" | "accept" | "close"
+    callback ac-pick(int);     // mouse-selected row index
+
     callback insert-text(string);
     callback chord(string) -> bool;
     callback special(string);
@@ -85,6 +98,15 @@ export component RichTextEditor inherits Rectangle {
             if (event.modifiers.control || event.modifiers.meta) {
                 root.chord(event.text);
                 return EventResult.accept;
+            }
+            // When the autocomplete popup is open it owns the nav/accept/dismiss
+            // keys (so they don't move the editor caret or insert a newline).
+            if (root.ac-open) {
+                if (event.text == Key.UpArrow)   { root.ac-key("up");     return EventResult.accept; }
+                if (event.text == Key.DownArrow) { root.ac-key("down");   return EventResult.accept; }
+                if (event.text == Key.Return)    { root.ac-key("accept"); return EventResult.accept; }
+                if (event.text == Key.Tab)       { root.ac-key("accept"); return EventResult.accept; }
+                if (event.text == Key.Escape)    { root.ac-key("close");  return EventResult.accept; }
             }
             if (event.text == Key.Backspace)   { root.special("backspace"); return EventResult.accept; }
             if (event.text == Key.Delete)      { root.special("delete");    return EventResult.accept; }
@@ -200,6 +222,49 @@ export component RichTextEditor inherits Rectangle {
                         self.mouse-y / parent.height * root.doc-height - flick.height / 2,
                         max(0px, root.doc-height - flick.height)));
                     root.scrolled(root.scroll-y);
+                }
+            }
+        }
+
+        // Autocomplete popup, anchored just below the caret (flips above when it
+        // would overflow the bottom). Lives inside `scope`, so it's in the same
+        // (viewport-relative) coordinate space the caret is reported in.
+        if (root.ac-open && root.ac-items.length > 0) : Rectangle {
+            property <length> row-h: 26px;
+            property <length> pop-h: min(root.ac-items.length, 8) * row-h + 8px;
+            property <bool> flip: root.caret-y + root.caret-h + pop-h > scope.height;
+            x: min(root.caret-x, scope.width - self.width - 6px);
+            y: flip ? max(2px, root.caret-y - pop-h - 2px)
+                    : (root.caret-y + root.caret-h + 2px);
+            width: 240px;
+            height: pop-h;
+            background: root.ac-bg;
+            border-color: root.ac-border;
+            border-width: 1px;
+            border-radius: 8px;
+            drop-shadow-blur: 12px;
+            drop-shadow-color: #00000030;
+            VerticalLayout {
+                padding: 4px;
+                for item[i] in root.ac-items : Rectangle {
+                    height: row-h;
+                    border-radius: 5px;
+                    background: i == root.ac-index ? root.ac-sel : transparent;
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        Text {
+                            text: item;
+                            color: root.ac-text;
+                            vertical-alignment: center;
+                            overflow: elide;
+                            horizontal-stretch: 1;
+                        }
+                    }
+                    TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.ac-pick(i); }
+                    }
                 }
             }
         }

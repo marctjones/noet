@@ -218,6 +218,55 @@ fn headless_ui_smoke() {
         "Shift-Tab outdents the list line back: {outdented:?}"
     );
 
+    // ----- Level 4c: inline entity autocomplete (`[[` / `#`) -----
+    // Seed entities directly via the backend so the index has candidates, then
+    // drive the editor's autocomplete path (type → popup → accept → insertion).
+    {
+        let mut st = ctx.state.borrow_mut();
+        let n = st.backend.new_note().unwrap();
+        st.backend
+            .save_note(&n.id, "Seed", "seed +[[Acme]] @[[Jane]] #urgent\n")
+            .unwrap();
+    }
+    ctx.state.borrow_mut().backend.reindex_all().unwrap();
+    assert!(
+        ctx.state.borrow().backend.list_tags().unwrap().iter().any(|t| t.name == "urgent"),
+        "seed tag indexed"
+    );
+
+    // Tag completion: typing "#u" opens the popup with "urgent"; accept inserts it.
+    ui.invoke_new_note();
+    ui.invoke_rich_insert_text("#u".into());
+    assert!(ui.get_rich_ac_open(), "typing #u opens the tag autocomplete");
+    let items = ui.get_rich_ac_items();
+    assert!(
+        (0..items.row_count()).any(|i| items.row_data(i).unwrap() == "urgent"),
+        "tag candidate 'urgent' offered"
+    );
+    ui.invoke_rich_ac_key("accept".into());
+    assert!(
+        ui.get_current_body().contains("#urgent"),
+        "accepting inserts the full tag: {:?}",
+        ui.get_current_body()
+    );
+    assert!(!ui.get_rich_ac_open(), "popup closes after accept");
+
+    // Workstream completion: "[[Ac" offers "Acme"; accept closes the wikilink.
+    ui.invoke_new_note();
+    ui.invoke_rich_insert_text("[[Ac".into());
+    assert!(ui.get_rich_ac_open(), "typing [[Ac opens the workstream autocomplete");
+    let items = ui.get_rich_ac_items();
+    assert!(
+        (0..items.row_count()).any(|i| items.row_data(i).unwrap() == "Acme"),
+        "workstream candidate 'Acme' offered"
+    );
+    ui.invoke_rich_ac_key("accept".into());
+    assert!(
+        ui.get_current_body().contains("[[Acme]]"),
+        "accepting completes the wikilink: {:?}",
+        ui.get_current_body()
+    );
+
     // ----- Level 5: command palette -----
     ui.invoke_palette_search("".into()); // empty query → views + commands + recent notes
     assert!(ui.get_palette_results().row_count() > 0, "empty palette query yields default results");
@@ -241,4 +290,24 @@ fn headless_ui_smoke() {
     // golden images in a separate test process; out of scope for this suite.)
 
     let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// Pure grammar test for the autocomplete trigger detector (no Slint — safe to run
+/// as a second test in this process since it never initializes the toolkit).
+#[test]
+fn ac_detect_grammar() {
+    // Workstream / project: `[[` or `+[[`, kind "project".
+    assert_eq!(ac_detect("see [[Ac"), Some(("project", "Ac".into())));
+    assert_eq!(ac_detect("do +[[Acme Co"), Some(("project", "Acme Co".into())));
+    assert_eq!(ac_detect("x [["), Some(("project", "".into())));
+    // Person: `@[[`, kind "person".
+    assert_eq!(ac_detect("ping @[[Ja"), Some(("person", "Ja".into())));
+    // Tag: bare `#word` at start or after whitespace.
+    assert_eq!(ac_detect("note #urg"), Some(("tag", "urg".into())));
+    assert_eq!(ac_detect("#"), Some(("tag", "".into())));
+    // Closed / inactive cases yield nothing.
+    assert_eq!(ac_detect("done [[Acme]]"), None, "closed wikilink");
+    assert_eq!(ac_detect("a#b"), None, "# mid-word is not a tag");
+    assert_eq!(ac_detect("plain text"), None);
+    assert_eq!(ac_detect("[[multi\nline"), None, "newline closes the wikilink scan");
 }
