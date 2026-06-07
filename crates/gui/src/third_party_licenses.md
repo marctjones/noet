@@ -485,7 +485,7 @@ Noet's GUI is built with **Slint**, which is tri-licensed: **GPL-3.0-only**, a p
 | softbuffer | 0.4.8 | MIT OR Apache-2.0 | https://github.com/rust-windowing/softbuffer |
 | spellbook | 0.4.2 | MPL-2.0 | https://github.com/helix-editor/spellbook |
 | spin_on | 0.1.1 | Apache-2.0 OR MIT |  |
-| sred-core | 0.6.0 | GPL-3.0-only |  |
+| sred-core | 0.7.0 | GPL-3.0-only |  |
 | stable_deref_trait | 1.2.1 | MIT OR Apache-2.0 | https://github.com/storyyeller/stable_deref_trait |
 | static_assertions | 1.1.0 | MIT OR Apache-2.0 | https://github.com/nvzqz/static-assertions-rs |
 | str_indices | 0.4.4 | MIT OR Apache-2.0 | https://github.com/cessen/str_indices |
