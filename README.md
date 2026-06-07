@@ -2,8 +2,8 @@
 
 A native, lightweight desktop app for **meeting notes, typed todos, and
 projects/workstreams**, built over **plain markdown files**. No web browser, no
-JS — a small native Rust + [Slint](https://slint.dev) binary for **Windows 11**
-and **Linux**.
+JS — a small native Rust + [Slint](https://slint.dev) binary for **Windows 11**,
+**macOS**, and **Linux**.
 
 > **Status — stable checkpoint (v0.3.0).** The note/todo/project core, all views,
 > and the connectors below are working. A WYSIWYG rich-text editor
@@ -18,6 +18,9 @@ and **Linux**.
 No installer — portable binaries on the [**Releases**](https://github.com/marctjones/noet/releases) page:
 
 - **Windows 11** — download `noet.exe` (or the `.zip`) and run it.
+- **macOS** (universal — Apple Silicon + Intel) — download the `.dmg`, drag
+  **Noet** to Applications. The build is unsigned, so on first launch right-click
+  **Noet → Open** (or run `xattr -dr com.apple.quarantine /Applications/Noet.app`).
 - **Linux** — download the `.tar.gz` (unpack, run `./noet`) or the `.deb`
   (`sudo apt install ./noet_*_amd64.deb`).
 

@@ -1,8 +1,8 @@
 name: Release
 
-# Build the Windows 11 + Linux binaries and publish a GitHub Release whenever a
-# version tag is pushed (e.g. `git tag v0.1.0 && git push origin v0.1.0`). Both
-# jobs upload to the same release for the tag.
+# Build the Windows 11 + Linux + macOS binaries and publish a GitHub Release
+# whenever a version tag is pushed (e.g. `git tag v0.1.0 && git push origin v0.1.0`).
+# All jobs upload to the same release for the tag.
 on:
   push:
     tags: ["v*"]
@@ -42,6 +42,9 @@ jobs:
             Noet ${{ github.ref_name }}. No installer — portable.
 
             **Windows:** download `noet.exe` (or the `.zip`) and run it.
+            **macOS:** download the `.dmg`, drag **Noet** to Applications. The build
+            is unsigned, so on first launch right-click **Noet → Open** (or run
+            `xattr -dr com.apple.quarantine /Applications/Noet.app`).
             **Linux:** download the `.tar.gz` (unpack, run `./noet`) or the `.deb`
             (`sudo apt install ./noet_*_amd64.deb`).
 
@@ -99,3 +102,66 @@ jobs:
           files: |
             noet-${{ github.ref_name }}-linux-x86_64.tar.gz
             noet_*_amd64.deb
+
+  macos:
+    name: Build macOS binary (universal .dmg + tarball)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+
+      # Build both arches and lipo into one universal binary (Apple Silicon + Intel).
+      # macOS uses CoreText, so no extra system deps are needed.
+      - name: Build release (universal)
+        run: |
+          cargo build --release -p noet-gui --target aarch64-apple-darwin
+          cargo build --release -p noet-gui --target x86_64-apple-darwin
+          mkdir -p dist
+          lipo -create -output dist/noet \
+            target/aarch64-apple-darwin/release/noet \
+            target/x86_64-apple-darwin/release/noet
+          lipo -info dist/noet
+
+      - name: Build Noet.app + .dmg
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          APP="Noet.app"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          cp dist/noet "$APP/Contents/MacOS/noet"
+          chmod +x "$APP/Contents/MacOS/noet"
+          # Build Info.plist line-by-line (avoid heredoc indentation issues in YAML).
+          PL="$APP/Contents/Info.plist"
+          {
+            echo '<?xml version="1.0" encoding="UTF-8"?>'
+            echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
+            echo '<plist version="1.0"><dict>'
+            echo '<key>CFBundleName</key><string>Noet</string>'
+            echo '<key>CFBundleDisplayName</key><string>Noet</string>'
+            echo '<key>CFBundleExecutable</key><string>noet</string>'
+            echo '<key>CFBundleIdentifier</key><string>cl.skpt.noet</string>'
+            echo "<key>CFBundleVersion</key><string>${VERSION}</string>"
+            echo "<key>CFBundleShortVersionString</key><string>${VERSION}</string>"
+            echo '<key>CFBundlePackageType</key><string>APPL</string>'
+            echo '<key>LSMinimumSystemVersion</key><string>11.0</string>'
+            echo '<key>NSHighResolutionCapable</key><true/>'
+            echo '</dict></plist>'
+          } > "$PL"
+          # .dmg with a drag-to-Applications target
+          mkdir -p dmgroot
+          cp -R "$APP" dmgroot/
+          ln -s /Applications dmgroot/Applications
+          hdiutil create -volname "Noet" -srcfolder dmgroot -ov -format UDZO \
+            "noet-${GITHUB_REF_NAME}-macos-universal.dmg"
+          # plain tarball of the universal binary
+          cp README.md CHANGELOG.md dist/
+          tar -C dist -czf "noet-${GITHUB_REF_NAME}-macos-universal.tar.gz" .
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            noet-${{ github.ref_name }}-macos-universal.dmg
+            noet-${{ github.ref_name }}-macos-universal.tar.gz
