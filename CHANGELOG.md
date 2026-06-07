@@ -6,6 +6,51 @@ All notable changes to Noet are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-07
+
+The note editor is now a **WYSIWYG rich-text editor** powered by
+[sred](https://github.com/marctjones/sred), replacing the old split read/preview
+pane. Also adds a command palette, inline spellcheck, a brand refresh, and macOS
+releases.
+
+### Added
+- **WYSIWYG rich-text editor (sred) is now the sole note surface** — Markdown Live
+  Preview (headings, lists, emphasis render in place; syntax markers reveal only on
+  the caret line), byte-lossless source, and native scrolling for long notes.
+- **Inline spellcheck** — a bundled en_US (SCOWL) dictionary draws red squiggles via
+  sred's spellcheck hook (skips code fences, URLs, entity tokens, and ALLCAPS).
+- **Find / replace** in the editor (Ctrl/⌘+F) — match stepping and replace-all.
+- **Command palette** (Ctrl/⌘+K) — jump to views, run commands, open recent notes.
+- **Keyboard shortcuts cheat sheet**, **focus mode**, and ⌘/Ctrl editor chords
+  (bold / italic / etc.).
+- **Plain-text / source-mode toggle** for the editor.
+- **Tab / Shift-Tab list indent & outdent** in the editor.
+- **macOS releases** — universal (Apple Silicon + Intel) `.dmg` + tarball, with
+  optional Developer ID signing + notarization (graceful unsigned fallback).
+- **Accessibility** — the editor exposes its document text to screen readers.
+- A **"Markdown rendering test" sample note** opens on first launch.
+- **Brand refresh** — IBM Plex typography, a restrained palette, a custom
+  Lucide-based monochrome icon set (replacing the emoji glyphs) + a custom Noet app
+  mark, and typed-todo-kind icons. Vendored-asset licenses are tracked in About.
+- Window size and pane layout (rail/notes widths, nav-collapsed, last view) persist
+  across launches; sidebars collapse responsively on a narrow window.
+- Follows the OS light/dark color scheme.
+
+### Changed
+- Removed the split read/preview pane — the rich editor is the single note surface.
+- Bumped `sred-core` through **v0.7.1** (Live Preview lists, IME, accessibility,
+  find/replace, spellcheck hooks, multi-cursor, faster long-note analyze).
+
+### Fixed
+- Slint relayout "Recursion detected" panic in the editor host (Timer-based
+  post-layout size reporting).
+- Rail/nav responsive **binding loop** — window width is mirrored via a
+  `changed width` handler instead of read inside a layout constraint.
+
+### Performance
+- Debounced live entity/preview recompute off the keystroke path.
+- Release profile uses `opt-level = 3` + LTO (was size-optimized).
+
 ## [0.3.0] - 2026-06-05
 
 Stable checkpoint. Connectors + views + UX are working; further feature work is

@@ -6,8 +6,9 @@ someday / reading) → workstreams, with 1:1 prep, agenda, board, and capture.
 
 ## Shipped
 - Plain-markdown vault + disposable SQLite index; file-watch live reload.
-- Notes with markdown + Typst rendering (inline `typst` blocks); read/edit with
-  live split preview, formatting toolbar, entity pickers.
+- Notes with markdown + Typst rendering (inline `typst` blocks), edited in a
+  **WYSIWYG rich-text editor** ([sred](https://github.com/marctjones/sred)) with
+  Markdown Live Preview, inline spellcheck, find/replace, and a source-mode toggle.
 - Typed todos with status cycling (TODO/DOING/DONE), priorities `[#A]`,
   recurring `repeat:`, start/due dates.
 - Workstreams `[[ ]]` and labels `#` — **hierarchical** via `/`; people `@`.
@@ -35,7 +36,8 @@ someday / reading) → workstreams, with 1:1 prep, agenda, board, and capture.
 ## Phase 2 — Stickiness & power use
 - [ ] **Desktop reminders / notifications** — due-soon, stale follow-ups, 1:1 today.
 - [ ] **Global quick-capture hotkey** — capture from anywhere into the Inbox.
-- [ ] **Command palette + keyboard shortcuts** — keyboard-driven everything.
+- [x] **Command palette + keyboard shortcuts** — Ctrl/⌘+K palette (views,
+  commands, recent notes), a shortcuts cheat sheet, focus mode, and editor chords.
 - [x] **Full-text search (SQLite FTS5)** — token + prefix matching on note
   title/body, with automatic LIKE fallback if FTS5 is unavailable.
 - [x] **Outline folding** — click a heading's ▾ to collapse its section (hides
@@ -88,11 +90,12 @@ Linear / Notion / Things / Obsidian, and org-mode.
 P0 — native feel + clarity:
 - [x] **Left NavigationView** replacing the top tab strip — collapsible (☰ → icons
   only), icon+label, grouped Plan / Work / Notes / Organize. Fixes tab overload,
-  feels Win11-native. *Next: monochrome icon font for the glyphs.*
-- [ ] **Command palette (Ctrl-K) + keyboard shortcuts** — keyboard-first speed
+  feels Win11-native. Glyphs are now monochrome Lucide SVG icons.
+- [x] **Command palette (Ctrl-K) + keyboard shortcuts** — keyboard-first speed
   (org/Linear), accessibility, the single biggest modern-UX upgrade.
 - [ ] **Tame the left rail** — progressive disclosure; Filters in a popover.
-- [ ] **Monochrome icon set** (Segoe Fluent Icons / Tabler) replacing emoji.
+- [x] **Monochrome icon set** — custom Lucide-based (ISC) SVG icons replacing the
+  emoji glyphs, plus a custom Noet app mark and typed-todo-kind icons.
 - [ ] **Fluent type ramp** (14px body, Segoe UI Variable) + strict 4px spacing.
 
 P1 — polish & trend alignment:
@@ -140,7 +143,7 @@ query. Findings & fixes:
 - [ ] **Incremental indexing** — reindex only *changed* files (mtime/path) instead
   of DELETE-all + full re-parse; cuts the rebuild itself (now off-thread, but a
   10k-note vault is still ~11s of background work) down to per-edit cost.
-- [ ] Consider `opt-level = 2/3` for the release profile (currently `"z"` =
-  optimize-for-size, which can leave runtime speed on the table for a "snappy" app).
+- [x] **Release profile tuned for speed** — `opt-level = 3` + `lto = true` +
+  `strip` + `panic = "abort"` (was size-optimized `"z"`).
 
 Implementation proceeds in waves, newest progress noted in commit/PR history.

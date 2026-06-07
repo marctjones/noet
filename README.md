@@ -5,11 +5,11 @@ projects/workstreams**, built over **plain markdown files**. No web browser, no
 JS — a small native Rust + [Slint](https://slint.dev) binary for **Windows 11**,
 **macOS**, and **Linux**.
 
-> **Status — stable checkpoint (v0.3.0).** The note/todo/project core, all views,
-> and the connectors below are working. A WYSIWYG rich-text editor
-> ([`sred`](https://github.com/) — separate project) is planned as the default
-> note editor; **further feature development is paused** until it's ready. See
-> [CHANGELOG](CHANGELOG.md) and [ROADMAP](ROADMAP.md).
+> **Status — v0.4.0.** The note/todo/project core, all views, and the connectors
+> below are working. The note editor is now a **WYSIWYG rich-text editor**
+> ([`sred`](https://github.com/marctjones/sred) — a separate Rust project) with
+> Markdown Live Preview, inline spellcheck, find/replace, and a command palette.
+> See [CHANGELOG](CHANGELOG.md) and [ROADMAP](ROADMAP.md).
 >
 > The name is a deliberate misspelling of *note* (it began as a typo and stuck).
 
@@ -46,7 +46,7 @@ the vault**, so nothing sensitive syncs.
 
 ## Features
 
-- **Views**: Today dashboard · Notes (read + ✎ split-preview editor) · Tasks ·
+- **Views**: Today dashboard · Notes (WYSIWYG rich-text editor) · Tasks ·
   Board (Kanban, drag-and-drop) · Gantt · Agenda · Calendar · People (1:1 prep) ·
   Labels · Inbox (quick capture) · **Needs review** (flagged connector items) ·
   Trash · Settings · About.
@@ -55,6 +55,12 @@ the vault**, so nothing sensitive syncs.
   `repeat:`, start/due dates.
 - **Organization** — hierarchical workstreams `[[ ]]` and labels `#` (via `/`),
   people `@`, backlinks, related notes, faceted filtering, saved smart lists.
+- **WYSIWYG editor** ([sred](https://github.com/marctjones/sred)) — Markdown Live
+  Preview (headings/lists/emphasis render in place; markers reveal on the caret
+  line), inline spellcheck, find/replace (Ctrl/⌘+F), Tab/Shift-Tab list indent,
+  clickable entity chips, and a plain-text/source toggle.
+- **Keyboard-first** — command palette (Ctrl/⌘+K), a shortcuts cheat sheet, and
+  focus mode for distraction-free writing.
 - **Markdown + Typst** rendering with clickable entity chips; autosave; outline
   folding; full-text search (SQLite FTS5). Per-note **export** to Markdown or PDF.
 - **Native Win11 feel** — left NavigationView, in-window menu bar (File · Edit ·
