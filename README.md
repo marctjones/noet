@@ -5,11 +5,12 @@ projects/workstreams**, built over **plain markdown files**. No web browser, no
 JS — a small native Rust + [Slint](https://slint.dev) binary for **Windows 11**,
 **macOS**, and **Linux**.
 
-> **Status — v0.4.0.** The note/todo/project core, all views, and the connectors
-> below are working. The note editor is now a **WYSIWYG rich-text editor**
+> **Status — v0.5.0.** The note/todo/project core, all views, and the connectors
+> below are working. The note editor is a **WYSIWYG rich-text editor**
 > ([`sred`](https://github.com/marctjones/sred) — a separate Rust project) with
-> Markdown Live Preview, inline spellcheck, find/replace, and a command palette.
-> See [CHANGELOG](CHANGELOG.md) and [ROADMAP](ROADMAP.md).
+> Markdown Live Preview, inline spellcheck, find/replace, **entity autocomplete**
+> (`[[`/`@[[`/`#`), and a command palette. See [CHANGELOG](CHANGELOG.md) and
+> [ROADMAP](ROADMAP.md).
 >
 > The name is a deliberate misspelling of *note* (it began as a typo and stuck).
 
@@ -58,6 +59,7 @@ the vault**, so nothing sensitive syncs.
 - **WYSIWYG editor** ([sred](https://github.com/marctjones/sred)) — Markdown Live
   Preview (headings/lists/emphasis render in place; markers reveal on the caret
   line), inline spellcheck, find/replace (Ctrl/⌘+F), Tab/Shift-Tab list indent,
+  **type-ahead autocomplete** for `[[`workstreams, `@[[`people, and `#`tags,
   clickable entity chips, and a plain-text/source toggle.
 - **Keyboard-first** — command palette (Ctrl/⌘+K), a shortcuts cheat sheet, and
   focus mode for distraction-free writing.

@@ -42,7 +42,8 @@ someday / reading) → workstreams, with 1:1 prep, agenda, board, and capture.
   title/body, with automatic LIKE fallback if FTS5 is unavailable.
 - [x] **Outline folding** — click a heading's ▾ to collapse its section (hides
   until the next equal/higher heading); ▸ to expand. Folds reset per note.
-- [ ] **Inline type-ahead autocomplete** — `[[` / `@` / `#` caret popup.
+- [x] **Inline type-ahead autocomplete** — `[[` / `+[[` / `@[[` / `#` caret popup
+  offering indexed workstream / people / tag names; ↑↓ + Enter/Tab/Esc or click.
 - [x] **Light + dark theming** — `Theme` global (light/dark) with a top-bar
   toggle that also flips the widget palette. *Next: follow the system scheme +
   accent color; tune chip colors for dark.*
@@ -140,9 +141,10 @@ query. Findings & fixes:
   **The hard rule: the full reindex must NEVER run on the UI thread** — always a
   worker + `reindex-finished` hop back. The watcher is fine as long as it stays
   debounced + editing-guarded + off-thread.
-- [ ] **Incremental indexing** — reindex only *changed* files (mtime/path) instead
-  of DELETE-all + full re-parse; cuts the rebuild itself (now off-thread, but a
-  10k-note vault is still ~11s of background work) down to per-edit cost.
+- [x] **Incremental indexing** — the file-watcher + manual reindex reconcile by
+  mtime/path: only changed/new files are re-parsed and deleted files are dropped,
+  instead of DELETE-all + full re-parse. A warm live rebuild is now per-edit cost
+  rather than a full-vault re-read; the initial (empty-index) build is unchanged.
 - [x] **Release profile tuned for speed** — `opt-level = 3` + `lto = true` +
   `strip` + `panic = "abort"` (was size-optimized `"z"`).
 

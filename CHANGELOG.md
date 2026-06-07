@@ -6,6 +6,21 @@ All notable changes to Noet are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-07
+
+### Added
+- **Inline entity autocomplete** in the editor — type `[[` / `+[[` (workstreams),
+  `@[[` (people), or `#` (tags) and a caret-anchored popup offers matching names
+  from the index. ↑/↓ to move, Enter/Tab to accept, Esc to dismiss, or click;
+  accepting fills the canonical name and closes `]]` for wiki-links.
+
+### Performance
+- **Incremental reindexing** — the file-watcher and manual reindex now re-parse
+  only files whose mtime changed (and drop rows for deleted files) instead of
+  wiping and rebuilding the whole index. On a warm index a live rebuild costs
+  per-edit time, not a full-vault re-read; the initial (empty-index) build is
+  unchanged. A new `mtime` column on `notes` keys the reconcile.
+
 ## [0.4.0] - 2026-06-07
 
 The note editor is now a **WYSIWYG rich-text editor** powered by
