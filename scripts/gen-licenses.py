@@ -27,6 +27,8 @@ VENDORED_ASSETS = [
      "crates/gui/ui/icons/LICENSE-lucide.txt"),
     ("IBM Plex (fonts)", "—", "OFL-1.1", "https://github.com/IBM/plex",
      "crates/gui/ui/fonts/OFL.txt"),
+    ("en_US dictionary (SCOWL)", "—", "SCOWL (permissive)", "http://wordlist.sourceforge.net",
+     "crates/gui/dict/LICENSE-dict.txt"),
 ]
 # Our own crates — not "third party".
 OWN = {"noet-core", "noet-gui"}

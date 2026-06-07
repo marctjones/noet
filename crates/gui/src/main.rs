@@ -23,6 +23,78 @@ slint::include_modules!();
 const THIRD_PARTY_LICENSES: &str = include_str!("third_party_licenses.md");
 const THIRD_PARTY_COMPONENTS: &str = include_str!("third_party_components.tsv");
 
+// Bundled en_US Hunspell dictionary (SCOWL-derived) for spellcheck.
+const DICT_AFF: &str = include_str!("../dict/en_US.aff");
+const DICT_DIC: &str = include_str!("../dict/en_US.dic");
+
+fn is_word_char(c: char) -> bool {
+    c.is_alphabetic() || c == '\''
+}
+
+/// Misspelled-word char ranges for sred's spellchecker. Skips code fences, and
+/// `#tag` / `@person` / `[[link]]` / URL / markdown-marker tokens; flags only
+/// dictionary-unknown words (≥2 chars, with a lowercase letter so ALLCAPS/acronyms
+/// pass).
+fn spell_misspellings(dict: &spellbook::Dictionary, text: &str) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut base = 0usize; // char offset of the current line
+    let mut in_fence = false;
+    for line in text.split_inclusive('\n') {
+        let line_chars = line.chars().count();
+        if line.trim_start().starts_with("```") {
+            in_fence = !in_fence;
+            base += line_chars;
+            continue;
+        }
+        if !in_fence {
+            let chars: Vec<char> = line.chars().collect();
+            let mut i = 0;
+            while i < chars.len() {
+                while i < chars.len() && chars[i].is_whitespace() {
+                    i += 1;
+                }
+                if i >= chars.len() {
+                    break;
+                }
+                let tok_start = i;
+                while i < chars.len() && !chars[i].is_whitespace() {
+                    i += 1;
+                }
+                let tok: String = chars[tok_start..i].iter().collect();
+                let skip = tok.starts_with('#') || tok.starts_with('@') || tok.starts_with("[[")
+                    || tok.starts_with('`') || tok.contains("://") || tok.contains("](");
+                if !skip {
+                    // word runs within the token
+                    let t = &chars[tok_start..i];
+                    let mut j = 0;
+                    while j < t.len() {
+                        while j < t.len() && !is_word_char(t[j]) {
+                            j += 1;
+                        }
+                        if j >= t.len() {
+                            break;
+                        }
+                        let ws = j;
+                        while j < t.len() && is_word_char(t[j]) {
+                            j += 1;
+                        }
+                        let word: String = t[ws..j].iter().collect();
+                        let trimmed = word.trim_matches('\'');
+                        if trimmed.chars().count() >= 2
+                            && trimmed.chars().any(|c| c.is_lowercase())
+                            && !dict.check(trimmed)
+                        {
+                            out.push((base + tok_start + ws, base + tok_start + j));
+                        }
+                    }
+                }
+            }
+        }
+        base += line_chars;
+    }
+    out
+}
+
 thread_local! {
     /// Indices of folded headings in the currently-open note (read view).
     static FOLDS: RefCell<std::collections::HashSet<usize>> = RefCell::new(std::collections::HashSet::new());
@@ -1271,6 +1343,14 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         });
     }
     rich_register_tokens();
+    // Spellcheck: build the bundled dictionary once and register it on the editor.
+    // sred re-runs the closure (cached by content hash) and draws red squiggles.
+    if let Ok(dict) = spellbook::Dictionary::new(DICT_AFF, DICT_DIC) {
+        RICH.with(|r| {
+            r.borrow_mut()
+                .set_spellchecker(Box::new(move |text| spell_misspellings(&dict, text)));
+        });
+    }
     {
         let ui_w = ui.as_weak();
         ui.on_rich_pointer_down(move |x, y| {
