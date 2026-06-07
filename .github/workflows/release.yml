@@ -42,9 +42,9 @@ jobs:
             Noet ${{ github.ref_name }}. No installer — portable.
 
             **Windows:** download `noet.exe` (or the `.zip`) and run it.
-            **macOS:** download the `.dmg`, drag **Noet** to Applications. The build
-            is unsigned, so on first launch right-click **Noet → Open** (or run
-            `xattr -dr com.apple.quarantine /Applications/Noet.app`).
+            **macOS:** download the `.dmg`, drag **Noet** to Applications. If macOS
+            says it can't verify the developer (unsigned build), right-click
+            **Noet → Open**, or run `xattr -dr com.apple.quarantine /Applications/Noet.app`.
             **Linux:** download the `.tar.gz` (unpack, run `./noet`) or the `.deb`
             (`sudo apt install ./noet_*_amd64.deb`).
 
@@ -106,6 +106,18 @@ jobs:
   macos:
     name: Build macOS binary (universal .dmg + tarball)
     runs-on: macos-latest
+    # Signing + notarization are optional: every step below that needs an Apple
+    # credential is gated on `env.MAC_CERT`/`env.NOTARY_ID` being non-empty, so
+    # the job still produces a working (unsigned) .dmg until these repo secrets
+    # are set. To ship signed + notarized builds, add:
+    #   MACOS_CERTIFICATE       base64 of your "Developer ID Application" .p12
+    #   MACOS_CERTIFICATE_PWD   the .p12 export password
+    #   MACOS_NOTARY_APPLE_ID   Apple ID email enrolled in the Developer Program
+    #   MACOS_NOTARY_PWD        an app-specific password (appleid.apple.com)
+    #   MACOS_NOTARY_TEAM_ID    your 10-char Team ID
+    env:
+      MAC_CERT: ${{ secrets.MACOS_CERTIFICATE }}
+      NOTARY_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -125,7 +137,31 @@ jobs:
             target/x86_64-apple-darwin/release/noet
           lipo -info dist/noet
 
-      - name: Build Noet.app + .dmg
+      # Import the Developer ID cert into an ephemeral keychain and auto-detect
+      # the signing identity hash (so no separate identity-name secret is needed).
+      - name: Import signing certificate
+        if: env.MAC_CERT != ''
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+        run: |
+          KEYCHAIN_PWD="$(uuidgen)"
+          echo "$MACOS_CERTIFICATE" | base64 --decode > cert.p12
+          security create-keychain -p "$KEYCHAIN_PWD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PWD" build.keychain
+          security set-keychain-settings -t 21600 -u build.keychain
+          security import cert.p12 -k build.keychain \
+            -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PWD" build.keychain
+          rm -f cert.p12
+          IDENTITY="$(security find-identity -v -p codesigning build.keychain \
+            | grep 'Developer ID Application' | head -1 | awk '{print $2}')"
+          echo "SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          echo "Using signing identity $IDENTITY"
+
+      - name: Build Noet.app
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           APP="Noet.app"
@@ -149,15 +185,52 @@ jobs:
             echo '<key>NSHighResolutionCapable</key><true/>'
             echo '</dict></plist>'
           } > "$PL"
+
+      # Hardened runtime (--options runtime) is required for notarization.
+      - name: Sign Noet.app
+        if: env.MAC_CERT != ''
+        run: |
+          codesign --force --options runtime --timestamp \
+            --sign "$SIGN_IDENTITY" Noet.app/Contents/MacOS/noet
+          codesign --force --options runtime --timestamp \
+            --sign "$SIGN_IDENTITY" Noet.app
+          codesign --verify --strict --verbose=2 Noet.app
+
+      - name: Build .dmg + tarball
+        run: |
           # .dmg with a drag-to-Applications target
           mkdir -p dmgroot
-          cp -R "$APP" dmgroot/
+          cp -R Noet.app dmgroot/
           ln -s /Applications dmgroot/Applications
           hdiutil create -volname "Noet" -srcfolder dmgroot -ov -format UDZO \
             "noet-${GITHUB_REF_NAME}-macos-universal.dmg"
           # plain tarball of the universal binary
           cp README.md CHANGELOG.md dist/
           tar -C dist -czf "noet-${GITHUB_REF_NAME}-macos-universal.tar.gz" .
+
+      - name: Sign .dmg
+        if: env.MAC_CERT != ''
+        run: |
+          codesign --force --timestamp \
+            --sign "$SIGN_IDENTITY" "noet-${GITHUB_REF_NAME}-macos-universal.dmg"
+
+      # Notarize the .dmg and staple the ticket so Gatekeeper passes offline.
+      # Only runs when notary credentials are present (and signing happened).
+      - name: Notarize + staple .dmg
+        if: env.MAC_CERT != '' && env.NOTARY_ID != ''
+        env:
+          MACOS_NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
+          MACOS_NOTARY_PWD: ${{ secrets.MACOS_NOTARY_PWD }}
+          MACOS_NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
+        run: |
+          DMG="noet-${GITHUB_REF_NAME}-macos-universal.dmg"
+          xcrun notarytool submit "$DMG" \
+            --apple-id "$MACOS_NOTARY_APPLE_ID" \
+            --password "$MACOS_NOTARY_PWD" \
+            --team-id "$MACOS_NOTARY_TEAM_ID" \
+            --wait
+          xcrun stapler staple "$DMG"
+          xcrun stapler validate "$DMG"
 
       - name: Publish release
         uses: softprops/action-gh-release@v2

@@ -19,8 +19,9 @@ No installer — portable binaries on the [**Releases**](https://github.com/marc
 
 - **Windows 11** — download `noet.exe` (or the `.zip`) and run it.
 - **macOS** (universal — Apple Silicon + Intel) — download the `.dmg`, drag
-  **Noet** to Applications. The build is unsigned, so on first launch right-click
-  **Noet → Open** (or run `xattr -dr com.apple.quarantine /Applications/Noet.app`).
+  **Noet** to Applications. If macOS says it can't verify the developer (unsigned
+  build), right-click **Noet → Open**, or run
+  `xattr -dr com.apple.quarantine /Applications/Noet.app`.
 - **Linux** — download the `.tar.gz` (unpack, run `./noet`) or the `.deb`
   (`sudo apt install ./noet_*_amd64.deb`).
 
