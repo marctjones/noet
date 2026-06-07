@@ -1326,6 +1326,9 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                     "select-right" => { e.apply(SredCmd::Select(SredMotion::Right)); false }
                     "up" => { e.move_vertical(false); false }
                     "down" => { e.move_vertical(true); false }
+                    // Tab / Shift-Tab list indent & outdent (sred v0.7.0, #3).
+                    "indent" => { e.apply(SredCmd::Indent); true }
+                    "outdent" => { e.apply(SredCmd::Outdent); true }
                     _ => false,
                 }
             });

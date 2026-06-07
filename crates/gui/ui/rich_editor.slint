@@ -94,6 +94,7 @@ export component RichTextEditor inherits Rectangle {
             if (event.text == Key.DownArrow)   { root.special("down"); return EventResult.accept; }
             if (event.text == Key.Home)        { root.special("home"); return EventResult.accept; }
             if (event.text == Key.End)         { root.special("end");  return EventResult.accept; }
+            if (event.text == Key.Tab)         { root.special(event.modifiers.shift ? "outdent" : "indent"); return EventResult.accept; }
             if (event.text == Key.Return)      { root.insert-text("\n"); return EventResult.accept; }
             if (event.text != "") {
                 root.insert-text(event.text);

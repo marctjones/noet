@@ -659,9 +659,14 @@ export component AppWindow inherits Window {
     in-out property <bool> rail-hidden: false;
     // Responsive: below these widths the rails auto-collapse/hide regardless of the
     // user toggle, so a narrow window stays usable (the toggle takes effect again
-    // once there's room).
-    out property <bool> nav-eff-collapsed: root.nav-collapsed || root.width < 720px;
-    out property <bool> rail-eff-hidden: root.rail-hidden || root.focus-mode || root.width < 860px;
+    // once there's room). These read `win-w` (a plain mirror of the window width,
+    // pushed by `changed width` below) rather than `root.width` directly: reading
+    // the laid-out width inside a property that drives a child's width/max-width
+    // creates a binding loop (root.width → eff flag → child max-width →
+    // layoutinfo-h → root.width). The imperative mirror breaks that cycle.
+    property <length> win-w: 1280px;
+    out property <bool> nav-eff-collapsed: root.nav-collapsed || root.win-w < 720px;
+    out property <bool> rail-eff-hidden: root.rail-hidden || root.focus-mode || root.win-w < 860px;
     in-out property <string> open-menu: ""; // which menu-bar dropdown is open ("" = none)
     in-out property <length> notes-width: 280px;
     in-out property <bool> resizing: false;
@@ -851,6 +856,11 @@ export component AppWindow inherits Window {
     callback cal-prev();
     callback cal-next();
     callback cal-today();
+
+    // Mirror the laid-out window width into a plain property (see `win-w` above).
+    // This is a one-way imperative push, so the responsive breakpoints can read it
+    // without forming a layout binding loop.
+    changed width => { root.win-w = root.width; }
 
     // Surface status messages as a transient toast (auto-clears via the timer below).
     changed source-mode => { root.set-source-mode(root.source-mode); }
