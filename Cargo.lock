@@ -4985,8 +4985,8 @@ dependencies = [
 
 [[package]]
 name = "sred-core"
-version = "0.7.0"
-source = "git+https://github.com/marctjones/sred?tag=v0.7.0#968f5a737bba89871eeed1930316f4d18d72c788"
+version = "0.7.1"
+source = "git+https://github.com/marctjones/sred?tag=v0.7.1#c376e20d7a6cea6fe64f0eb76a89ccdde707c84b"
 dependencies = [
  "bitflags 2.12.1",
  "cosmic-text",
@@ -6148,7 +6148,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

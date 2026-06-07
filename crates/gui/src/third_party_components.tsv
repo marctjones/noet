@@ -473,7 +473,7 @@ snafu-derive	0.8.9	MIT OR Apache-2.0
 softbuffer	0.4.8	MIT OR Apache-2.0
 spellbook	0.4.2	MPL-2.0
 spin_on	0.1.1	Apache-2.0 OR MIT
-sred-core	0.7.0	GPL-3.0-only
+sred-core	0.7.1	GPL-3.0-only
 stable_deref_trait	1.2.1	MIT OR Apache-2.0
 static_assertions	1.1.0	MIT OR Apache-2.0
 str_indices	0.4.4	MIT OR Apache-2.0
