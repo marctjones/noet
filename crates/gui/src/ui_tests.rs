@@ -193,6 +193,31 @@ fn headless_ui_smoke() {
         .match_accessible_role(AccessibleRole::Button)
         .find_all();
 
+    // ----- Level 4b: Tab / Shift-Tab list indent (sred v0.7.0 #3) -----
+    // The editor component forwards Tab/Shift-Tab to special("indent"/"outdent");
+    // the Rust dispatch maps them to SredCmd::Indent/Outdent. Drive that path
+    // through the same `rich-special` callback the component invokes, on a fresh
+    // note so the list line is isolated. Indent prepends two spaces per level.
+    ui.invoke_new_note();
+    ui.invoke_rich_insert_text("- item".into());
+    let typed = ui.get_current_body().to_string();
+    assert!(typed.contains("- item"), "list line typed: {typed:?}");
+    assert!(!typed.contains("  - item"), "not indented before Tab: {typed:?}");
+
+    ui.invoke_rich_special("indent".into()); // Tab
+    let indented = ui.get_current_body().to_string();
+    assert!(
+        indented.contains("  - item"),
+        "Tab indents the list line by two spaces: {indented:?}"
+    );
+
+    ui.invoke_rich_special("outdent".into()); // Shift-Tab
+    let outdented = ui.get_current_body().to_string();
+    assert!(
+        outdented.contains("- item") && !outdented.contains("  - item"),
+        "Shift-Tab outdents the list line back: {outdented:?}"
+    );
+
     // ----- Level 5: command palette -----
     ui.invoke_palette_search("".into()); // empty query → views + commands + recent notes
     assert!(ui.get_palette_results().row_count() > 0, "empty palette query yields default results");
