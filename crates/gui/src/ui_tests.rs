@@ -310,6 +310,20 @@ fn headless_ui_smoke() {
     ui.invoke_palette_activate(format!("n:{nid}").into());
     assert_eq!(ui.get_view(), "notes", "palette activate note → notes view");
 
+    // ----- Level 6: quick capture -----
+    // The palette command opens the summonable capture overlay.
+    ui.invoke_palette_activate("c:capture".into());
+    assert!(ui.get_quick_capture_open(), "palette 'Quick capture' opens the overlay");
+    // Capturing drops a note into the inbox, titled from the text.
+    let before = ctx.state.borrow().backend.query_notes(&noet_core::backend::Filter::default()).unwrap().len();
+    ui.invoke_quick_capture("buy milk before standup".into());
+    let notes = ctx.state.borrow().backend.query_notes(&noet_core::backend::Filter::default()).unwrap();
+    assert_eq!(notes.len(), before + 1, "quick capture adds one note");
+    assert!(
+        notes.iter().any(|n| n.title.contains("buy milk")),
+        "captured note titled from the text"
+    );
+
     // (Slint's lightweight testing backend renders no pixels — its window is a
     // measurement-only renderer — so Window::take_snapshot is unavailable here.
     // Pixel/visual-regression testing would need the software-renderer backend +

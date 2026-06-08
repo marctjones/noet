@@ -32,9 +32,11 @@ mod imp {
     pub fn setup(ui: &AppWindow) -> Option<Tray> {
         let menu = Menu::new();
         let mi_meeting = MenuItem::new("New meeting note   Ctrl+Alt+N", true, None);
+        let mi_capture = MenuItem::new("Quick capture   Ctrl+Alt+C", true, None);
         let mi_show = MenuItem::new("Show Noet", true, None);
         let mi_quit = MenuItem::new("Quit Noet", true, None);
         menu.append(&mi_meeting).ok()?;
+        menu.append(&mi_capture).ok()?;
         menu.append(&mi_show).ok()?;
         menu.append(&mi_quit).ok()?;
 
@@ -45,17 +47,25 @@ mod imp {
             .build()
             .ok()?;
 
-        let (id_meeting, id_show, id_quit) =
-            (mi_meeting.id().clone(), mi_show.id().clone(), mi_quit.id().clone());
+        let (id_meeting, id_capture, id_show, id_quit) = (
+            mi_meeting.id().clone(),
+            mi_capture.id().clone(),
+            mi_show.id().clone(),
+            mi_quit.id().clone(),
+        );
 
-        // Global hotkey: Ctrl+Alt+N → new meeting note from anywhere. Best-effort —
-        // if registration fails (e.g. another app owns the combo) the tray still works.
+        // Global hotkeys: Ctrl+Alt+N → new meeting note, Ctrl+Alt+C → quick capture,
+        // from anywhere. Best-effort — if a combo is taken, the tray still works.
         let hotkeys = GlobalHotKeyManager::new().ok();
-        let mut hk_meeting_id = 0u32;
+        let (mut hk_meeting_id, mut hk_capture_id) = (0u32, 0u32);
         if let Some(mgr) = &hotkeys {
-            let hk = HotKey::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyN);
-            if mgr.register(hk).is_ok() {
-                hk_meeting_id = hk.id;
+            let hk_n = HotKey::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyN);
+            if mgr.register(hk_n).is_ok() {
+                hk_meeting_id = hk_n.id;
+            }
+            let hk_c = HotKey::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyC);
+            if mgr.register(hk_c).is_ok() {
+                hk_capture_id = hk_c.id;
             }
         }
 
@@ -78,21 +88,25 @@ mod imp {
             while let Ok(ev) = MenuEvent::receiver().try_recv() {
                 let Some(ui) = weak.upgrade() else { continue };
                 if ev.id == id_meeting {
-                    let _ = ui.show();
-                    ui.invoke_new_from_template("meeting".into());
+                    crate::dispatch_cmd(&ui, "new-meeting");
+                } else if ev.id == id_capture {
+                    crate::dispatch_cmd(&ui, "capture");
                 } else if ev.id == id_show {
-                    let _ = ui.show();
+                    crate::dispatch_cmd(&ui, "show");
                 } else if ev.id == id_quit {
                     let _ = slint::quit_event_loop();
                 }
             }
-            // Global hotkey: Ctrl+Alt+N → new meeting note (fire on press only).
+            // Global hotkeys (fire on press only).
             while let Ok(ev) = GlobalHotKeyEvent::receiver().try_recv() {
-                if ev.state() == HotKeyState::Pressed && ev.id() == hk_meeting_id {
-                    if let Some(ui) = weak.upgrade() {
-                        let _ = ui.show();
-                        ui.invoke_new_from_template("meeting".into());
-                    }
+                if ev.state() != HotKeyState::Pressed {
+                    continue;
+                }
+                let Some(ui) = weak.upgrade() else { continue };
+                if ev.id() == hk_meeting_id {
+                    crate::dispatch_cmd(&ui, "new-meeting");
+                } else if ev.id() == hk_capture_id {
+                    crate::dispatch_cmd(&ui, "capture");
                 }
             }
         });

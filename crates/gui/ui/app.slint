@@ -642,6 +642,7 @@ export component AppWindow inherits Window {
     in property <[CalCell]> cal-cells;
     in property <string> cal-label;
     in-out property <string> capture-input;
+    in-out property <bool> quick-capture-open: false; // summonable capture overlay
     in-out property <bool> show-archived: false;
     in-out property <string> selected-person;
     in property <[FilterChip]> active-filters;
@@ -2572,6 +2573,46 @@ export component AppWindow inherits Window {
                     }
                     Text {
                         text: "Enter opens the top match · Esc/click outside to close";
+                        font-size: (9px * Z.f); color: Theme.text3; horizontal-alignment: center;
+                    }
+                }
+            }
+        }
+
+        // Quick-capture overlay — a summonable one-line capture into the Inbox
+        // (tray "Quick capture", `noet --capture`, or the command palette). The
+        // Inbox view has the same field inline; this brings it up from anywhere.
+        if (root.quick-capture-open): Rectangle {
+            background: #00000066;
+            TouchArea { clicked => { root.quick-capture-open = false; } }
+            Rectangle {
+                width: min(560px, parent.width - 40px);
+                height: 128px;
+                x: (parent.width - self.width) / 2;
+                y: 100px;
+                background: Theme.surface;
+                border-radius: 10px;
+                border-width: 1px;
+                border-color: Theme.border;
+                drop-shadow-blur: 24px;
+                drop-shadow-color: #00000055;
+                forward-focus: capinput;
+                TouchArea {}
+                VerticalLayout {
+                    padding: 14px;
+                    spacing: 8px;
+                    Text { text: "QUICK CAPTURE → INBOX"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
+                    capinput := LineEdit {
+                        placeholder-text: "Capture a thought…  (Enter to save)";
+                        text <=> root.capture-input;
+                        font-size: (15px * Z.f);
+                        accepted => {
+                            root.quick-capture(root.capture-input);
+                            root.quick-capture-open = false;
+                        }
+                    }
+                    Text {
+                        text: "Enter saves to Inbox · click outside to close";
                         font-size: (9px * Z.f); color: Theme.text3; horizontal-alignment: center;
                     }
                 }

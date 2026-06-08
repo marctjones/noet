@@ -28,6 +28,11 @@ fn dispatch_cmd(ui: &AppWindow, cmd: &str) {
             let _ = ui.show();
             ui.invoke_new_from_template("meeting".into());
         }
+        "capture" => {
+            let _ = ui.show();
+            ui.set_capture_input("".into());
+            ui.set_quick_capture_open(true);
+        }
         "show" => {
             let _ = ui.show();
         }
@@ -725,7 +730,8 @@ const PALETTE_VIEWS: &[(&str, &str)] = &[
     ("about", "About / open-source licenses"),
 ];
 const PALETTE_CMDS: &[(&str, &str)] = &[
-    ("new-note", "New note"), ("reindex", "Reindex vault"),
+    ("new-note", "New note"), ("new-meeting", "New meeting note"),
+    ("capture", "Quick capture"), ("reindex", "Reindex vault"),
     ("clear-filters", "Clear all filters"), ("rail", "Toggle filter rail"),
     ("nav", "Toggle sidebar"),
 ];
@@ -792,6 +798,8 @@ fn palette_activate(ui: &AppWindow, id: &str) {
     } else if let Some(c) = id.strip_prefix("c:") {
         match c {
             "new-note" => ui.invoke_new_note(),
+            "new-meeting" => dispatch_cmd(ui, "new-meeting"),
+            "capture" => dispatch_cmd(ui, "capture"),
             "reindex" => ui.invoke_reindex(),
             "clear-filters" => ui.invoke_clear_filters(),
             "rail" => ui.set_rail_hidden(!ui.get_rail_hidden()),
@@ -3162,8 +3170,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Single-instance (Unix): a `--new-meeting` launch (e.g. a GNOME custom keyboard
     // shortcut) forwards to the running instance and exits, instead of opening a
     // second window. Plain re-launch forwards `show`. No instance running → we're it.
-    let launch_cmd = if std::env::args().any(|a| a == "--new-meeting") {
+    let args: Vec<String> = std::env::args().collect();
+    let launch_cmd = if args.iter().any(|a| a == "--new-meeting") {
         "new-meeting"
+    } else if args.iter().any(|a| a == "--capture") {
+        "capture"
     } else {
         "show"
     };
@@ -3284,7 +3295,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
     };
     // If this instance was itself launched with an action, run it now that the UI exists.
-    if launch_cmd == "new-meeting" {
+    if launch_cmd == "new-meeting" || launch_cmd == "capture" {
         dispatch_cmd(&ui, launch_cmd);
     }
 
