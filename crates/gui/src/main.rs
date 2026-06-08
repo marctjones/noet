@@ -5,6 +5,7 @@ use noet_core::backend;
 use noet_core::backend::{Backend, Filter, TodoFields};
 use chrono::NaiveDate;
 use slint::{Model, ModelRc, SharedString, VecModel};
+use sred_core::api::FragmentImage;
 use sred_core::{
     BlockKind as SredBlock, Command as SredCmd, Editor as SredEditor, Format as SredFormat,
     MarkSet as SredMark, Motion as SredMotion, Theme as SredTheme,
@@ -111,6 +112,11 @@ thread_local! {
     /// Active autocomplete trigger: (kind, text-typed-after-the-trigger). `kind` is
     /// "project" | "person" | "tag". `None` when the popup is closed.
     static AC: RefCell<Option<(&'static str, String)>> = const { RefCell::new(None) };
+
+    /// Whether the open note contains `$` (so the editor render skips the O(doc)
+    /// math-fragment scan + Typst overlay entirely for notes with no math). Set on
+    /// load/edit; read on every render (scroll renders stay flat-cost).
+    static HAS_MATH: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Parse the text immediately before the caret for an open entity-autocomplete
@@ -192,6 +198,81 @@ fn rgba_to_image(rgba: &[u8], width: u32, height: u32) -> slint::Image {
     slint::Image::from_rgba8(buf)
 }
 
+/// Overlay rendered math/figure fragments onto the editor frame, mirroring sred's
+/// egui reference adapter: for each math fragment, render it (cached) via the Typst
+/// hook and blit the image — scaled to the source span's line height (preserving
+/// aspect) — at each `rect_for_range` rect (viewport-relative, same space as the
+/// frame). Math-free notes never reach here (gated by `HAS_MATH`).
+fn compose_fragments(e: &mut SredEditor, frame: &mut [u8], fw: u32, fh: u32) {
+    let frags = e.math_fragments();
+    for frag in &frags {
+        let Some(img) = e.render_fragment(frag) else { continue };
+        if img.width == 0 || img.height == 0 || img.rgba.is_empty() {
+            continue;
+        }
+        let aspect = img.width as f32 / img.height.max(1) as f32;
+        for r in e.rect_for_range(frag.start, frag.end) {
+            blit_fragment(frame, fw, fh, &img, r.x, r.y, r.h * aspect, r.h);
+        }
+    }
+}
+
+/// Alpha-blend a fragment image into the frame at `(dx, dy)`, resized to `tw × th`
+/// with bilinear sampling (math is downscaled from a high-res Typst raster, so
+/// nearest-neighbor would alias). The frame stays opaque (it's the editor bg).
+fn blit_fragment(frame: &mut [u8], fw: u32, fh: u32, img: &FragmentImage, dx: f32, dy: f32, tw: f32, th: f32) {
+    if tw < 1.0 || th < 1.0 {
+        return;
+    }
+    let (dx0, dy0) = (dx.round() as i32, dy.round() as i32);
+    let (tw_i, th_i) = (tw.round() as i32, th.round() as i32);
+    for ty in 0..th_i {
+        let oy = dy0 + ty;
+        if oy < 0 || oy >= fh as i32 {
+            continue;
+        }
+        let sy = ((ty as f32 + 0.5) / th) * img.height as f32 - 0.5;
+        for tx in 0..tw_i {
+            let ox = dx0 + tx;
+            if ox < 0 || ox >= fw as i32 {
+                continue;
+            }
+            let sx = ((tx as f32 + 0.5) / tw) * img.width as f32 - 0.5;
+            let [sr, sg, sb, sa] = sample_bilinear(img, sx, sy);
+            if sa == 0 {
+                continue;
+            }
+            let di = ((oy as usize) * (fw as usize) + ox as usize) * 4;
+            let a = sa as f32 / 255.0;
+            frame[di] = (sr as f32 * a + frame[di] as f32 * (1.0 - a)).round() as u8;
+            frame[di + 1] = (sg as f32 * a + frame[di + 1] as f32 * (1.0 - a)).round() as u8;
+            frame[di + 2] = (sb as f32 * a + frame[di + 2] as f32 * (1.0 - a)).round() as u8;
+            frame[di + 3] = 255;
+        }
+    }
+}
+
+/// Bilinear sample of a fragment image at fractional `(x, y)` → RGBA.
+fn sample_bilinear(img: &FragmentImage, x: f32, y: f32) -> [u8; 4] {
+    let x = x.clamp(0.0, (img.width - 1) as f32);
+    let y = y.clamp(0.0, (img.height - 1) as f32);
+    let (x0, y0) = (x.floor() as u32, y.floor() as u32);
+    let (x1, y1) = ((x0 + 1).min(img.width - 1), (y0 + 1).min(img.height - 1));
+    let (fx, fy) = (x - x0 as f32, y - y0 as f32);
+    let px = |xx: u32, yy: u32| -> [u8; 4] {
+        let i = ((yy * img.width + xx) * 4) as usize;
+        [img.rgba[i], img.rgba[i + 1], img.rgba[i + 2], img.rgba[i + 3]]
+    };
+    let (p00, p10, p01, p11) = (px(x0, y0), px(x1, y0), px(x0, y1), px(x1, y1));
+    let mut out = [0u8; 4];
+    for c in 0..4 {
+        let top = p00[c] as f32 + (p10[c] as f32 - p00[c] as f32) * fx;
+        let bot = p01[c] as f32 + (p11[c] as f32 - p01[c] as f32) * fx;
+        out[c] = (top + (bot - top) * fy).round().clamp(0.0, 255.0) as u8;
+    }
+    out
+}
+
 /// Re-rasterize the sred document and push frame + caret + scroll to the UI.
 /// Honors any wheel/scrollbar offset the Slint side set since the last render.
 /// Render the visible slice via sred's viewport-bounded path (flat per-keystroke
@@ -208,12 +289,20 @@ fn rich_render(ui: &AppWindow, follow: bool) {
         e.scroll_to(ui_scroll);
         // Viewport-sized frame + viewport-relative caret + resolved scroll.
         let out = e.render_view(follow);
-        ui.set_rich_frame(rgba_to_image(&out.frame.rgba, out.frame.width, out.frame.height));
-        ui.set_rich_doc_height(out.doc_height as f32);
-        ui.set_rich_caret_x(out.caret.x);
-        ui.set_rich_caret_y(out.caret.y);
-        ui.set_rich_caret_h(out.caret.h);
-        ui.set_rich_scroll_y(out.scroll_y);
+        let (cx, cy, ch, sy, dh) = (out.caret.x, out.caret.y, out.caret.h, out.scroll_y, out.doc_height);
+        let (fw, fh) = (out.frame.width, out.frame.height);
+        let mut rgba = out.frame.rgba;
+        // Overlay rendered Typst math/figure fragments onto the frame (only when the
+        // note has math and a renderer is registered — keeps math-free notes cheap).
+        if HAS_MATH.with(|m| m.get()) && e.has_fragment_renderer() {
+            compose_fragments(&mut e, &mut rgba, fw, fh);
+        }
+        ui.set_rich_frame(rgba_to_image(&rgba, fw, fh));
+        ui.set_rich_doc_height(dh as f32);
+        ui.set_rich_caret_x(cx);
+        ui.set_rich_caret_y(cy);
+        ui.set_rich_caret_h(ch);
+        ui.set_rich_scroll_y(sy);
         // Accessibility: expose the document text to the a11y tree (sred renders a
         // bitmap that screen readers can't see).
         ui.set_rich_a11y(e.a11y().value.into());
@@ -224,6 +313,7 @@ fn rich_render(ui: &AppWindow, follow: bool) {
 /// the frame, then run the shared live-update + debounced-autosave pipeline.
 fn rich_after_edit(ui: &AppWindow) {
     let body = RICH.with(|r| r.borrow().text());
+    HAS_MATH.with(|m| m.set(body.contains('$')));
     ui.set_current_body(body.into());
     rich_render(ui, true);
     ui.invoke_note_edited();
@@ -232,6 +322,7 @@ fn rich_after_edit(ui: &AppWindow) {
 /// Load a note body into the sred editor and show it from the top.
 fn rich_load(ui: &AppWindow, body: &str) {
     RICH.with(|r| r.borrow_mut().set_text(body));
+    HAS_MATH.with(|m| m.set(body.contains('$')));
     ui.set_rich_scroll_y(0.0);
     // Start each note with the autocomplete popup closed.
     ui.set_rich_ac_open(false);
@@ -1502,6 +1593,15 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 .set_spellchecker(Box::new(move |text| spell_misspellings(&dict, text)));
         });
     }
+    // Inline Typst math/figure rendering (opt-in `typst-math` feature): register the
+    // native Typst fragment renderer (loads the Typst std lib + embedded fonts once;
+    // cheap + result-cached after). compose_fragments overlays the images. Without the
+    // feature, no renderer is set → has_fragment_renderer() is false → zero overhead.
+    #[cfg(feature = "typst-math")]
+    RICH.with(|r| {
+        r.borrow_mut()
+            .set_fragment_renderer(sred_typst::TypstRenderer::new().into_hook());
+    });
     {
         let ui_w = ui.as_weak();
         ui.on_rich_pointer_down(move |x, y| {

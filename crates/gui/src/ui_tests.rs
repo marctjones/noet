@@ -311,3 +311,18 @@ fn ac_detect_grammar() {
     assert_eq!(ac_detect("plain text"), None);
     assert_eq!(ac_detect("[[multi\nline"), None, "newline closes the wikilink scan");
 }
+
+/// Integration guard for the opt-in Typst fragment renderer: the hook Noet wires
+/// detects `$…$` math and renders it to a non-empty image. Only built/run with the
+/// `typst-math` feature (`cargo test -p noet-gui --features typst-math`).
+#[cfg(feature = "typst-math")]
+#[test]
+fn typst_fragment_renderer_produces_an_image() {
+    let mut ed = SredEditor::new(SredFormat::Typst);
+    ed.set_fragment_renderer(sred_typst::TypstRenderer::new().into_hook());
+    ed.set_text("$x^2 + 1$");
+    let frags = ed.math_fragments();
+    assert!(!frags.is_empty(), "math fragment detected in Typst source");
+    let img = ed.render_fragment(&frags[0]).expect("fragment renders to an image");
+    assert!(img.width > 0 && img.height > 0 && !img.rgba.is_empty(), "non-empty RGBA image");
+}

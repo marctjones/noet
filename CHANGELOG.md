@@ -6,6 +6,18 @@ All notable changes to Noet are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+- **Inline Typst math/figures in the editor (opt-in)** — behind the `typst-math`
+  Cargo feature (off by default), `sred-typst` (v0.7.5) renders `$…$` math/figures
+  and the editor overlays the images on their source span. **Not** in the default
+  or released builds: the feature pulls the full Typst compiler (~59 crates, much
+  larger binary, slower builds), so it's opt-in via `cargo build --features
+  typst-math`. Default builds register no fragment renderer → zero overhead.
+
+### Changed
+- Bumped `sred-core` to **v0.7.5** (no-op for the core; source identical to v0.7.4
+  — the v0.7.5 work is the separate optional `sred-typst` crate).
+
 ## [0.5.1] - 2026-06-07
 
 ### Fixed
