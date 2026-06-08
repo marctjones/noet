@@ -15,12 +15,12 @@ noet-core = { path = "../core" }
 # WYSIWYG editor engine (UI-free; Slint-version-independent). Pinned to a public
 # tag so CI release builds resolve it without a sibling checkout. This is Noet's
 # sole note editor; track the latest STABLE tag (not -alpha).
-sred-core = { git = "https://github.com/marctjones/sred", tag = "v0.7.5", features = ["syntax-highlight"] }
+sred-core = { git = "https://github.com/marctjones/sred", tag = "v0.7.6", features = ["syntax-highlight"] }
 # Optional native Typst renderer for inline math/figure fragments in the editor.
 # OFF by default: it pulls the whole Typst compiler (~59 crates, ~50s added to
 # every rebuild, much larger binary), which isn't worth it for a notes app unless
 # you write Typst math often. Enable with `--features typst-math`.
-sred-typst = { git = "https://github.com/marctjones/sred", tag = "v0.7.5", optional = true }
+sred-typst = { git = "https://github.com/marctjones/sred", tag = "v0.7.6", optional = true }
 slint = "1.13"
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "5"

@@ -6,6 +6,13 @@ All notable changes to Noet are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+- **Adopted sred #24** (sred-core/sred-typst → **v0.7.6**): with `typst-math`,
+  sred now composites rendered math/figure fragments into the frame itself
+  (`set_fragment_overlay(true)`), so Noet's hand-rolled overlay is gone — deleted
+  `compose_fragments`/`blit_fragment`/`sample_bilinear` (~70 lines) + the `HAS_MATH`
+  gating. Pixel-identical; default builds are unaffected (no renderer → no overlay).
+
 ### Added
 - **Inline Typst math/figures in the editor (opt-in)** — behind the `typst-math`
   Cargo feature (off by default), `sred-typst` (v0.7.5) renders `$…$` math/figures
