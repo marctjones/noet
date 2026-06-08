@@ -1416,6 +1416,17 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         });
     }
 
+    {
+        // Color scheme changed (OS detection on launch, or the manual toggle):
+        // re-render the bitmap editor and re-apply the Win11 titlebar so both follow.
+        let ui_w = ui.as_weak();
+        ui.on_theme_changed(move || {
+            let ui = ui_w.unwrap();
+            rich_render(&ui, false);
+            chrome::apply(ui.global::<Theme>().get_dark());
+        });
+    }
+
     // sred editor: forward key / pointer / command events into sred.
     {
         let ui_w = ui.as_weak();

@@ -876,6 +876,13 @@ export component AppWindow inherits Window {
     // without forming a layout binding loop.
     changed width => { root.win-w = root.width; }
 
+    // The sred editor renders to a bitmap (not reactive to Theme), so re-render it
+    // when the color scheme flips — at OS-scheme detection on launch *and* on the
+    // manual light/dark toggle — otherwise the editor keeps a stale light/dark frame.
+    out property <bool> is-dark: Theme.dark;
+    callback theme-changed();
+    changed is-dark => { root.theme-changed(); }
+
     // Surface status messages as a transient toast (auto-clears via the timer below).
     changed source-mode => { root.set-source-mode(root.source-mode); }
     changed status-text => {
