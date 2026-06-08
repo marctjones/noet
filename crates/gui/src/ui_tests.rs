@@ -267,6 +267,32 @@ fn headless_ui_smoke() {
         ui.get_current_body()
     );
 
+    // ----- Level 4d: related prior meetings → one-click link -----
+    // Seed a prior Acme meeting + the current meeting note (both indexed), open the
+    // current one, and confirm the prior surfaces as related and links in.
+    let cur_id;
+    {
+        let mut st = ctx.state.borrow_mut();
+        let a = st.backend.new_note().unwrap();
+        st.backend.save_note(&a.id, "Acme kickoff", "[[Acme]] @[[Jane]]\n").unwrap();
+        let cur = st.backend.new_note().unwrap();
+        st.backend.save_note(&cur.id, "Acme sync today", "[[Acme]]\n").unwrap();
+        cur_id = cur.id.clone();
+    }
+    ctx.state.borrow_mut().backend.reindex_all().unwrap();
+    ui.invoke_select_note(cur_id.into()); // opens it → render_read populates related
+    let rel = ui.get_current_related();
+    assert!(
+        (0..rel.row_count()).any(|i| rel.row_data(i).unwrap().title == "Acme kickoff"),
+        "prior Acme meeting offered as related"
+    );
+    ui.invoke_link_related("Acme kickoff".into());
+    assert!(
+        ui.get_current_body().contains("[[Acme kickoff]]"),
+        "linking a related meeting inserts the wikilink: {:?}",
+        ui.get_current_body()
+    );
+
     // ----- Level 5: command palette -----
     ui.invoke_palette_search("".into()); // empty query → views + commands + recent notes
     assert!(ui.get_palette_results().row_count() > 0, "empty palette query yields default results");

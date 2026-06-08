@@ -1325,6 +1325,18 @@ fn render_read(ui: &AppWindow, b: &Backend, note: &backend::Note) {
         .map(|n| NoteRef { id: n.id.into(), title: n.title.into() })
         .collect();
     ui.set_current_backlinks(ModelRc::new(VecModel::from(backs)));
+    // related prior meetings: notes sharing a workstream/person/tag, to one-click link
+    let related: Vec<RelatedRef> = b
+        .related_notes(&note.id, 8)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|r| RelatedRef {
+            id: r.id.into(),
+            title: r.title.into(),
+            via: r.shared.join(", ").into(),
+        })
+        .collect();
+    ui.set_current_related(ModelRc::new(VecModel::from(related)));
 }
 
 /// The built-but-not-yet-driven app: window, shared state, and the background-
@@ -1466,6 +1478,16 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let ui = ui_w.unwrap();
             RICH.with(|r| r.borrow_mut().apply(SredCmd::Insert(s.to_string())));
             rich_after_edit(&ui);
+        });
+    }
+    {
+        // Link a related prior meeting: insert `[[Title]] ` at the caret.
+        let ui_w = ui.as_weak();
+        ui.on_link_related(move |title| {
+            let ui = ui_w.unwrap();
+            RICH.with(|r| r.borrow_mut().apply(SredCmd::Insert(format!("[[{title}]] "))));
+            rich_after_edit(&ui);
+            ui.set_status_text(format!("Linked [[{title}]]").into());
         });
     }
     {

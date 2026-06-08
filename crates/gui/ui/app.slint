@@ -62,6 +62,8 @@ export struct TodoItem {
 }
 
 export struct NoteRef { id: string, title: string }
+// A related prior note (shared workstream/person/tag) offered for one-click linking.
+export struct RelatedRef { id: string, title: string, via: string }
 
 // A command-palette result. `id` is a typed ref the Rust side dispatches:
 // "v:<view>" (open view), "n:<note-id>" (open note), "c:<command>" (run command),
@@ -632,6 +634,8 @@ export component AppWindow inherits Window {
     in property <[TodoItem]> agenda-later;
     in property <[NoteItem]> inbox-notes;
     in property <[NoteRef]> current-backlinks;
+    in property <[RelatedRef]> current-related; // prior notes to link this one to
+    callback link-related(string);             // insert [[title]] into the editor
     in property <[TodoItem]> today-stale;
     in property <[NoteItem]> today-recent;
     in property <[NoteRef]> trash-notes;
@@ -1392,6 +1396,18 @@ export component AppWindow inherits Window {
                                         alignment: start;
                                         Text { text: "↩ referenced by:"; font-size: (11px * Z.f); color: Theme.text3; vertical-alignment: center; }
                                         for r in root.current-backlinks: LinkChip { text: r.title; tint: #eef2f7; ink: #4a5560; clicked => { root.select-note(r.id); } }
+                                    }
+                                    // related prior meetings (shared workstream/people/tags) — click to
+                                    // insert a [[link]] into this note; → opens it instead.
+                                    if (root.current-related.length > 0 && !root.source-mode): HorizontalLayout {
+                                        spacing: 5px;
+                                        alignment: start;
+                                        Text { text: "🔗 link a related meeting:"; font-size: (11px * Z.f); color: Theme.text3; vertical-alignment: center; }
+                                        for r in root.current-related: LinkChip {
+                                            text: r.via == "" ? r.title : r.title + "  · via " + r.via;
+                                            tint: Theme.sel; ink: Theme.accent;
+                                            clicked => { root.link-related(r.title); }
+                                        }
                                     }
                                     // Find / replace bar (Ctrl/⌘+F) — operates on the sred editor.
                                     if (root.find-open && !root.source-mode): Rectangle {
