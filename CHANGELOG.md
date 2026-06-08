@@ -6,33 +6,47 @@ All notable changes to Noet are documented here. Format follows
 
 ## [Unreleased]
 
-### Added
-- **Start a meeting note from anywhere.** Windows/macOS get a system-tray icon +
-  menu and a global **Ctrl+Alt+N**. Linux/GNOME (where Wayland forbids tray icons +
-  global key grabs) gets the clean equivalent: Noet runs **single-instance** and
-  `noet --new-meeting` forwards to the running window — bind it to a GNOME Custom
-  Shortcut. A `.desktop` entry (in the `.deb`) adds a right-click *New meeting note*.
-- **Launch-on-startup** is now all-platform (Settings → Startup): HKCU Run
-  (Windows), Launch Agent (macOS), XDG autostart (Linux) — per-user, no admin.
+## [0.6.0] - 2026-06-08
 
-### Changed
-- **Adopted sred #24** (sred-core/sred-typst → **v0.7.6**): with `typst-math`,
-  sred now composites rendered math/figure fragments into the frame itself
-  (`set_fragment_overlay(true)`), so Noet's hand-rolled overlay is gone — deleted
-  `compose_fragments`/`blit_fragment`/`sample_bilinear` (~70 lines) + the `HAS_MATH`
-  gating. Pixel-identical; default builds are unaffected (no renderer → no overlay).
+**Daily Driver** — capture a meeting note from anywhere, always-on presence, and
+links between related meetings: the things that let Noet replace OneNote + Notepad
+on a corporate Windows desktop (and work cleanly on macOS + GNOME/Wayland).
 
 ### Added
+- **Link a meeting note to related prior meetings** — the editor surfaces notes that
+  share a workstream `[[ ]]`, person `@`, or tag `#` ("🔗 link a related meeting ·
+  via Acme, Jane"); one click inserts the wiki-link. Backed by a `related_notes`
+  query (ranked by shared-entity count, then recency).
+- **Start a meeting note / quick-capture from anywhere:**
+  - **Windows + macOS** — a system-tray icon + menu (New meeting note / Quick
+    capture / Show / Quit) and global hotkeys **Ctrl+Alt+N** (meeting) /
+    **Ctrl+Alt+C** (capture).
+  - **Linux / GNOME** — Wayland forbids tray icons + global key grabs, so Noet runs
+    **single-instance** and exposes the actions on the CLI: `noet --new-meeting` /
+    `noet --capture` forward to the running window. Bind them to a GNOME Custom
+    Shortcut; a `.desktop` entry (installed by the `.deb`) adds right-click actions.
+  - **Quick-capture popup** — a summonable one-line capture → Inbox (from the tray,
+    CLI, or the command palette's "Quick capture" / "New meeting note").
+- **Launch-on-startup** — Settings → Startup, all platforms (HKCU Run / Launch
+  Agent / XDG autostart); per-user, no admin.
+- **Windows 11 dark-titlebar chrome** — the titlebar follows the theme via DWM
+  (true Mica can't show through Slint's opaque surface; the dark titlebar +
+  rounded corners are the native win).
 - **Inline Typst math/figures in the editor (opt-in)** — behind the `typst-math`
-  Cargo feature (off by default), `sred-typst` (v0.7.5) renders `$…$` math/figures
-  and the editor overlays the images on their source span. **Not** in the default
-  or released builds: the feature pulls the full Typst compiler (~59 crates, much
-  larger binary, slower builds), so it's opt-in via `cargo build --features
-  typst-math`. Default builds register no fragment renderer → zero overhead.
+  Cargo feature (off by default; pulls the full Typst compiler, ~59 crates). The
+  default and released builds are unaffected.
+
+### Fixed
+- **Editor follows light/dark** — the bitmap editor re-renders when the OS scheme is
+  detected on launch and on the manual toggle (it previously kept a stale
+  bright-white frame in dark mode).
+- **Editor toolbar** no longer overlaps the word/char count (moved to the title row).
 
 ### Changed
-- Bumped `sred-core` to **v0.7.5** (no-op for the core; source identical to v0.7.4
-  — the v0.7.5 work is the separate optional `sred-typst` crate).
+- **`sred-core` → v0.7.6**, adopting sred #24: with `typst-math`, sred composites
+  math/figure fragments into its own frame (`set_fragment_overlay`), removing Noet's
+  hand-rolled blit (~70 lines + the `HAS_MATH` gating).
+- **CI** builds + tests on Windows, macOS, and Linux for every branch push.
 
 ## [0.5.1] - 2026-06-07
 

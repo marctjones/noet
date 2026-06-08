@@ -5,12 +5,14 @@ projects/workstreams**, built over **plain markdown files**. No web browser, no
 JS — a small native Rust + [Slint](https://slint.dev) binary for **Windows 11**,
 **macOS**, and **Linux**.
 
-> **Status — v0.5.0.** The note/todo/project core, all views, and the connectors
-> below are working. The note editor is a **WYSIWYG rich-text editor**
-> ([`sred`](https://github.com/marctjones/sred) — a separate Rust project) with
-> Markdown Live Preview, inline spellcheck, find/replace, **entity autocomplete**
-> (`[[`/`@[[`/`#`), and a command palette. See [CHANGELOG](CHANGELOG.md) and
-> [ROADMAP](ROADMAP.md).
+> **Status — v0.6.0 ("Daily Driver").** The note/todo/project core, all views, and
+> the connectors below are working. The note editor is a **WYSIWYG rich-text editor**
+> ([`sred`](https://github.com/marctjones/sred)) with Markdown Live Preview,
+> spellcheck, find/replace, entity autocomplete, and a command palette. This release
+> adds **start-a-meeting-note-from-anywhere** (tray + global hotkey on Win/macOS;
+> `noet --new-meeting` + a Custom Shortcut on GNOME), **quick capture**,
+> **launch-on-startup**, and **linking related meetings**. See
+> [CHANGELOG](CHANGELOG.md) and [ROADMAP](ROADMAP.md).
 >
 > The name is a deliberate misspelling of *note* (it began as a typo and stuck).
 
