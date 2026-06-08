@@ -1375,16 +1375,22 @@ export component AppWindow inherits Window {
                                         ToolBtn { label: "→ Todo"; clicked => { editpane.copysel(); root.selection-to-todo(); } }
                                         ToolBtn { label: "→ Note"; clicked => { editpane.copysel(); root.selection-to-note(); } }
                                         Rectangle { horizontal-stretch: 1; }
+                                    }
+                                    // Title + a discreet word/char count on the right (moved off the
+                                    // formatting toolbar, which overflows at narrow editor widths).
+                                    HorizontalLayout {
+                                        spacing: 10px;
+                                        LineEdit {
+                                            placeholder-text: "Note title…";
+                                            text <=> root.current-title;
+                                            font-size: (17px * Z.f);
+                                            horizontal-stretch: 1;
+                                            edited(t) => { root.note-edited(); }
+                                        }
                                         Text {
                                             text: root.current-word-count + " words · " + root.current-char-count + " chars";
                                             font-size: (11px * Z.f); color: Theme.text3; vertical-alignment: center;
                                         }
-                                    }
-                                    LineEdit {
-                                        placeholder-text: "Note title…";
-                                        text <=> root.current-title;
-                                        font-size: (17px * Z.f);
-                                        edited(t) => { root.note-edited(); }
                                     }
                                     // Labels / people / tags in this note — highlighted + clickable, kept
                                     // live as you type. (The raw editor can't colour tokens inline — Slint
