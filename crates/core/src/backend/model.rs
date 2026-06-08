@@ -38,6 +38,18 @@ pub struct Project {
     pub count: i64,
 }
 
+/// A note related to another by shared workstreams / people / tags — used to link
+/// a new meeting note back to prior meetings in the same thread.
+#[derive(Debug, Clone)]
+pub struct RelatedNote {
+    pub id: String,
+    pub title: String,
+    pub updated: String,
+    /// The shared entity names that make it related (e.g. `["Acme", "Jane"]`),
+    /// shown as "via …" so the user knows *why* it surfaced.
+    pub shared: Vec<String>,
+}
+
 /// A rendered markdown block for the read view (native, no webview).
 #[derive(Debug, Clone)]
 pub struct MdBlock {

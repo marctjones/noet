@@ -231,6 +231,35 @@ fn incremental_reindex_only_touches_changed_files() {
 }
 
 #[test]
+fn related_notes_by_shared_workstream_and_people() {
+    let dir = std::env::temp_dir().join(format!("noet-test-{}", ulid::Ulid::new()));
+    let mut b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();
+
+    // Two prior Acme meetings (one also with Jane), one unrelated note.
+    let m1 = b.new_note().unwrap();
+    b.save_note(&m1.id, "Acme kickoff", "notes about [[Acme]] @[[Jane]]\n").unwrap();
+    let m2 = b.new_note().unwrap();
+    b.save_note(&m2.id, "Acme planning", "more [[Acme]] work\n").unwrap();
+    let other = b.new_note().unwrap();
+    b.save_note(&other.id, "Gardening", "tomatoes [[Home]]\n").unwrap();
+
+    // The new meeting note shares Acme (both priors) and Jane (m1 only).
+    let cur = b.new_note().unwrap();
+    b.save_note(&cur.id, "Acme sync today", "[[Acme]] @[[Jane]] #urgent\n").unwrap();
+
+    let rel = b.related_notes(&cur.id, 10).unwrap();
+    let ids: Vec<&str> = rel.iter().map(|r| r.id.as_str()).collect();
+    assert!(ids.contains(&m1.id.as_str()) && ids.contains(&m2.id.as_str()), "both Acme meetings surface");
+    assert!(!ids.contains(&other.id.as_str()), "unrelated note excluded");
+    assert!(!ids.contains(&cur.id.as_str()), "self excluded");
+    // m1 shares two entities (Acme + Jane) → ranks above m2 (Acme only).
+    assert_eq!(rel[0].id, m1.id, "most-shared ranks first");
+    assert!(rel[0].shared.iter().any(|s| s == "Acme") && rel[0].shared.iter().any(|s| s == "Jane"));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn status_tags_board_and_moves() {
     let dir = std::env::temp_dir().join(format!("noet-test-{}", ulid::Ulid::new()));
     let mut b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();

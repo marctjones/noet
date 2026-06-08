@@ -5,7 +5,7 @@
 use super::index::fts_query;
 use super::parse::{parse_links, parse_mentions, parse_tags};
 use super::vault::read_note;
-use super::{Backend, Filter, Note, Project, Todo, KINDS, STATUSES};
+use super::{Backend, Filter, Note, Project, RelatedNote, Todo, KINDS, STATUSES};
 use anyhow::Result;
 use chrono::Utc;
 use std::path::{Path, PathBuf};
@@ -354,6 +354,58 @@ impl Backend {
         )?;
         let rows = stmt.query_map([target], Self::note_row)?;
         Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    /// Notes related to `note_id` by shared workstreams (`[[ ]]` links), people
+    /// (`@`), or tags (`#`), ranked by how many entities they share, then recency.
+    /// Powers "link this meeting note to related prior meetings": the same project
+    /// or the same recurring attendees surface the earlier notes in the thread.
+    pub fn related_notes(&self, note_id: &str, limit: usize) -> Result<Vec<RelatedNote>> {
+        use std::collections::{BTreeSet, HashMap};
+        // This note's own entity values, per source table.
+        let column_values = |table: &str, col: &str| -> Result<Vec<String>> {
+            let mut stmt =
+                self.conn.prepare(&format!("SELECT {col} FROM {table} WHERE note_id=?"))?;
+            let rows = stmt.query_map([note_id], |r| r.get::<_, String>(0))?;
+            Ok(rows.filter_map(|r| r.ok()).collect())
+        };
+        let sources = [
+            ("links", "target", column_values("links", "target")?),
+            ("mentions", "person", column_values("mentions", "person")?),
+            ("tags", "tag", column_values("tags", "tag")?),
+        ];
+        // note_id -> set of shared entity names.
+        let mut hits: HashMap<String, BTreeSet<String>> = HashMap::new();
+        for (table, col, values) in &sources {
+            for v in values {
+                let mut stmt = self.conn.prepare(&format!(
+                    "SELECT DISTINCT note_id FROM {table} WHERE {col}=? AND note_id!=?"
+                ))?;
+                let rows = stmt.query_map(rusqlite::params![v, note_id], |r| r.get::<_, String>(0))?;
+                for nid in rows.filter_map(|r| r.ok()) {
+                    hits.entry(nid).or_default().insert(v.clone());
+                }
+            }
+        }
+        let mut out: Vec<RelatedNote> = Vec::new();
+        for (nid, shared) in hits {
+            let row = self.conn.query_row(
+                "SELECT title, updated, archived FROM notes WHERE id=?",
+                [&nid],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?)),
+            );
+            if let Ok((title, updated, archived)) = row {
+                if archived == 0 {
+                    out.push(RelatedNote { id: nid, title, updated, shared: shared.into_iter().collect() });
+                }
+            }
+        }
+        // Most-shared first, then most-recently-updated.
+        out.sort_by(|a, b| {
+            b.shared.len().cmp(&a.shared.len()).then(b.updated.cmp(&a.updated))
+        });
+        out.truncate(limit);
+        Ok(out)
     }
 
     pub fn get_todo(&self, id: &str) -> Result<Todo> {

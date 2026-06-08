@@ -23,7 +23,9 @@ mod vault;
 
 // The public surface frontends consume as `noet_core::backend::*`.
 pub use index::{background_reindex, reindex_connection};
-pub use model::{Filter, MdBlock, Note, Project, Segment, Todo, TodoFields, KINDS, STATUSES};
+pub use model::{
+    Filter, MdBlock, Note, Project, RelatedNote, Segment, Todo, TodoFields, KINDS, STATUSES,
+};
 pub use parse::{
     clean_inline, line_segments, markdown_blocks, parse_links, parse_mentions, parse_tags,
     parse_todos,
