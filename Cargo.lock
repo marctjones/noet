@@ -4102,6 +4102,7 @@ dependencies = [
  "sred-core",
  "sred-typst",
  "tray-icon",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

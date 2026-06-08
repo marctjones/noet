@@ -15,6 +15,7 @@ use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
 
+mod chrome;
 mod ipc;
 mod startup;
 mod tray;
@@ -3280,6 +3281,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // System tray (Windows + macOS): keep it alive for the session so it stays one
     // click away. No-op / None on Linux.
     let _tray: Option<tray::Tray> = tray::setup(&ui);
+
+    // Win11 chrome (dark titlebar + Mica hint): apply shortly after launch, once the
+    // native window exists. Kept-alive single-shot timer; chrome::apply is a no-op
+    // off Windows, so this is harmless everywhere.
+    let _chrome_timer = {
+        let dark = ui.global::<Theme>().get_dark();
+        let timer = slint::Timer::default();
+        timer.start(
+            slint::TimerMode::SingleShot,
+            std::time::Duration::from_millis(600),
+            move || chrome::apply(dark),
+        );
+        timer
+    };
 
     // Single-instance server (Unix): forward future `--new-meeting` launches into
     // this UI. Held in `_ipc` so the socket lives for the session.
