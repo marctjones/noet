@@ -42,3 +42,8 @@ slint-build = "1.13"
 # Headless Slint backend for automated GUI tests (ElementHandle, simulated input,
 # mocked time). Tracks the slint version.
 i-slint-backend-testing = "1.13"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+auto-launch = "0.6.0"
+global-hotkey = "0.8.0"
+tray-icon = "0.24.0"
