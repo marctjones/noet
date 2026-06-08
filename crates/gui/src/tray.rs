@@ -1,11 +1,17 @@
-//! System-tray integration (Windows): a tray icon + small menu so Noet stays one
-//! click away when a meeting starts. Tray/menu events are drained on the UI thread
-//! via a Slint `Timer` (no event-loop ownership needed — the crates deliver events
-//! through global channels we poll). No-op on other platforms.
+//! System-tray integration (Windows + macOS): a tray icon + small menu so Noet
+//! stays one click away when a meeting starts, plus a Ctrl+Alt+N global hotkey.
+//! Tray/menu/hotkey events are drained on the UI thread via a Slint `Timer` (no
+//! event-loop ownership — the crates deliver events through global channels we
+//! poll; both platforms run the required main-thread loop). No-op on Linux (see
+//! the dependency note in Cargo.toml for why).
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 mod imp {
     use crate::AppWindow;
+    use global_hotkey::{
+        hotkey::{Code, HotKey, Modifiers},
+        GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState,
+    };
     use slint::ComponentHandle;
     use std::time::Duration;
     use tray_icon::{
@@ -13,9 +19,11 @@ mod imp {
         TrayIcon, TrayIconBuilder, TrayIconEvent,
     };
 
-    /// Keeps the tray icon + poll timer alive for the app's lifetime (drop = remove).
+    /// Keeps the tray icon, global-hotkey manager, and poll timer alive for the
+    /// app's lifetime (drop = remove tray + unregister hotkeys).
     pub struct Tray {
         _tray: TrayIcon,
+        _hotkeys: Option<GlobalHotKeyManager>,
         _timer: slint::Timer,
     }
 
@@ -23,7 +31,7 @@ mod imp {
     /// the tray can't be created (then Noet just runs without it).
     pub fn setup(ui: &AppWindow) -> Option<Tray> {
         let menu = Menu::new();
-        let mi_meeting = MenuItem::new("New meeting note", true, None);
+        let mi_meeting = MenuItem::new("New meeting note   Ctrl+Alt+N", true, None);
         let mi_show = MenuItem::new("Show Noet", true, None);
         let mi_quit = MenuItem::new("Quit Noet", true, None);
         menu.append(&mi_meeting).ok()?;
@@ -39,6 +47,17 @@ mod imp {
 
         let (id_meeting, id_show, id_quit) =
             (mi_meeting.id().clone(), mi_show.id().clone(), mi_quit.id().clone());
+
+        // Global hotkey: Ctrl+Alt+N → new meeting note from anywhere. Best-effort —
+        // if registration fails (e.g. another app owns the combo) the tray still works.
+        let hotkeys = GlobalHotKeyManager::new().ok();
+        let mut hk_meeting_id = 0u32;
+        if let Some(mgr) = &hotkeys {
+            let hk = HotKey::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyN);
+            if mgr.register(hk).is_ok() {
+                hk_meeting_id = hk.id;
+            }
+        }
 
         let weak = ui.as_weak();
         let timer = slint::Timer::default();
@@ -67,9 +86,18 @@ mod imp {
                     let _ = slint::quit_event_loop();
                 }
             }
+            // Global hotkey: Ctrl+Alt+N → new meeting note (fire on press only).
+            while let Ok(ev) = GlobalHotKeyEvent::receiver().try_recv() {
+                if ev.state() == HotKeyState::Pressed && ev.id() == hk_meeting_id {
+                    if let Some(ui) = weak.upgrade() {
+                        let _ = ui.show();
+                        ui.invoke_new_from_template("meeting".into());
+                    }
+                }
+            }
         });
 
-        Some(Tray { _tray: tray, _timer: timer })
+        Some(Tray { _tray: tray, _hotkeys: hotkeys, _timer: timer })
     }
 
     /// A 32×32 brand-teal rounded-square icon, generated in code so we don't bundle
@@ -107,7 +135,7 @@ mod imp {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 mod imp {
     use crate::AppWindow;
     /// Placeholder so callers don't need their own cfg.

@@ -43,7 +43,12 @@ slint-build = "1.13"
 # mocked time). Tracks the slint version.
 i-slint-backend-testing = "1.13"
 
-[target.'cfg(target_os = "windows")'.dependencies]
+# Tray + global hotkey + launch-on-startup. Windows and macOS only: both have a
+# main-thread event loop Slint already runs, so the channel-poll integration works
+# with no extra system deps. Linux is excluded — tray-icon needs a separate gtk
+# loop + system libs, GNOME hides tray icons without the AppIndicator extension,
+# and global-hotkey is X11-only (won't work under Wayland).
+[target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
 auto-launch = "0.6.0"
 global-hotkey = "0.8.0"
 tray-icon = "0.24.0"
