@@ -1577,6 +1577,8 @@ export component AppWindow inherits Window {
                                                     drop-shadow-color: cardta.has-hover ? #00000026 : #00000012;
                                                     animate drop-shadow-blur { duration: 120ms; }
                                                     cardta := TouchArea {
+                                                    // Double-click the card → open its note at the todo's line.
+                                                    double-clicked => { root.open-note(c.id); }
                                                     VerticalLayout {
                                                         padding: 8px;
                                                         spacing: 5px;

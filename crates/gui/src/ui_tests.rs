@@ -324,6 +324,23 @@ fn headless_ui_smoke() {
         "captured note titled from the text"
     );
 
+    // ----- Level 7: open a todo → land on its line in the note (edit mode) -----
+    let nav_body = "# Meeting\n\nnotes\nTODO(do) follow up with @[[Jane]]\n";
+    let nav_id;
+    {
+        let mut st = ctx.state.borrow_mut();
+        let n = st.backend.new_note().unwrap();
+        st.backend.save_note(&n.id, "Nav test", nav_body).unwrap();
+        nav_id = n.id.clone();
+    }
+    ctx.state.borrow_mut().backend.reindex_all().unwrap();
+    // The TODO is on line 3 (0-based); a todo id is "<note_id>:<line_no>".
+    ui.invoke_open_note(format!("{nav_id}:3").into());
+    assert_eq!(ui.get_view(), "notes", "opening a todo goes to the notes view");
+    assert!(ui.get_editing(), "opens in edit mode to act on the todo");
+    let caret = RICH.with(|r| r.borrow().carets().first().copied().unwrap_or(0));
+    assert_eq!(caret, line_char_offset(nav_body, 3), "caret landed on the todo's line");
+
     // (Slint's lightweight testing backend renders no pixels — its window is a
     // measurement-only renderer — so Window::take_snapshot is unavailable here.
     // Pixel/visual-regression testing would need the software-renderer backend +
@@ -350,6 +367,19 @@ fn ac_detect_grammar() {
     assert_eq!(ac_detect("a#b"), None, "# mid-word is not a tag");
     assert_eq!(ac_detect("plain text"), None);
     assert_eq!(ac_detect("[[multi\nline"), None, "newline closes the wikilink scan");
+}
+
+/// Char offset for "jump to a todo's line" when opening its note from a task/card.
+#[test]
+fn line_char_offset_lands_on_the_right_line() {
+    let body = "# Title\n\nTODO(do) first\nTODO(followup) second\n";
+    assert_eq!(line_char_offset(body, 0), 0);
+    assert_eq!(line_char_offset(body, 1), 8, "after '# Title\\n'");
+    assert_eq!(line_char_offset(body, 2), 9, "after the blank line");
+    // line 3 starts right after "TODO(do) first\n"
+    assert_eq!(line_char_offset(body, 3), 9 + "TODO(do) first\n".chars().count());
+    // past the end clamps to total length (no panic)
+    assert_eq!(line_char_offset(body, 99), body.chars().count());
 }
 
 /// Integration guard for the opt-in Typst fragment renderer: the hook Noet wires

@@ -1229,6 +1229,20 @@ fn open_in_editor(ui: &AppWindow, b: &Backend, note_id: &str) {
     }
 }
 
+/// Char offset of the start of a 0-based `line` in `text` (sred cursor offsets are
+/// char-based). Clamped to the end if `line` is past the last line.
+fn line_char_offset(text: &str, line: usize) -> usize {
+    text.split_inclusive('\n').take(line).map(|l| l.chars().count()).sum()
+}
+
+/// Move the editor caret to the start of a 0-based line and scroll it into view.
+/// Used to land on a todo's source line when opening its note from a task/card.
+fn rich_goto_line(ui: &AppWindow, line: usize) {
+    let offset = RICH.with(|r| line_char_offset(&r.borrow().text(), line));
+    RICH.with(|r| r.borrow_mut().core_mut().set_cursor(offset));
+    rich_render(ui, true); // follow=true scrolls the caret line into view
+}
+
 /// Live word + character counts for the note currently in the editor.
 fn set_doc_counts(ui: &AppWindow, body: &str) {
     ui.set_current_word_count(body.split_whitespace().count() as i32);
@@ -2247,15 +2261,19 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         let state = state.clone();
         ui.on_open_note(move |todo_id: SharedString| {
             let ui = ui_w.unwrap();
-            let note_id = todo_id
-                .rsplit_once(':')
-                .map(|x| x.0)
-                .unwrap_or(&todo_id)
-                .to_string();
-            let s = state.borrow();
-            open_in_editor(&ui, &s.backend, &note_id);
-            ui.set_editing(false);
+            // todo id is "<note_id>:<line_no>" — open the note and land on that line.
+            let (note_id, line) = match todo_id.rsplit_once(':') {
+                Some((n, l)) => (n.to_string(), l.parse::<usize>().ok()),
+                None => (todo_id.to_string(), None),
+            };
+            {
+                let s = state.borrow();
+                open_in_editor(&ui, &s.backend, &note_id); // loads in edit mode
+            }
             ui.set_view("notes".into());
+            if let Some(line) = line {
+                rich_goto_line(&ui, line);
+            }
         });
     }
 
