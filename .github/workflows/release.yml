@@ -81,6 +81,8 @@ jobs:
           mkdir -p "$PKG/DEBIAN" "$PKG/usr/bin" "$PKG/usr/share/doc/noet"
           install -m 0755 target/release/noet "$PKG/usr/bin/noet"
           cp CHANGELOG.md "$PKG/usr/share/doc/noet/changelog"
+          # Desktop entry (launcher + "New meeting note" action; aids GNOME window grouping).
+          install -Dm644 packaging/linux/noet.desktop "$PKG/usr/share/applications/noet.desktop"
           # Build the control file with echo so YAML indentation can't corrupt it.
           {
             echo "Package: noet"

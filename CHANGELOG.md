@@ -6,6 +6,15 @@ All notable changes to Noet are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+- **Start a meeting note from anywhere.** Windows/macOS get a system-tray icon +
+  menu and a global **Ctrl+Alt+N**. Linux/GNOME (where Wayland forbids tray icons +
+  global key grabs) gets the clean equivalent: Noet runs **single-instance** and
+  `noet --new-meeting` forwards to the running window — bind it to a GNOME Custom
+  Shortcut. A `.desktop` entry (in the `.deb`) adds a right-click *New meeting note*.
+- **Launch-on-startup** is now all-platform (Settings → Startup): HKCU Run
+  (Windows), Launch Agent (macOS), XDG autostart (Linux) — per-user, no admin.
+
 ### Changed
 - **Adopted sred #24** (sred-core/sred-typst → **v0.7.6**): with `typst-math`,
   sred now composites rendered math/figure fragments into the frame itself

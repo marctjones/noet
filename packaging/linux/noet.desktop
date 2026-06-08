@@ -1,0 +1,21 @@
+[Desktop Entry]
+Type=Application
+Name=Noet
+GenericName=Notes & Todos
+Comment=Meeting notes, typed todos & projects over plain markdown
+Exec=noet
+Icon=noet
+Terminal=false
+Categories=Office;Utility;TextEditor;
+Keywords=notes;todo;markdown;meeting;
+StartupNotify=true
+StartupWMClass=noet
+Actions=NewMeeting;
+
+# Right-click the app icon (dash/launcher) → "New meeting note". The same
+# `noet --new-meeting` command can be bound to a global shortcut in
+# GNOME Settings → Keyboard → Custom Shortcuts (the Wayland-clean way to get a
+# "new meeting from anywhere" key, since apps can't grab global hotkeys directly).
+[Desktop Action NewMeeting]
+Name=New meeting note
+Exec=noet --new-meeting

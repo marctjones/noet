@@ -29,6 +29,9 @@ spellbook = "0.4"
 notify = "6"
 open = "5"
 anyhow = "1"
+# Launch-on-startup, all platforms (per-user, no admin): HKCU Run on Windows,
+# Launch Agent on macOS, XDG autostart .desktop on Linux — all pure, no system libs.
+auto-launch = "0.6.0"
 
 [features]
 # Inline-render Typst math/figures in the editor (overlays rendered images on the
@@ -49,6 +52,5 @@ i-slint-backend-testing = "1.13"
 # loop + system libs, GNOME hides tray icons without the AppIndicator extension,
 # and global-hotkey is X11-only (won't work under Wayland).
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
-auto-launch = "0.6.0"
 global-hotkey = "0.8.0"
 tray-icon = "0.24.0"

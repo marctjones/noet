@@ -31,6 +31,20 @@ Settings, or set `NOET_VAULT`). The disposable index lives in your OS cache dir;
 settings and connector credentials live in your OS config dir — **never inside
 the vault**, so nothing sensitive syncs.
 
+### Always-there capture (start a meeting note from anywhere)
+
+- **Windows / macOS** — Noet adds a **system-tray icon** (menu: *New meeting note*,
+  *Show Noet*, *Quit*) and a global **Ctrl+Alt+N** to open a fresh meeting note from
+  any app.
+- **Linux / GNOME** — Wayland doesn't let apps grab global hotkeys or sit in a tray,
+  so Noet runs **single-instance** and exposes the action on the command line:
+  `noet --new-meeting` opens a fresh meeting note in the running window (or launches
+  it). Bind it to a key in **Settings → Keyboard → Custom Shortcuts**
+  (e.g. Ctrl+Alt+N → `noet --new-meeting`) — the Wayland-clean equivalent. The `.deb`
+  installs a desktop entry whose right-click menu also has **New meeting note**.
+- **Launch at login** — toggle in **Settings → Startup** (all platforms; per-user,
+  no admin).
+
 ## Principles
 
 - **Plain files are the source of truth.** Every note is a `.md` file with YAML

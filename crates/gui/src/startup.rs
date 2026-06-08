@@ -1,9 +1,7 @@
-//! Launch-on-startup, per-user and without admin rights (important on a locked-down
-//! corporate Windows 11 machine). Windows uses `auto-launch` (writes
-//! `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`); macOS uses a per-user
-//! Launch Agent. Linux is a no-op for now.
+//! Launch-on-startup, per-user and without admin rights, on all platforms:
+//! `HKCU\…\Run` on Windows, a Launch Agent on macOS, an XDG autostart `.desktop`
+//! on Linux (so it works on GNOME/Wayland without a tray or any system libs).
 
-#[cfg(any(target_os = "windows", target_os = "macos"))]
 mod imp {
     use auto_launch::{AutoLaunch, AutoLaunchBuilder};
 
@@ -32,18 +30,7 @@ mod imp {
     }
 }
 
-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
-mod imp {
-    pub fn is_enabled() -> bool {
-        false
-    }
-    pub fn set_enabled(_on: bool) -> bool {
-        false
-    }
-}
-
-/// True only on platforms where launch-on-startup is wired (so the UI can hide the
-/// toggle elsewhere).
-pub const SUPPORTED: bool = cfg!(any(target_os = "windows", target_os = "macos"));
+/// Launch-on-startup is wired on every desktop platform now.
+pub const SUPPORTED: bool = true;
 
 pub use imp::{is_enabled, set_enabled};

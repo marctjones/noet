@@ -15,8 +15,25 @@ use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
 
+mod ipc;
 mod startup;
 mod tray;
+
+/// Apply a forwarded single-instance command (or one this instance launched with):
+/// `new-meeting` opens a fresh meeting note; `show` just surfaces the window.
+fn dispatch_cmd(ui: &AppWindow, cmd: &str) {
+    use slint::ComponentHandle;
+    match cmd {
+        "new-meeting" => {
+            let _ = ui.show();
+            ui.invoke_new_from_template("meeting".into());
+        }
+        "show" => {
+            let _ = ui.show();
+        }
+        _ => {}
+    }
+}
 
 slint::include_modules!();
 
@@ -3142,6 +3159,18 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Single-instance (Unix): a `--new-meeting` launch (e.g. a GNOME custom keyboard
+    // shortcut) forwards to the running instance and exits, instead of opening a
+    // second window. Plain re-launch forwards `show`. No instance running → we're it.
+    let launch_cmd = if std::env::args().any(|a| a == "--new-meeting") {
+        "new-meeting"
+    } else {
+        "show"
+    };
+    if ipc::forward_if_running(launch_cmd) {
+        return Ok(());
+    }
+
     let vault = resolve_vault();
     let AppCtx { ui, state, spawn_reindex, indexing, dirty, import_timer: _import_timer } =
         setup_app(vault.clone())?;
@@ -3237,9 +3266,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    // System tray (Windows): keep it alive for the session so it stays one click
-    // away. No-op / None on other platforms.
+    // System tray (Windows + macOS): keep it alive for the session so it stays one
+    // click away. No-op / None on Linux.
     let _tray: Option<tray::Tray> = tray::setup(&ui);
+
+    // Single-instance server (Unix): forward future `--new-meeting` launches into
+    // this UI. Held in `_ipc` so the socket lives for the session.
+    let _ipc: Option<ipc::Server> = {
+        let weak = ui.as_weak();
+        ipc::serve(move |cmd| {
+            let weak = weak.clone();
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(ui) = weak.upgrade() {
+                    dispatch_cmd(&ui, &cmd);
+                }
+            });
+        })
+    };
+    // If this instance was itself launched with an action, run it now that the UI exists.
+    if launch_cmd == "new-meeting" {
+        dispatch_cmd(&ui, launch_cmd);
+    }
 
     ui.run()?;
     drop(watcher);
