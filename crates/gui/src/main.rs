@@ -16,6 +16,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 mod startup;
+mod tray;
 
 slint::include_modules!();
 
@@ -3235,6 +3236,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
         );
     }
+
+    // System tray (Windows): keep it alive for the session so it stays one click
+    // away. No-op / None on other platforms.
+    let _tray: Option<tray::Tray> = tray::setup(&ui);
 
     ui.run()?;
     drop(watcher);
