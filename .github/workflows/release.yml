@@ -106,7 +106,7 @@ jobs:
             noet_*_amd64.deb
 
   macos:
-    name: Build macOS binary (universal .dmg + tarball)
+    name: Build macOS binary (Apple Silicon .dmg + tarball)
     runs-on: macos-latest
     # Signing + notarization are optional: every step below that needs an Apple
     # credential is gated on `env.MAC_CERT`/`env.NOTARY_ID` being non-empty, so
@@ -124,20 +124,18 @@ jobs:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+          targets: aarch64-apple-darwin
       - uses: Swatinem/rust-cache@v2
 
-      # Build both arches and lipo into one universal binary (Apple Silicon + Intel).
-      # macOS uses CoreText, so no extra system deps are needed.
-      - name: Build release (universal)
+      # Apple Silicon (arm64) only. (An x86_64 universal build is dropped: it isn't
+      # needed, and muda — tray-icon's menu crate — fails its bitcode load when
+      # cross-compiled to x86_64-apple-darwin under release LTO.) CoreText only, no
+      # extra system deps.
+      - name: Build release (Apple Silicon)
         run: |
           cargo build --release -p noet-gui --target aarch64-apple-darwin
-          cargo build --release -p noet-gui --target x86_64-apple-darwin
           mkdir -p dist
-          lipo -create -output dist/noet \
-            target/aarch64-apple-darwin/release/noet \
-            target/x86_64-apple-darwin/release/noet
-          lipo -info dist/noet
+          cp target/aarch64-apple-darwin/release/noet dist/noet
 
       # Import the Developer ID cert into an ephemeral keychain and auto-detect
       # the signing identity hash (so no separate identity-name secret is needed).
@@ -205,16 +203,16 @@ jobs:
           cp -R Noet.app dmgroot/
           ln -s /Applications dmgroot/Applications
           hdiutil create -volname "Noet" -srcfolder dmgroot -ov -format UDZO \
-            "noet-${GITHUB_REF_NAME}-macos-universal.dmg"
-          # plain tarball of the universal binary
+            "noet-${GITHUB_REF_NAME}-macos-arm64.dmg"
+          # plain tarball of the Apple Silicon binary
           cp README.md CHANGELOG.md dist/
-          tar -C dist -czf "noet-${GITHUB_REF_NAME}-macos-universal.tar.gz" .
+          tar -C dist -czf "noet-${GITHUB_REF_NAME}-macos-arm64.tar.gz" .
 
       - name: Sign .dmg
         if: env.MAC_CERT != ''
         run: |
           codesign --force --timestamp \
-            --sign "$SIGN_IDENTITY" "noet-${GITHUB_REF_NAME}-macos-universal.dmg"
+            --sign "$SIGN_IDENTITY" "noet-${GITHUB_REF_NAME}-macos-arm64.dmg"
 
       # Notarize the .dmg and staple the ticket so Gatekeeper passes offline.
       # Only runs when notary credentials are present (and signing happened).
@@ -225,7 +223,7 @@ jobs:
           MACOS_NOTARY_PWD: ${{ secrets.MACOS_NOTARY_PWD }}
           MACOS_NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
         run: |
-          DMG="noet-${GITHUB_REF_NAME}-macos-universal.dmg"
+          DMG="noet-${GITHUB_REF_NAME}-macos-arm64.dmg"
           xcrun notarytool submit "$DMG" \
             --apple-id "$MACOS_NOTARY_APPLE_ID" \
             --password "$MACOS_NOTARY_PWD" \
@@ -238,5 +236,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            noet-${{ github.ref_name }}-macos-universal.dmg
-            noet-${{ github.ref_name }}-macos-universal.tar.gz
+            noet-${{ github.ref_name }}-macos-arm64.dmg
+            noet-${{ github.ref_name }}-macos-arm64.tar.gz

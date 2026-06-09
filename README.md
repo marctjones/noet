@@ -21,7 +21,7 @@ JS — a small native Rust + [Slint](https://slint.dev) binary for **Windows 11*
 No installer — portable binaries on the [**Releases**](https://github.com/marctjones/noet/releases) page:
 
 - **Windows 11** — download `noet.exe` (or the `.zip`) and run it.
-- **macOS** (universal — Apple Silicon + Intel) — download the `.dmg`, drag
+- **macOS** (Apple Silicon) — download the `.dmg`, drag
   **Noet** to Applications. If macOS says it can't verify the developer (unsigned
   build), right-click **Noet → Open**, or run
   `xattr -dr com.apple.quarantine /Applications/Noet.app`.
