@@ -231,6 +231,24 @@ fn incremental_reindex_only_touches_changed_files() {
 }
 
 #[test]
+fn pdf_export_renders_noet_markup() {
+    use super::export::markdown_to_typst;
+    let body = "Notes about [[Acme]] and @[[Jane]] #urgent\n\
+                TODO(do) ship it +[[Acme]] @[[Sam]] due:2026-07-01 [#A]\n\
+                DONE(reading) old thing\n";
+    let typ = markdown_to_typst("My note", body);
+    // Inline entities become colored chips, not escaped literals.
+    assert!(typ.contains("rgb(\"e7f7ec\")"), "workstream chip color present");
+    assert!(typ.contains("rgb(\"fdeede\")"), "person chip color present");
+    assert!(typ.contains("rgb(\"f3ecfb\")"), "tag chip color present");
+    // Todo lines render structurally (due chip + done strike), markers stripped.
+    assert!(typ.contains("due 2026-07-01"), "due chip rendered");
+    assert!(typ.contains("strike"), "done todo struck through");
+    assert!(!typ.contains("TODO(do)"), "todo marker not dumped as literal text");
+    assert!(!typ.contains("DONE(reading)"), "done marker not dumped as literal text");
+}
+
+#[test]
 fn waiting_on_lists_open_delegated_by_person() {
     let dir = std::env::temp_dir().join(format!("noet-test-{}", ulid::Ulid::new()));
     let mut b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();
