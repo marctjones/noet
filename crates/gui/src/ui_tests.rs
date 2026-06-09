@@ -334,12 +334,18 @@ fn headless_ui_smoke() {
         nav_id = n.id.clone();
     }
     ctx.state.borrow_mut().backend.reindex_all().unwrap();
+    // Open the todo *from the Board* (so the back-trail records "board").
+    ui.invoke_set_view("board".into());
     // The TODO is on line 3 (0-based); a todo id is "<note_id>:<line_no>".
     ui.invoke_open_note(format!("{nav_id}:3").into());
     assert_eq!(ui.get_view(), "notes", "opening a todo goes to the notes view");
     assert!(ui.get_editing(), "opens in edit mode to act on the todo");
     let caret = RICH.with(|r| r.borrow().carets().first().copied().unwrap_or(0));
     assert_eq!(caret, line_char_offset(nav_body, 3), "caret landed on the todo's line");
+    assert_eq!(ui.get_note_return_view(), "board", "back-trail remembers the origin list");
+    // Returning (or any explicit nav) clears the trail.
+    ui.invoke_set_view("board".into());
+    assert_eq!(ui.get_note_return_view(), "", "explicit nav clears the back-trail");
 
     // (Slint's lightweight testing backend renders no pixels — its window is a
     // measurement-only renderer — so Window::take_snapshot is unavailable here.

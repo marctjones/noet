@@ -2010,6 +2010,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         let state = state.clone();
         ui.on_select_note(move |id: SharedString| {
             let ui = ui_w.unwrap();
+            ui.set_note_return_view("".into()); // browsing a note ends a todo follow-up trail
             let mut s = state.borrow_mut();
             // persist in-progress edits to the previously open note before switching
             let cur = ui.get_current_id().to_string();
@@ -2123,6 +2124,8 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             if cur != v {
                 ui.set_prev_view(cur);
             }
+            // Explicit navigation ends a todo→note "follow-up" trail.
+            ui.set_note_return_view("".into());
             ui.set_view(v);
             refresh(&ui, &state.borrow());
         });
@@ -2266,6 +2269,11 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 Some((n, l)) => (n.to_string(), l.parse::<usize>().ok()),
                 None => (todo_id.to_string(), None),
             };
+            // Remember the list we came from so the note view can offer a "← Back".
+            let origin = ui.get_view().to_string();
+            if origin != "notes" {
+                ui.set_note_return_view(origin.into());
+            }
             {
                 let s = state.borrow();
                 open_in_editor(&ui, &s.backend, &note_id); // loads in edit mode

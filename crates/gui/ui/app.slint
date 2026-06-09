@@ -680,6 +680,7 @@ export component AppWindow inherits Window {
     // View + filter state
     in-out property <string> view: "notes";
     in-out property <string> prev-view: "notes"; // the view to return to when closing a panel
+    in-out property <string> note-return-view; // list to return to after a todo→note jump ("" = none)
     in-out property <string> group-by: "status";
     in-out property <string> search;
     in-out property <string> status-filter: "";
@@ -960,6 +961,19 @@ export component AppWindow inherits Window {
                     alignment: start;
                     if (root.view == "today"): Button { text: "＋ Capture"; clicked => { root.set-view("inbox"); } }
                     if (root.view == "today"): Button { text: "⟳ Refresh"; clicked => { root.reindex(); } }
+                    // After jumping to a note from a todo, offer a one-click return
+                    // to the list (Tasks/Board/Today/…) you came from.
+                    if (root.view == "notes" && root.note-return-view != ""): Button {
+                        text: "← Back to " + (
+                            root.note-return-view == "tasks" ? "Tasks" :
+                            root.note-return-view == "board" ? "Board" :
+                            root.note-return-view == "today" ? "Today" :
+                            root.note-return-view == "agenda" ? "Agenda" :
+                            root.note-return-view == "people" ? "People" :
+                            root.note-return-view == "gantt" ? "Gantt" :
+                            root.note-return-view == "calendar" ? "Calendar" : "list");
+                        clicked => { root.set-view(root.note-return-view); }
+                    }
                     if (root.view == "notes"): Button { text: "⎇ Related note"; clicked => { root.new-related-note(); } }
                     if (root.view == "notes"): Button { text: "✓ Add todo"; clicked => { root.open-add-todo(); } }
                     if (root.view == "notes"): Button { text: "⤓ Export PDF"; clicked => { root.export-note("pdf"); } }
