@@ -62,6 +62,8 @@ export struct TodoItem {
 }
 
 export struct NoteRef { id: string, title: string }
+// An entry in the open-notes tab strip (pinned bookmarks + recently-opened).
+export struct NoteTab { id: string, title: string, pinned: bool }
 // A related prior note (shared workstream/person/tag) offered for one-click linking.
 export struct RelatedRef { id: string, title: string, via: string }
 
@@ -814,6 +816,9 @@ export component AppWindow inherits Window {
     callback reindex-finished();
     callback new-note();
     callback select-note(string);
+    in property <[NoteTab]> note-tabs;   // open-notes tab strip (pinned + recent)
+    callback pin-note(string);           // toggle a note's pinned bookmark
+    callback close-tab(string);          // drop a note from the tab strip
     callback save-note(string, string, string);
     callback reindex();
     callback toggle-todo(string);
@@ -1286,9 +1291,40 @@ export component AppWindow inherits Window {
                                 padding: 12px;
                                 spacing: 8px;
 
-                                // pane close (collapses the editor/viewer to a thin strip)
+                                // Open-notes tab strip (pinned bookmarks + recents) + pane close.
                                 HorizontalLayout {
-                                    Rectangle { horizontal-stretch: 1; }
+                                    spacing: 4px;
+                                    Flickable {
+                                        horizontal-stretch: 1;
+                                        height: 26px;
+                                        viewport-width: tabrow.preferred-width;
+                                        tabrow := HorizontalLayout {
+                                            spacing: 4px;
+                                            for tab in root.note-tabs: Rectangle {
+                                                height: 24px;
+                                                border-radius: 5px;
+                                                background: tab.id == root.current-id ? Theme.sel : (tabta.has-hover ? Theme.hover : Theme.surface2);
+                                                border-width: 1px;
+                                                border-color: tab.id == root.current-id ? Theme.accent : transparent;
+                                                // Row click selects; the pin/close TouchAreas sit on top of it.
+                                                tabta := TouchArea { mouse-cursor: pointer; clicked => { root.select-note(tab.id); } }
+                                                HorizontalLayout {
+                                                    padding-left: 6px; padding-right: 4px; spacing: 3px;
+                                                    pinta := TouchArea {
+                                                        width: 14px; mouse-cursor: pointer;
+                                                        Text { text: tab.pinned ? "★" : "☆"; font-size: (11px * Z.f); color: tab.pinned ? Theme.accent : Theme.text3; horizontal-alignment: center; vertical-alignment: center; }
+                                                        clicked => { root.pin-note(tab.id); }
+                                                    }
+                                                    Text { text: tab.title; font-size: (12px * Z.f); color: Theme.text; vertical-alignment: center; overflow: elide; max-width: 130px; }
+                                                    closeta := TouchArea {
+                                                        width: 14px; mouse-cursor: pointer;
+                                                        Text { text: "✕"; font-size: (10px * Z.f); color: closeta.has-hover ? Theme.text : Theme.text3; horizontal-alignment: center; vertical-alignment: center; }
+                                                        clicked => { root.close-tab(tab.id); }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                     CloseX { closed => { root.content-pane-open = false; } }
                                 }
 

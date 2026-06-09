@@ -360,6 +360,13 @@ impl Backend {
         Ok(rows.filter_map(|r| r.ok()).collect())
     }
 
+    /// The title of a note by id (cheap lookup for the open-notes tab strip).
+    pub fn note_title(&self, id: &str) -> Option<String> {
+        self.conn
+            .query_row("SELECT title FROM notes WHERE id=?", [id], |r| r.get::<_, String>(0))
+            .ok()
+    }
+
     /// Backlinks: notes that link to `target` (a project / note title).
     pub fn backlinks(&self, target: &str) -> Result<Vec<Note>> {
         let mut stmt = self.conn.prepare(

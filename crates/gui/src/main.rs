@@ -137,6 +137,11 @@ thread_local! {
     /// Active autocomplete trigger: (kind, text-typed-after-the-trigger). `kind` is
     /// "project" | "person" | "tag". `None` when the popup is closed.
     static AC: RefCell<Option<(&'static str, String)>> = const { RefCell::new(None) };
+
+    /// Recently-opened note ids (most-recent first) for the tab strip. A thread-local
+    /// so `open_in_editor` — the single choke point for showing a note — records it,
+    /// no matter which flow opened it.
+    static RECENTS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Parse the text immediately before the caret for an open entity-autocomplete
@@ -569,6 +574,8 @@ struct State {
     filter: Filter,
     cal_year: i32,
     cal_month: u32,
+    /// Pinned note ids (bookmarks), persisted in settings.json.
+    pinned: Vec<String>,
 }
 
 fn month_name(m: u32) -> &'static str {
@@ -1142,6 +1149,7 @@ fn refresh(ui: &AppWindow, state: &State) {
     ui.set_filter_kind(if f.kind.is_empty() { "any".into() } else { f.kind.clone().into() });
     ui.set_filter_priority(if f.priority.is_empty() { "any".into() } else { f.priority.clone().into() });
     ui.set_filter_due(due_display(&f.due_bucket).into());
+    refresh_tabs(ui, state); // keep the open-notes tab strip in sync
 }
 
 fn md_blocks_model(
@@ -1243,6 +1251,13 @@ fn clip_get() -> String {
 
 fn open_in_editor(ui: &AppWindow, b: &Backend, note_id: &str) {
     if let Ok(n) = b.load_note(note_id) {
+        // Record in the tab strip's recents (most-recent first, dedup, capped).
+        RECENTS.with(|r| {
+            let mut v = r.borrow_mut();
+            v.retain(|x| x != note_id);
+            v.insert(0, note_id.to_string());
+            v.truncate(RECENTS_CAP);
+        });
         ui.set_current_id(n.id.clone().into());
         ui.set_current_title(n.title.clone().into());
         ui.set_current_body(n.body.clone().into());
@@ -1341,6 +1356,41 @@ struct ImportItem {
     reference: String,
 }
 
+/// Most-recently-opened notes kept in the tab strip.
+const RECENTS_CAP: usize = 12;
+
+/// Rebuild the open-notes tab model: pinned (bookmarks) first, then recents
+/// (excluding pinned), each with its current title.
+fn refresh_tabs(ui: &AppWindow, s: &State) {
+    let mut tabs: Vec<NoteTab> = Vec::new();
+    for id in &s.pinned {
+        if let Some(t) = s.backend.note_title(id) {
+            tabs.push(NoteTab { id: id.into(), title: t.into(), pinned: true });
+        }
+    }
+    RECENTS.with(|r| {
+        for id in r.borrow().iter() {
+            if s.pinned.iter().any(|p| p == id) {
+                continue;
+            }
+            if let Some(t) = s.backend.note_title(id) {
+                tabs.push(NoteTab { id: id.into(), title: t.into(), pinned: false });
+            }
+        }
+    });
+    ui.set_note_tabs(ModelRc::new(VecModel::from(tabs)));
+}
+
+/// Persist the pinned-notes bookmarks to settings.json (keeps other settings).
+fn persist_pins(s: &State) {
+    let mut cfg = backend::Settings::load().unwrap_or_default();
+    if cfg.vault.as_os_str().is_empty() {
+        cfg.vault = s.backend.vault.clone();
+    }
+    cfg.pinned_notes = s.pinned.clone();
+    let _ = cfg.save();
+}
+
 /// Open the vault, build the window, and register every callback. The caller
 /// adds the file watcher + reload timer and runs the event loop (see `main`).
 fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
@@ -1370,11 +1420,13 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
 
     let ui = AppWindow::new()?;
     let now = chrono::Local::now();
+    let pinned = backend::Settings::load().map(|s| s.pinned_notes).unwrap_or_default();
     let state = Rc::new(RefCell::new(State {
         backend,
         filter: Filter::default(),
         cal_year: chrono::Datelike::year(&now),
         cal_month: chrono::Datelike::month(&now),
+        pinned,
     }));
 
     // Guards for background reindexing: `indexing` prevents overlapping rebuilds;
@@ -1995,6 +2047,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             }
             let s = state.borrow();
             refresh(&ui, &s);
+            refresh_tabs(&ui, &s); // pinned bookmarks now have titles (index is built)
             ui.set_status_text("Ready".into());
             drop(s);
             if dirty.replace(false) {
@@ -2046,10 +2099,41 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 let _ = s.backend.save_note(&cur, &ui.get_current_title(), &ui.get_current_body());
             }
             FOLDS.with(|f| f.borrow_mut().clear()); // fresh folds per note
-            open_in_editor(&ui, &s.backend, &id);
+            open_in_editor(&ui, &s.backend, &id); // records the recent (tab strip)
             ui.set_editing(false); // selecting shows the read view (content visible)
             ui.set_status_text("".into());
-            refresh(&ui, &s);
+            refresh(&ui, &s); // refresh() rebuilds the tab strip
+        });
+    }
+    {
+        // Toggle a note's pinned bookmark (persisted).
+        let ui_w = ui.as_weak();
+        let state = state.clone();
+        ui.on_pin_note(move |id: SharedString| {
+            let ui = ui_w.unwrap();
+            let mut s = state.borrow_mut();
+            let id = id.to_string();
+            if let Some(pos) = s.pinned.iter().position(|p| *p == id) {
+                s.pinned.remove(pos);
+            } else {
+                s.pinned.push(id);
+            }
+            persist_pins(&s);
+            refresh_tabs(&ui, &s);
+        });
+    }
+    {
+        // Close a tab: drop it from recents (and unpin if pinned — ✕ removes it).
+        let ui_w = ui.as_weak();
+        let state = state.clone();
+        ui.on_close_tab(move |id: SharedString| {
+            let ui = ui_w.unwrap();
+            let mut s = state.borrow_mut();
+            let id = id.to_string();
+            RECENTS.with(|r| r.borrow_mut().retain(|x| *x != id));
+            s.pinned.retain(|x| *x != id);
+            persist_pins(&s);
+            refresh_tabs(&ui, &s);
         });
     }
 
@@ -2304,7 +2388,8 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             }
             {
                 let s = state.borrow();
-                open_in_editor(&ui, &s.backend, &note_id); // loads in edit mode
+                open_in_editor(&ui, &s.backend, &note_id); // loads in edit mode + records recent
+                refresh_tabs(&ui, &s);
             }
             ui.set_view("notes".into());
             ui.set_content_pane_open(true); // reveal the editor pane if it was collapsed

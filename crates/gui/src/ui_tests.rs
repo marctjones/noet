@@ -374,6 +374,33 @@ fn headless_ui_smoke() {
     assert!(ui.get_hub_todos().row_count() >= 1, "hub lists the workstream's open todos");
     assert!(ui.get_hub_notes().row_count() >= 1, "hub lists notes referencing the workstream");
 
+    // ----- Level 10: open-notes tab strip + pin/close -----
+    let tab_id;
+    {
+        let mut st = ctx.state.borrow_mut();
+        let n = st.backend.new_note().unwrap();
+        st.backend.save_note(&n.id, "Tabbed note", "hi\n").unwrap();
+        tab_id = n.id.clone();
+    }
+    ctx.state.borrow_mut().backend.reindex_all().unwrap();
+    ui.invoke_select_note(tab_id.clone().into());
+    let has_tab = |id: &str| {
+        let tabs = ui.get_note_tabs();
+        (0..tabs.row_count()).any(|i| tabs.row_data(i).unwrap().id == id)
+    };
+    assert!(has_tab(&tab_id), "opened note appears in the tab strip");
+    ui.invoke_pin_note(tab_id.clone().into());
+    {
+        let tabs = ui.get_note_tabs();
+        assert!(
+            (0..tabs.row_count())
+                .any(|i| { let t = tabs.row_data(i).unwrap(); t.id == tab_id && t.pinned }),
+            "pinned note is flagged pinned"
+        );
+    }
+    ui.invoke_close_tab(tab_id.clone().into());
+    assert!(!has_tab(&tab_id), "closing removes the tab (and unpins)");
+
     // (Slint's lightweight testing backend renders no pixels — its window is a
     // measurement-only renderer — so Window::take_snapshot is unavailable here.
     // Pixel/visual-regression testing would need the software-renderer backend +

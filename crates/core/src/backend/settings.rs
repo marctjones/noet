@@ -30,6 +30,9 @@ pub struct Settings {
     pub nav_collapsed: bool,
     #[serde(default)]
     pub last_view: String,
+    /// Pinned note ids (bookmarks) shown first in the open-notes tab strip.
+    #[serde(default)]
+    pub pinned_notes: Vec<String>,
 }
 
 impl Settings {
