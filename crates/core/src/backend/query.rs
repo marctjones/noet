@@ -323,6 +323,21 @@ impl Backend {
         self.query_todos(&f)
     }
 
+    /// "Waiting on" — open delegated todos (things you handed off), clustered by
+    /// person and oldest-note-first, so the items most in need of a nudge surface at
+    /// the top. Powers the Waiting view.
+    pub fn waiting_on(&self) -> Result<Vec<Todo>> {
+        let sql = format!(
+            "SELECT {} FROM todos t JOIN notes n ON t.note_id = n.id \
+             WHERE t.done = 0 AND t.kind = 'delegated' AND n.archived = 0 \
+             ORDER BY t.person ASC, n.updated ASC",
+            Self::todo_cols("t.")
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map([], Self::row_to_todo)?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
     /// Open, due-dated todos sorted by due date then priority — the Agenda feed.
     pub fn agenda(&self, f: &Filter) -> Result<Vec<Todo>> {
         let mut v: Vec<Todo> = self

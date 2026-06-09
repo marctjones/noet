@@ -627,6 +627,7 @@ export component AppWindow inherits Window {
     in property <[BoardColumn]> board-columns;
     in property <[GanttItem]> gantt-items;
     in property <[TodoItem]> tasks;
+    in property <[TodoItem]> waiting-todos; // open delegated items for the Waiting view
     in property <int> max-tag-count: 1;
     in property <[TodoItem]> agenda-overdue;
     in property <[TodoItem]> agenda-today;
@@ -1017,6 +1018,7 @@ export component AppWindow inherits Window {
                         NavItem { icon: Icons.tasks; label: "Tasks"; view: "tasks"; current: root.view; clicked => { root.set-view("tasks"); } }
                         NavItem { icon: Icons.board; label: "Board"; view: "board"; current: root.view; clicked => { root.set-view("board"); } }
                         NavItem { icon: Icons.gantt; label: "Gantt"; view: "gantt"; current: root.view; clicked => { root.set-view("gantt"); } }
+                        NavItem { icon: Icons.kind-delegated; label: "Waiting"; view: "waiting"; current: root.view; clicked => { root.set-view("waiting"); } }
                         if !root.nav-eff-collapsed : Text { text: "NOTES"; font-size: (9px * Z.f); letter-spacing: 1px; color: Theme.text3; }
                         Rectangle { height: root.nav-eff-collapsed ? 4px : 0px; }
                         NavItem { icon: Icons.notes; label: "Notes"; view: "notes"; current: root.view; clicked => { root.set-view("notes"); } }
@@ -2263,6 +2265,35 @@ export component AppWindow inherits Window {
                                         }
                                     }
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ----- WAITING view (delegated items you're waiting on) -----
+                if (root.view == "waiting"): Rectangle {
+                    horizontal-stretch: 1;
+                    background: Theme.bg;
+                    VerticalLayout {
+                        padding: 10px;
+                        spacing: 8px;
+                        Text { text: "WAITING ON — delegated items, by person, oldest first (" + root.waiting-todos.length + ")"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
+                        Rectangle {
+                            vertical-stretch: 1;
+                            background: Theme.surface;
+                            border-radius: 8px;
+                            if root.waiting-todos.length == 0 : EmptyState {
+                                glyph: "⏳";
+                                title: "Nothing delegated";
+                                hint: "Items you hand off — TODO(delegated) … @[[Person]] — show here, oldest first. Open one to nudge it.";
+                            }
+                            ListView {
+                                for t in root.waiting-todos: AgendaRow {
+                                    t: t;
+                                    cycle(id) => { root.cycle-todo(id); }
+                                    edit(id) => { root.edit-todo(id); }
+                                    open(id) => { root.open-note(id); }
                                 }
                             }
                         }

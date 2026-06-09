@@ -231,6 +231,32 @@ fn incremental_reindex_only_touches_changed_files() {
 }
 
 #[test]
+fn waiting_on_lists_open_delegated_by_person() {
+    let dir = std::env::temp_dir().join(format!("noet-test-{}", ulid::Ulid::new()));
+    let mut b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();
+    let n = b.new_note().unwrap();
+    b.save_note(
+        &n.id,
+        "Delegations",
+        "TODO(delegated) ship NDA @[[Sam]]\n\
+         DONE(delegated) old thing @[[Sam]]\n\
+         TODO(delegated) review deck @[[Jane]]\n\
+         TODO(do) my own task\n",
+    )
+    .unwrap();
+
+    let w = b.waiting_on().unwrap();
+    // Only OPEN delegated items (not the DONE one, not the do-item).
+    assert_eq!(w.len(), 2, "two open delegated items");
+    assert!(w.iter().all(|t| t.kind == "delegated" && !t.done));
+    // Clustered by person (Jane before Sam, alphabetical).
+    assert_eq!(w[0].person, "Jane");
+    assert_eq!(w[1].person, "Sam");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn related_notes_by_shared_workstream_and_people() {
     let dir = std::env::temp_dir().join(format!("noet-test-{}", ulid::Ulid::new()));
     let mut b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();

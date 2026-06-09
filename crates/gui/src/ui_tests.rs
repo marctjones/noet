@@ -347,6 +347,20 @@ fn headless_ui_smoke() {
     ui.invoke_set_view("board".into());
     assert_eq!(ui.get_note_return_view(), "", "explicit nav clears the back-trail");
 
+    // ----- Level 8: Waiting view lists open delegated items -----
+    {
+        let mut st = ctx.state.borrow_mut();
+        let n = st.backend.new_note().unwrap();
+        st.backend.save_note(&n.id, "Deleg", "TODO(delegated) ship it @[[Sam]]\n").unwrap();
+    }
+    ctx.state.borrow_mut().backend.reindex_all().unwrap();
+    ui.invoke_set_view("waiting".into());
+    assert_eq!(ui.get_view(), "waiting");
+    assert!(
+        ui.get_waiting_todos().row_count() >= 1,
+        "Waiting view lists delegated items via refresh"
+    );
+
     // (Slint's lightweight testing backend renders no pixels — its window is a
     // measurement-only renderer — so Window::take_snapshot is unavailable here.
     // Pixel/visual-regression testing would need the software-renderer backend +

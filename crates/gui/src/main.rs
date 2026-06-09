@@ -725,7 +725,8 @@ fn ensure_sample_note(b: &mut Backend) -> Option<String> {
 
 const PALETTE_VIEWS: &[(&str, &str)] = &[
     ("today", "Today"), ("agenda", "Agenda"), ("calendar", "Calendar"),
-    ("tasks", "Tasks"), ("board", "Board"), ("gantt", "Gantt"), ("notes", "Notes"),
+    ("tasks", "Tasks"), ("board", "Board"), ("gantt", "Gantt"),
+    ("waiting", "Waiting on"), ("notes", "Notes"),
     ("people", "People"), ("labels", "Labels"), ("inbox", "Inbox"),
     ("review", "Needs review"), ("trash", "Trash"), ("settings", "Settings"),
     ("about", "About / open-source licenses"),
@@ -977,6 +978,14 @@ fn refresh(ui: &AppWindow, state: &State) {
         if let Ok(todos) = b.query_todos(f) {
             let items: Vec<TodoItem> = todos.iter().map(to_todo_item).collect();
             ui.set_tasks(ModelRc::new(VecModel::from(items)));
+        }
+    }
+
+    // "Waiting on": open delegated items, clustered by person, oldest first.
+    if view == "waiting" {
+        if let Ok(todos) = b.waiting_on() {
+            let items: Vec<TodoItem> = todos.iter().map(to_todo_item).collect();
+            ui.set_waiting_todos(ModelRc::new(VecModel::from(items)));
         }
     }
 
