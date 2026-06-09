@@ -401,6 +401,30 @@ fn headless_ui_smoke() {
     ui.invoke_close_tab(tab_id.clone().into());
     assert!(!has_tab(&tab_id), "closing removes the tab (and unpins)");
 
+    // ----- Level 11: read-only split/reference pane + swap -----
+    let (note_a, note_b);
+    {
+        let mut st = ctx.state.borrow_mut();
+        let a = st.backend.new_note().unwrap();
+        st.backend.save_note(&a.id, "Split A", "# A\nbody a\n").unwrap();
+        let b = st.backend.new_note().unwrap();
+        st.backend.save_note(&b.id, "Split B", "# B\nbody b\n").unwrap();
+        note_a = a.id.clone();
+        note_b = b.id.clone();
+    }
+    ctx.state.borrow_mut().backend.reindex_all().unwrap();
+    ui.invoke_select_note(note_a.clone().into()); // editor shows A
+    ui.invoke_open_in_split(note_b.clone().into()); // reference pane shows B
+    assert_eq!(ui.get_split_note_id(), note_b);
+    assert_eq!(ui.get_split_title(), "Split B");
+    assert!(ui.get_split_doc_height() > 0.0, "reference pane rendered a non-empty doc");
+    // ✎ Edit the reference (B) → editor=B, the prior note (A) becomes the reference.
+    ui.invoke_edit_split();
+    assert_eq!(ui.get_current_id(), note_b, "edit-split loads the reference into the editor");
+    assert_eq!(ui.get_split_note_id(), note_a, "prior note moves to the reference pane");
+    ui.invoke_close_split();
+    assert_eq!(ui.get_split_note_id(), "", "close clears the split");
+
     // (Slint's lightweight testing backend renders no pixels — its window is a
     // measurement-only renderer — so Window::take_snapshot is unavailable here.
     // Pixel/visual-regression testing would need the software-renderer backend +

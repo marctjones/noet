@@ -690,6 +690,16 @@ export component AppWindow inherits Window {
     in-out property <string> prev-view: "notes"; // the view to return to when closing a panel
     in-out property <string> note-return-view; // list to return to after a todo→note jump ("" = none)
     in-out property <bool> content-pane-open: true; // the note editor/viewer pane (reopened on select)
+    // Read-only split/reference pane: a second note shown beside the editor.
+    in-out property <string> split-note-id;   // "" = no split
+    in property <string> split-title;
+    in property <image> split-image;
+    in property <length> split-doc-height;
+    in-out property <length> split-width: 440px;
+    callback open-in-split(string); // open a note in the reference pane
+    callback close-split();         // close the reference pane
+    callback edit-split();          // swap the reference note into the editor
+    callback split-resized();       // re-render the reference at the new width
     in-out property <string> group-by: "status";
     in-out property <string> search;
     in-out property <string> status-filter: "";
@@ -1316,6 +1326,11 @@ export component AppWindow inherits Window {
                                                         clicked => { root.pin-note(tab.id); }
                                                     }
                                                     Text { text: tab.title; font-size: (12px * Z.f); color: Theme.text; vertical-alignment: center; overflow: elide; max-width: 130px; }
+                                                    splitta := TouchArea {
+                                                        width: 14px; mouse-cursor: pointer;
+                                                        Text { text: "⊟"; font-size: (11px * Z.f); color: splitta.has-hover ? Theme.accent : Theme.text3; horizontal-alignment: center; vertical-alignment: center; }
+                                                        clicked => { root.open-in-split(tab.id); }
+                                                    }
                                                     closeta := TouchArea {
                                                         width: 14px; mouse-cursor: pointer;
                                                         Text { text: "✕"; font-size: (10px * Z.f); color: closeta.has-hover ? Theme.text : Theme.text3; horizontal-alignment: center; vertical-alignment: center; }
@@ -1576,6 +1591,43 @@ export component AppWindow inherits Window {
                                         Rectangle { horizontal-stretch: 1; }
                                         LineEdit { placeholder-text: "📎 attach path…"; text <=> root.attach-input; horizontal-stretch: 1; accepted => { root.attach-path(root.attach-input); } }
                                         Button { text: "📎"; clicked => { root.attach-path(root.attach-input); } }
+                                    }
+                                }
+                            }
+                            // Read-only split/reference pane — a 2nd note beside the editor.
+                            if (root.split-note-id != ""): Rectangle {
+                                width: 7px;
+                                background: (dh.has-hover || dh.pressed) ? Theme.accent : Theme.border;
+                                dh := TouchArea {
+                                    mouse-cursor: ew-resize;
+                                    property <length> sw;
+                                    property <length> sx;
+                                    pointer-event(e) => {
+                                        if (e.kind == PointerEventKind.down) { self.sw = root.split-width; self.sx = self.absolute-position.x + self.mouse-x; }
+                                        if (e.kind == PointerEventKind.up) { root.split-resized(); }
+                                    }
+                                    moved => { root.split-width = clamp(self.sw - (self.absolute-position.x + self.mouse-x - self.sx), 280px, 760px); }
+                                }
+                            }
+                            if (root.split-note-id != ""): Rectangle {
+                                width: root.split-width;
+                                background: Theme.surface;
+                                border-radius: 8px;
+                                clip: true;
+                                VerticalLayout {
+                                    padding: 10px;
+                                    spacing: 6px;
+                                    HorizontalLayout {
+                                        spacing: 6px;
+                                        Text { text: "📄 " + root.split-title; font-size: (13px * Z.f); font-weight: 700; color: Theme.text; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
+                                        Button { text: "✎ Edit"; clicked => { root.edit-split(); } }
+                                        CloseX { closed => { root.close-split(); } }
+                                    }
+                                    ScrollView {
+                                        vertical-stretch: 1;
+                                        VerticalLayout {
+                                            Image { source: root.split-image; width: 100%; height: root.split-doc-height; image-fit: ImageFit.fill; }
+                                        }
                                     }
                                 }
                             }

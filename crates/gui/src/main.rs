@@ -128,6 +128,10 @@ thread_local! {
     /// The sred WYSIWYG editor — the sole note editor. One per UI thread; reloaded
     /// with the open note's body in `open_in_editor`.
     static RICH: RefCell<SredEditor> = RefCell::new(SredEditor::new(SredFormat::Markdown));
+    /// A second, render-only sred editor backing the read-only split/reference pane
+    /// (full-document render, no input). Keeps the reference pane visually identical
+    /// to the live editor without touching the single editable instance.
+    static RICH_RO: RefCell<SredEditor> = RefCell::new(SredEditor::new(SredFormat::Markdown));
     /// Last known sred viewport (width px, height px) from the `rich-resized` callback.
     static RICH_VP: Cell<(u32, f32)> = const { Cell::new((800, 600.0)) };
     /// Find/replace: current match ranges + active index.
@@ -1277,6 +1281,29 @@ fn line_char_offset(text: &str, line: usize) -> usize {
     text.split_inclusive('\n').take(line).map(|l| l.chars().count()).sum()
 }
 
+/// Render the read-only split/reference pane: full-document raster of `split-note-id`
+/// via the second sred editor (RICH_RO), shown in a scroll container. No-op when the
+/// split is closed.
+fn render_split(ui: &AppWindow, b: &Backend) {
+    let id = ui.get_split_note_id().to_string();
+    if id.is_empty() {
+        return;
+    }
+    let Ok(note) = b.load_note(&id) else { return };
+    let theme = sred_theme(ui);
+    let w = ((ui.get_split_width() as u32).saturating_sub(20)).max(200);
+    RICH_RO.with(|r| {
+        let mut e = r.borrow_mut();
+        e.set_text(&note.body);
+        e.set_theme(theme);
+        e.set_viewport(w, 100_000.0); // tall viewport → render() lays out the whole doc
+        let out = e.render(false); // full-document frame (not viewport-bounded)
+        ui.set_split_image(rgba_to_image(&out.frame.rgba, out.frame.width, out.frame.height));
+        ui.set_split_doc_height(out.frame.height as f32);
+    });
+    ui.set_split_title(note.title.into());
+}
+
 /// Move the editor caret to the start of a 0-based line and scroll it into view.
 /// Used to land on a todo's source line when opening its note from a task/card.
 fn rich_goto_line(ui: &AppWindow, line: usize) {
@@ -1513,9 +1540,11 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         // Color scheme changed (OS detection on launch, or the manual toggle):
         // re-render the bitmap editor and re-apply the Win11 titlebar so both follow.
         let ui_w = ui.as_weak();
+        let state = state.clone();
         ui.on_theme_changed(move || {
             let ui = ui_w.unwrap();
             rich_render(&ui, false);
+            render_split(&ui, &state.borrow().backend); // reference pane follows the theme too
             chrome::apply(ui.global::<Theme>().get_dark());
         });
     }
@@ -2134,6 +2163,48 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             s.pinned.retain(|x| *x != id);
             persist_pins(&s);
             refresh_tabs(&ui, &s);
+        });
+    }
+    {
+        // Open a note in the read-only reference pane.
+        let ui_w = ui.as_weak();
+        let state = state.clone();
+        ui.on_open_in_split(move |id: SharedString| {
+            let ui = ui_w.unwrap();
+            ui.set_split_note_id(id);
+            render_split(&ui, &state.borrow().backend);
+        });
+    }
+    {
+        let ui_w = ui.as_weak();
+        ui.on_close_split(move || {
+            ui_w.unwrap().set_split_note_id("".into());
+        });
+    }
+    {
+        // Swap: edit the reference note (load it into the editor), and show the note
+        // that was being edited in the reference pane instead.
+        let ui_w = ui.as_weak();
+        let state = state.clone();
+        ui.on_edit_split(move || {
+            let ui = ui_w.unwrap();
+            let ref_id = ui.get_split_note_id().to_string();
+            if ref_id.is_empty() {
+                return;
+            }
+            let cur = ui.get_current_id().to_string();
+            ui.invoke_select_note(ref_id.into()); // saves cur, opens ref in the editor
+            ui.set_split_note_id(cur.into());
+            render_split(&ui, &state.borrow().backend);
+        });
+    }
+    {
+        // Divider drag finished — re-render the reference crisply at the new width.
+        let ui_w = ui.as_weak();
+        let state = state.clone();
+        ui.on_split_resized(move || {
+            let ui = ui_w.unwrap();
+            render_split(&ui, &state.borrow().backend);
         });
     }
 
