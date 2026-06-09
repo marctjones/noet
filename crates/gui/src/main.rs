@@ -2038,6 +2038,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_select_note(move |id: SharedString| {
             let ui = ui_w.unwrap();
             ui.set_note_return_view("".into()); // browsing a note ends a todo follow-up trail
+            ui.set_content_pane_open(true); // reveal the editor pane if it was collapsed
             let mut s = state.borrow_mut();
             // persist in-progress edits to the previously open note before switching
             let cur = ui.get_current_id().to_string();
@@ -2306,6 +2307,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 open_in_editor(&ui, &s.backend, &note_id); // loads in edit mode
             }
             ui.set_view("notes".into());
+            ui.set_content_pane_open(true); // reveal the editor pane if it was collapsed
             if let Some(line) = line {
                 rich_goto_line(&ui, line);
             }

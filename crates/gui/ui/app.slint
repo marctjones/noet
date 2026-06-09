@@ -687,6 +687,7 @@ export component AppWindow inherits Window {
     in-out property <string> view: "notes";
     in-out property <string> prev-view: "notes"; // the view to return to when closing a panel
     in-out property <string> note-return-view; // list to return to after a todo→note jump ("" = none)
+    in-out property <bool> content-pane-open: true; // the note editor/viewer pane (reopened on select)
     in-out property <string> group-by: "status";
     in-out property <string> search;
     in-out property <string> status-filter: "";
@@ -944,7 +945,8 @@ export component AppWindow inherits Window {
                     Button { text: "⟳"; clicked => { root.reindex(); } }
                     Button { text: "A−"; clicked => { Z.f = max(Z.f - 0.1, 0.6); } }
                     Button { text: "A＋"; clicked => { Z.f = min(Z.f + 0.1, 2.5); } }
-                    Button { text: "⊙"; clicked => { Z.f = 1.0; } }
+                    // Shows the current text zoom; click to reset to 100%.
+                    Button { text: Math.round(Z.f * 100) + "%"; clicked => { Z.f = 1.0; } }
                     Button {
                         text: Theme.dark ? "☀" : "🌙";
                         clicked => {
@@ -1268,27 +1270,26 @@ export component AppWindow inherits Window {
                             }
                         }
                         contentpane := Rectangle {
-                            property <bool> open: true;
-                            horizontal-stretch: contentpane.open ? 1 : 0;
-                            min-width: contentpane.open ? 0px : 30px;
-                            max-width: contentpane.open ? 100000px : 30px;
+                            horizontal-stretch: root.content-pane-open ? 1 : 0;
+                            min-width: root.content-pane-open ? 0px : 30px;
+                            max-width: root.content-pane-open ? 100000px : 30px;
                             background: Theme.surface;
                             border-radius: 8px;
                             clip: true;
                             // Collapsed: a thin strip; click to reopen.
-                            if (!contentpane.open): TouchArea {
+                            if (!root.content-pane-open): TouchArea {
                                 mouse-cursor: pointer;
-                                clicked => { contentpane.open = true; }
+                                clicked => { root.content-pane-open = true; }
                                 Text { text: "◂"; font-size: (14px * Z.f); color: Theme.text3; horizontal-alignment: center; vertical-alignment: center; }
                             }
-                            if (contentpane.open): VerticalLayout {
+                            if (root.content-pane-open): VerticalLayout {
                                 padding: 12px;
                                 spacing: 8px;
 
                                 // pane close (collapses the editor/viewer to a thin strip)
                                 HorizontalLayout {
                                     Rectangle { horizontal-stretch: 1; }
-                                    CloseX { closed => { contentpane.open = false; } }
+                                    CloseX { closed => { root.content-pane-open = false; } }
                                 }
 
                                 // ---- The note editor (always shown — single surface) ----
