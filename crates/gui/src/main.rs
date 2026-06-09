@@ -789,8 +789,9 @@ fn palette_activate(ui: &AppWindow, id: &str) {
         ui.invoke_set_view("notes".into());
         ui.invoke_select_note(nid.into());
     } else if let Some(name) = id.strip_prefix("p:") {
-        ui.invoke_toggle_project(name.into());
-        ui.invoke_set_view("notes".into());
+        // Open the workstream hub (its todos + notes in one place).
+        ui.set_hub_name(name.into());
+        ui.invoke_set_view("workstream".into());
     } else if let Some(name) = id.strip_prefix("t:") {
         ui.invoke_toggle_tag(name.into());
         ui.invoke_set_view("notes".into());
@@ -987,6 +988,23 @@ fn refresh(ui: &AppWindow, state: &State) {
             let items: Vec<TodoItem> = todos.iter().map(to_todo_item).collect();
             ui.set_waiting_todos(ModelRc::new(VecModel::from(items)));
         }
+    }
+
+    // Workstream hub: one workstream's open todos + the notes that reference it.
+    if view == "workstream" {
+        let hub = ui.get_hub_name().to_string();
+        let f = backend::Filter { project: hub.clone(), status: "open".into(), ..Default::default() };
+        if let Ok(todos) = b.query_todos(&f) {
+            let items: Vec<TodoItem> = todos.iter().map(to_todo_item).collect();
+            ui.set_hub_todos(ModelRc::new(VecModel::from(items)));
+        }
+        let notes: Vec<NoteRef> = b
+            .backlinks(&hub)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|n| NoteRef { id: n.id.into(), title: n.title.into() })
+            .collect();
+        ui.set_hub_notes(ModelRc::new(VecModel::from(notes)));
     }
 
     // "Needs review" inbox: open todos linked to a flagged Outlook item.

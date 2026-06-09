@@ -361,6 +361,19 @@ fn headless_ui_smoke() {
         "Waiting view lists delegated items via refresh"
     );
 
+    // ----- Level 9: workstream hub (palette → its todos + notes) -----
+    {
+        let mut st = ctx.state.borrow_mut();
+        let n = st.backend.new_note().unwrap();
+        st.backend.save_note(&n.id, "Acme work", "TODO(do) build it +[[Acme]]\n").unwrap();
+    }
+    ctx.state.borrow_mut().backend.reindex_all().unwrap();
+    ui.invoke_palette_activate("p:Acme".into());
+    assert_eq!(ui.get_view(), "workstream", "palette workstream → hub view");
+    assert_eq!(ui.get_hub_name(), "Acme");
+    assert!(ui.get_hub_todos().row_count() >= 1, "hub lists the workstream's open todos");
+    assert!(ui.get_hub_notes().row_count() >= 1, "hub lists notes referencing the workstream");
+
     // (Slint's lightweight testing backend renders no pixels — its window is a
     // measurement-only renderer — so Window::take_snapshot is unavailable here.
     // Pixel/visual-regression testing would need the software-renderer backend +
