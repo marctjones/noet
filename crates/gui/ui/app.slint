@@ -337,7 +337,8 @@ component AgendaRow inherits Rectangle {
     border-radius: 5px;
     background: ar.has-hover ? Theme.surface3 : transparent;
     animate background { duration: 100ms; }
-    ar := TouchArea { }
+    // Double-click the row → open its note at the todo's line (matches Tasks/Board).
+    ar := TouchArea { double-clicked => { root.open(t.id); } }
     HorizontalLayout {
         padding: 6px; spacing: 8px;
         Rectangle {
@@ -2229,6 +2230,8 @@ export component AppWindow inherits Window {
                                     background: rowta.has-hover ? Theme.hover : transparent;
                                     animate background { duration: 100ms; }
                                     rowta := TouchArea {
+                                    // Double-click the row → open its note at the todo's line (matches Board).
+                                    double-clicked => { root.open-note(t.id); }
                                     HorizontalLayout {
                                         padding: 8px;
                                         spacing: 8px;
