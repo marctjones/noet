@@ -572,12 +572,38 @@ fn headless_ui_smoke() {
     }
     ctx.state.borrow_mut().backend.reindex_all().unwrap();
     refresh(ui, &ctx.state.borrow());
-    ui.set_workspace_left_open(true);
-    ui.set_workspace_right_open(true);
-    ui.set_workspace_bottom_open(true);
-    ui.set_workspace_primary("oneonone".into());
-    ui.set_workspace_nav_surface("people".into());
-    ui.invoke_set_view("workspace".into());
+    ui.invoke_workspace_switch("one-on-one-focus".into());
+    assert_eq!(ui.get_workspace_id(), "one-on-one-focus");
+    assert_eq!(ui.get_workspace_title(), "1:1 Focus");
+    assert!(
+        ui.get_workspace_panes().row_count() >= 4,
+        "workspace renderer exposes pane view models"
+    );
+    let left_pane = ui.get_workspace_left_pane_id();
+    assert_eq!(left_pane, "people");
+    ui.invoke_workspace_resize_pane(left_pane.clone(), 10.0);
+    assert_eq!(
+        ui.get_workspace_left_width(),
+        180.0,
+        "pane resize is clamped through the app model"
+    );
+    ui.invoke_workspace_set_nav_surface("labels".into());
+    assert_eq!(ui.get_workspace_nav_surface(), "labels");
+    let panes = ui.get_workspace_panes();
+    let mut found_label_nav = false;
+    for idx in 0..panes.row_count() {
+        if let Some(pane) = panes.row_data(idx) {
+            if pane.id == "people" && pane.surface_id == "label-browser" {
+                found_label_nav = true;
+            }
+        }
+    }
+    assert!(
+        found_label_nav,
+        "navigation surface is rendered from the pane model"
+    );
+    ui.invoke_workspace_set_nav_surface("people".into());
+    ui.invoke_workspace_open_pane(left_pane);
     itest::mock_elapsed_time(std::time::Duration::from_millis(16));
 
     ui.invoke_pick_person("Alice".into());
@@ -594,10 +620,10 @@ fn headless_ui_smoke() {
     );
 
     // ----- Level 13: workspace prototype keeps navigation separate from work -----
-    ui.set_workspace_left_open(true);
-    ui.set_workspace_right_open(true);
-    ui.set_workspace_bottom_open(true);
-    ui.invoke_set_view("workspace".into());
+    ui.invoke_workspace_open_pane(ui.get_workspace_left_pane_id());
+    ui.invoke_workspace_open_pane(ui.get_workspace_right_pane_id());
+    ui.invoke_workspace_open_pane(ui.get_workspace_bottom_pane_id());
+    ui.invoke_workspace_switch("one-on-one-focus".into());
     refresh(ui, &ctx.state.borrow());
     assert_eq!(ui.get_view(), "workspace");
     assert!(
@@ -625,7 +651,7 @@ fn headless_ui_smoke() {
         "the context pane remains independent"
     );
 
-    ui.set_workspace_left_open(true);
+    ui.invoke_workspace_open_pane(ui.get_workspace_left_pane_id());
     itest::mock_elapsed_time(std::time::Duration::from_millis(16));
     let close_context = ElementHandle::find_by_accessible_label(ui, "Close context pane")
         .find(|e| e.accessible_role() == Some(AccessibleRole::Button))

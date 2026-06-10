@@ -77,6 +77,20 @@ export struct LicenseRow { crate-name: string, version: string, license: string 
 
 export struct FilterChip { label: string, dim: string }
 
+export struct WorkspacePaneItem {
+    id: string,
+    title: string,
+    role: string,
+    placement: string,
+    surface-id: string,
+    surface-title: string,
+    open: bool,
+    collapsed: bool,
+    size: float,
+    resizable: bool,
+    closable: bool,
+}
+
 export struct CalCell {
     day: int,        // day-of-month, 0 = padding cell
     date: string,
@@ -701,6 +715,13 @@ export component AppWindow inherits Window {
     in-out property <bool> editing: false;
     // Workspace prototype: a constrained pane tree that separates navigation
     // drawers from durable work surfaces.
+    in property <[WorkspacePaneItem]> workspace-panes;
+    in property <string> workspace-id;
+    in property <string> workspace-title;
+    in property <string> workspace-focused-pane;
+    in property <string> workspace-left-pane-id;
+    in property <string> workspace-right-pane-id;
+    in property <string> workspace-bottom-pane-id;
     in-out property <string> workspace-primary: "oneonone";
     in-out property <string> workspace-nav-surface: "people";
     in-out property <bool> workspace-left-open: true;
@@ -709,6 +730,11 @@ export component AppWindow inherits Window {
     in-out property <length> workspace-left-width: 260px;
     in-out property <length> workspace-right-width: 340px;
     in-out property <length> workspace-bottom-height: 190px;
+    callback workspace-switch(string);
+    callback workspace-open-pane(string);
+    callback workspace-close-pane(string);
+    callback workspace-resize-pane(string, float);
+    callback workspace-set-nav-surface(string);
     // Plaintext/source mode: show the raw markdown in a TextEdit instead of the
     // WYSIWYG sred surface.
     in-out property <bool> source-mode: false;
@@ -904,7 +930,7 @@ export component AppWindow inherits Window {
                         edited(t) => { root.set-search(t); }
                     }
                     ActionButton { icon: Icons.keyboard; label: "Go to"; a11y: "Command palette"; clicked => { root.palette-query = ""; root.palette-search(""); root.palette-open = true; } }
-                    ActionButton { icon: Icons.plus; label: "New note"; primary: true; clicked => { root.new-note(); root.workspace-primary = "notes"; } }
+                    ActionButton { icon: Icons.plus; label: "New note"; primary: true; clicked => { root.workspace-switch("notes"); root.new-note(); } }
                     ActionButton { icon: Icons.refresh; label: ""; a11y: "Reindex"; clicked => { root.reindex(); } }
                     ActionButton { icon: Icons.focus; label: root.focus-mode ? "Exit" : "Focus"; clicked => { root.focus-mode = !root.focus-mode; } }
                     ActionButton {
@@ -938,19 +964,19 @@ export component AppWindow inherits Window {
                             spacing: 3px;
                             NavItem { icon: Icons.collapse; label: "Collapse"; view: "__toggle"; current: ""; clicked => { root.nav-collapsed = !root.nav-collapsed; } }
                             if !root.nav-eff-collapsed: Text { text: "WORKSPACES"; font-size: (9px * Z.f); letter-spacing: 1px; color: Theme.text3; }
-                            NavItem { icon: Icons.meeting; label: "1:1 Focus"; view: "oneonone"; current: root.workspace-primary; clicked => { root.workspace-primary = "oneonone"; root.workspace-nav-surface = "people"; root.workspace-left-open = true; root.set-view("workspace"); } }
-                            NavItem { icon: Icons.notes; label: "Notes"; view: "notes"; current: root.workspace-primary; clicked => { root.workspace-primary = "notes"; root.workspace-nav-surface = "notes"; root.workspace-left-open = true; root.set-view("workspace"); } }
-                            NavItem { icon: Icons.tasks; label: "Tasks"; view: "tasks"; current: root.workspace-primary; clicked => { root.workspace-primary = "tasks"; root.workspace-nav-surface = "filters"; root.workspace-left-open = true; root.set-view("workspace"); } }
-                            NavItem { icon: Icons.board; label: "Board"; view: "board"; current: root.workspace-primary; clicked => { root.workspace-primary = "board"; root.workspace-nav-surface = "filters"; root.workspace-left-open = true; root.set-view("workspace"); } }
-                            NavItem { icon: Icons.kind-delegated; label: "Review"; view: "review"; current: root.workspace-primary; clicked => { root.workspace-primary = "review"; root.workspace-nav-surface = "filters"; root.workspace-left-open = true; root.workspace-bottom-open = true; root.set-view("workspace"); } }
+                            NavItem { icon: Icons.meeting; label: "1:1 Focus"; view: "oneonone"; current: root.workspace-primary; clicked => { root.workspace-switch("one-on-one-focus"); } }
+                            NavItem { icon: Icons.notes; label: "Notes"; view: "notes"; current: root.workspace-primary; clicked => { root.workspace-switch("notes"); } }
+                            NavItem { icon: Icons.tasks; label: "Tasks"; view: "tasks"; current: root.workspace-primary; clicked => { root.workspace-switch("tasks"); } }
+                            NavItem { icon: Icons.board; label: "Board"; view: "board"; current: root.workspace-primary; clicked => { root.workspace-switch("board"); } }
+                            NavItem { icon: Icons.kind-delegated; label: "Review"; view: "review"; current: root.workspace-primary; clicked => { root.workspace-switch("review"); } }
                             Rectangle { height: 8px; }
                             if !root.nav-eff-collapsed: Text { text: "DRAWERS"; font-size: (9px * Z.f); letter-spacing: 1px; color: Theme.text3; }
-                            NavItem { icon: Icons.people; label: "People"; view: "people"; current: root.workspace-nav-surface; clicked => { root.workspace-nav-surface = "people"; root.workspace-left-open = true; } }
-                            NavItem { icon: Icons.notes; label: "Browse"; view: "notes"; current: root.workspace-nav-surface; clicked => { root.workspace-nav-surface = "notes"; root.workspace-left-open = true; } }
-                            NavItem { icon: Icons.labels; label: "Labels"; view: "labels"; current: root.workspace-nav-surface; clicked => { root.workspace-nav-surface = "labels"; root.workspace-left-open = true; } }
-                            NavItem { icon: Icons.filter-x; label: "Filters"; view: "filters"; current: root.workspace-nav-surface; clicked => { root.workspace-nav-surface = "filters"; root.workspace-left-open = true; } }
+                            NavItem { icon: Icons.people; label: "People"; view: "people"; current: root.workspace-nav-surface; clicked => { root.workspace-set-nav-surface("people"); } }
+                            NavItem { icon: Icons.notes; label: "Browse"; view: "notes"; current: root.workspace-nav-surface; clicked => { root.workspace-set-nav-surface("notes"); } }
+                            NavItem { icon: Icons.labels; label: "Labels"; view: "labels"; current: root.workspace-nav-surface; clicked => { root.workspace-set-nav-surface("labels"); } }
+                            NavItem { icon: Icons.filter-x; label: "Filters"; view: "filters"; current: root.workspace-nav-surface; clicked => { root.workspace-set-nav-surface("filters"); } }
                             Rectangle { vertical-stretch: 1; }
-                            NavItem { icon: Icons.settings; label: "Settings"; view: "settings"; current: root.workspace-primary; clicked => { root.workspace-primary = "settings"; root.workspace-right-open = false; root.workspace-bottom-open = false; root.set-view("workspace"); } }
+                            NavItem { icon: Icons.settings; label: "Settings"; view: "settings"; current: root.workspace-primary; clicked => { root.workspace-switch("settings"); } }
                         }
                     }
 
@@ -970,17 +996,17 @@ export component AppWindow inherits Window {
                             spacing: 8px;
                             HorizontalLayout {
                                 SectionTitle { title: "NAVIGATION"; detail: root.workspace-nav-surface; accent: Theme.accent; horizontal-stretch: 1; }
-                                CloseX { a11y: "Close navigation drawer"; closed => { root.workspace-left-open = false; } }
+                                CloseX { a11y: "Close navigation drawer"; closed => { root.workspace-close-pane(root.workspace-left-pane-id); } }
                             }
                             HorizontalLayout {
                                 spacing: 4px;
-                                SegBtn { label: "People"; active: root.workspace-nav-surface == "people"; clicked => { root.workspace-nav-surface = "people"; } }
-                                SegBtn { label: "Notes"; active: root.workspace-nav-surface == "notes"; clicked => { root.workspace-nav-surface = "notes"; } }
+                                SegBtn { label: "People"; active: root.workspace-nav-surface == "people"; clicked => { root.workspace-set-nav-surface("people"); } }
+                                SegBtn { label: "Notes"; active: root.workspace-nav-surface == "notes"; clicked => { root.workspace-set-nav-surface("notes"); } }
                             }
                             HorizontalLayout {
                                 spacing: 4px;
-                                SegBtn { label: "Labels"; active: root.workspace-nav-surface == "labels"; clicked => { root.workspace-nav-surface = "labels"; } }
-                                SegBtn { label: "Filters"; active: root.workspace-nav-surface == "filters"; clicked => { root.workspace-nav-surface = "filters"; } }
+                                SegBtn { label: "Labels"; active: root.workspace-nav-surface == "labels"; clicked => { root.workspace-set-nav-surface("labels"); } }
+                                SegBtn { label: "Filters"; active: root.workspace-nav-surface == "filters"; clicked => { root.workspace-set-nav-surface("filters"); } }
                             }
                             Rectangle { height: 1px; background: Theme.border; }
 
@@ -1004,7 +1030,7 @@ export component AppWindow inherits Window {
                                 ListView {
                                     for n in root.notes: NoteRow {
                                         note: n;
-                                        open(id) => { root.workspace-primary = "notes"; root.select-note(id); }
+                                        open(id) => { root.workspace-switch("notes"); root.select-note(id); }
                                     }
                                 }
                             }
@@ -1077,7 +1103,10 @@ export component AppWindow inherits Window {
                                     self.sx = self.absolute-position.x + self.mouse-x;
                                 }
                             }
-                            moved => { root.workspace-left-width = clamp(self.sw + (self.absolute-position.x + self.mouse-x - self.sx), 190px, 540px); }
+                            moved => {
+                                root.workspace-left-width = clamp(self.sw + (self.absolute-position.x + self.mouse-x - self.sx), 190px, 540px);
+                                root.workspace-resize-pane(root.workspace-left-pane-id, root.workspace-left-width / 1px);
+                            }
                         }
                     }
 
@@ -1107,17 +1136,17 @@ export component AppWindow inherits Window {
                                                     accent: Theme.accent;
                                                     horizontal-stretch: 1;
                                                 }
-                                                ActionButton { icon: Icons.people; label: root.workspace-left-open ? "" : "Nav"; a11y: "Show navigation drawer"; clicked => { root.workspace-left-open = true; } }
-                                                ActionButton { icon: Icons.panel-right; label: root.workspace-right-open ? "" : "Context"; a11y: "Show context pane"; clicked => { root.workspace-right-open = true; } }
-                                                ActionButton { icon: Icons.tasks; label: root.workspace-bottom-open ? "" : "Queue"; a11y: "Show queue pane"; clicked => { root.workspace-bottom-open = true; } }
+                                                ActionButton { icon: Icons.people; label: root.workspace-left-open ? "" : "Nav"; a11y: "Show navigation drawer"; clicked => { root.workspace-open-pane(root.workspace-left-pane-id); } }
+                                                ActionButton { icon: Icons.panel-right; label: root.workspace-right-open ? "" : "Context"; a11y: "Show context pane"; clicked => { root.workspace-open-pane(root.workspace-right-pane-id); } }
+                                                ActionButton { icon: Icons.tasks; label: root.workspace-bottom-open ? "" : "Queue"; a11y: "Show queue pane"; clicked => { root.workspace-open-pane(root.workspace-bottom-pane-id); } }
                                             }
                                             HorizontalLayout {
                                                 spacing: 5px;
-                                                SegBtn { label: "1:1"; active: root.workspace-primary == "oneonone"; clicked => { root.workspace-primary = "oneonone"; root.workspace-nav-surface = "people"; root.set-view("workspace"); } }
-                                                SegBtn { label: "Note"; active: root.workspace-primary == "notes"; clicked => { root.workspace-primary = "notes"; root.workspace-nav-surface = "notes"; root.set-view("workspace"); } }
-                                                SegBtn { label: "Tasks"; active: root.workspace-primary == "tasks"; clicked => { root.workspace-primary = "tasks"; root.set-view("workspace"); } }
-                                                SegBtn { label: "Board"; active: root.workspace-primary == "board"; clicked => { root.workspace-primary = "board"; root.set-view("workspace"); } }
-                                                SegBtn { label: "Review"; active: root.workspace-primary == "review"; clicked => { root.workspace-primary = "review"; root.workspace-bottom-open = true; root.set-view("workspace"); } }
+                                                SegBtn { label: "1:1"; active: root.workspace-primary == "oneonone"; clicked => { root.workspace-switch("one-on-one-focus"); } }
+                                                SegBtn { label: "Note"; active: root.workspace-primary == "notes"; clicked => { root.workspace-switch("notes"); } }
+                                                SegBtn { label: "Tasks"; active: root.workspace-primary == "tasks"; clicked => { root.workspace-switch("tasks"); } }
+                                                SegBtn { label: "Board"; active: root.workspace-primary == "board"; clicked => { root.workspace-switch("board"); } }
+                                                SegBtn { label: "Review"; active: root.workspace-primary == "review"; clicked => { root.workspace-switch("review"); } }
                                             }
 
                                             if root.workspace-primary == "oneonone": Rectangle {
@@ -1264,7 +1293,10 @@ export component AppWindow inherits Window {
                                                     self.sx = self.absolute-position.x + self.mouse-x;
                                                 }
                                             }
-                                            moved => { root.workspace-right-width = clamp(self.sw - (self.absolute-position.x + self.mouse-x - self.sx), 240px, 600px); }
+                                            moved => {
+                                                root.workspace-right-width = clamp(self.sw - (self.absolute-position.x + self.mouse-x - self.sx), 240px, 600px);
+                                                root.workspace-resize-pane(root.workspace-right-pane-id, root.workspace-right-width / 1px);
+                                            }
                                         }
                                     }
 
@@ -1282,7 +1314,7 @@ export component AppWindow inherits Window {
                                             spacing: 8px;
                                             HorizontalLayout {
                                                 SectionTitle { title: "CONTEXT"; detail: root.workspace-primary; accent: #7a5b9a; horizontal-stretch: 1; }
-                                                CloseX { a11y: "Close context pane"; closed => { root.workspace-right-open = false; } }
+                                                CloseX { a11y: "Close context pane"; closed => { root.workspace-close-pane(root.workspace-right-pane-id); } }
                                             }
                                             ScrollView {
                                                 VerticalLayout {
@@ -1293,7 +1325,7 @@ export component AppWindow inherits Window {
                                                         accent: #9a5b1b;
                                                         for n in root.person-oneonone-notes: NoteRow {
                                                             note: n;
-                                                            open(id) => { root.workspace-primary = "oneonone"; root.select-note(id); }
+                                                            open(id) => { root.workspace-switch("one-on-one-focus"); root.select-note(id); }
                                                         }
                                                     }
                                                     PaneSection {
@@ -1302,7 +1334,7 @@ export component AppWindow inherits Window {
                                                         accent: Theme.accent;
                                                         for n in root.current-backlinks: NoteRow {
                                                             note: { id: n.id, title: n.title, subtitle: "backlink" };
-                                                            open(id) => { root.workspace-primary = "notes"; root.select-note(id); }
+                                                            open(id) => { root.workspace-switch("notes"); root.select-note(id); }
                                                         }
                                                     }
                                                     PaneSection {
@@ -1341,7 +1373,10 @@ export component AppWindow inherits Window {
                                             self.sy = self.absolute-position.y + self.mouse-y;
                                         }
                                     }
-                                    moved => { root.workspace-bottom-height = clamp(self.sh - (self.absolute-position.y + self.mouse-y - self.sy), 120px, 380px); }
+                                    moved => {
+                                        root.workspace-bottom-height = clamp(self.sh - (self.absolute-position.y + self.mouse-y - self.sy), 120px, 380px);
+                                        root.workspace-resize-pane(root.workspace-bottom-pane-id, root.workspace-bottom-height / 1px);
+                                    }
                                 }
                             }
 
@@ -1357,7 +1392,7 @@ export component AppWindow inherits Window {
                                     spacing: 8px;
                                     HorizontalLayout {
                                         SectionTitle { title: "QUEUE"; detail: "follow-up work"; accent: #b8742e; horizontal-stretch: 1; }
-                                        CloseX { a11y: "Close queue pane"; closed => { root.workspace-bottom-open = false; } }
+                                        CloseX { a11y: "Close queue pane"; closed => { root.workspace-close-pane(root.workspace-bottom-pane-id); } }
                                     }
                                     HorizontalLayout {
                                         spacing: 8px;
@@ -1403,7 +1438,7 @@ export component AppWindow inherits Window {
             x: max(8px, root.note-context-x);
             y: max(8px, root.note-context-y);
             width: 232px;
-            MenuItem { icon: Icons.edit; label: "Open"; clicked => { root.note-context-open = false; root.workspace-primary = "notes"; root.select-note(root.note-context-id); } }
+            MenuItem { icon: Icons.edit; label: "Open"; clicked => { root.note-context-open = false; root.workspace-switch("notes"); root.select-note(root.note-context-id); } }
             MenuItem { icon: Icons.star; label: "Pin / unpin"; clicked => { root.note-context-open = false; root.pin-note(root.note-context-id); } }
             MenuItem { icon: Icons.copy; label: "Copy note link"; clicked => { root.note-context-open = false; root.set-clip("[[" + root.note-context-title + "]]"); } }
             MenuSep {}

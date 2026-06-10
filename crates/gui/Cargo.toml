@@ -11,6 +11,7 @@ name = "noet"
 path = "src/main.rs"
 
 [dependencies]
+noet-app = { path = "../app" }
 noet-core = { path = "../core" }
 # WYSIWYG editor engine (UI-free; Slint-version-independent). Pinned to a public
 # tag so CI release builds resolve it without a sibling checkout. This is Noet's

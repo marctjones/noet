@@ -4050,6 +4050,7 @@ dependencies = [
  "dirs 5.0.1",
  "global-hotkey",
  "i-slint-backend-testing",
+ "noet-app",
  "noet-core",
  "notify",
  "open",

@@ -40,7 +40,9 @@ impl AppModel {
                 if let Some(workspace) = self.workspaces.active_mut() {
                     workspace.update_note_surfaces(note_id.clone());
                     if let Some(primary) = workspace.primary_pane_mut() {
-                        primary.surface = Surface::NoteEditor { note_id };
+                        if !matches!(primary.surface, Surface::OneOnOne { .. }) {
+                            primary.surface = Surface::NoteEditor { note_id };
+                        }
                     }
                 }
                 CommandOutcome::accepted()
@@ -111,6 +113,16 @@ impl AppModel {
                         CommandOutcome::accepted()
                     } else {
                         CommandOutcome::rejected("Active workspace has no primary pane")
+                    }
+                })
+            }
+            AppCommand::SetPaneSurface { pane_id, surface } => {
+                with_active_workspace(&mut self.workspaces, |workspace| {
+                    if let Some(pane) = workspace.pane_mut(&pane_id) {
+                        pane.surface = surface;
+                        CommandOutcome::accepted()
+                    } else {
+                        CommandOutcome::rejected(format!("Unknown pane: {pane_id}"))
                     }
                 })
             }
@@ -237,5 +249,39 @@ mod tests {
             &workspace.pane("note-editor").unwrap().surface,
             Surface::NoteEditor { note_id: None }
         ));
+    }
+
+    #[test]
+    fn pane_surface_can_change_without_switching_workspace() {
+        let mut model = AppModel::new();
+        assert!(
+            model
+                .apply(AppCommand::SetPaneSurface {
+                    pane_id: "people".into(),
+                    surface: Surface::LabelBrowser,
+                })
+                .accepted
+        );
+
+        let workspace = model.workspaces.active().unwrap();
+        assert_eq!(workspace.id, "one-on-one-focus");
+        assert_eq!(
+            workspace.pane("people").unwrap().surface,
+            Surface::LabelBrowser
+        );
+        assert!(workspace.pane("current-1on1").unwrap().open);
+    }
+
+    #[test]
+    fn opening_note_does_not_replace_one_on_one_primary_surface() {
+        let mut model = AppModel::new();
+        assert!(model.apply(AppCommand::OpenNote("n1".into())).accepted);
+
+        let workspace = model.workspaces.active().unwrap();
+        assert!(matches!(
+            &workspace.pane("current-1on1").unwrap().surface,
+            Surface::OneOnOne { .. }
+        ));
+        assert_eq!(model.selection.note_id.as_deref(), Some("n1"));
     }
 }

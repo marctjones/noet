@@ -15,6 +15,7 @@ pub enum AppCommand {
     ResizePane { pane_id: PaneId, size: f32 },
     FocusPane(PaneId),
     SetPrimarySurface(Surface),
+    SetPaneSurface { pane_id: PaneId, surface: Surface },
     SetNavigationSearch(String),
     SetFilter { dimension: String, value: String },
     ClearFilter(String),

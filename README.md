@@ -37,7 +37,9 @@ Implemented foundation:
   and workspace presets are implemented and unit tested.
 - `noet-core` exposes workflow read models for parsed note facts, note context,
   1:1 context, task review, waiting review, board columns, and label review.
-- The current GUI is still being migrated to this model.
+- `noet-gui` renders workspace panes from `noet-app`, routes workspace pane
+  operations through app commands, and adapts the note editor surface to `sred`.
+- Daily workflow screens are still being migrated onto the new workspace shell.
 
 ## Core Ideas
 

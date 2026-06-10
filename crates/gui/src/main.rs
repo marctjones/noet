@@ -2,6 +2,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 use chrono::NaiveDate;
+use noet_app::{AppCommand, AppModel};
 use noet_core::backend;
 use noet_core::backend::{Backend, Filter, TodoFields};
 use slint::{Model, ModelRc, SharedString, VecModel};
@@ -19,6 +20,7 @@ mod chrome;
 mod ipc;
 mod startup;
 mod tray;
+mod workspace_adapter;
 
 /// Apply a forwarded single-instance command (or one this instance launched with):
 /// `new-meeting` opens a fresh meeting note; `show` just surfaces the window.
@@ -294,6 +296,19 @@ fn rich_load(ui: &AppWindow, body: &str) {
     ui.set_rich_ac_open(false);
     AC.with(|a| *a.borrow_mut() = None);
     rich_render(ui, true);
+}
+
+/// Adapter boundary for the Noet NoteEditor surface.
+///
+/// The workspace/app model knows about a `NoteEditor` surface; this adapter is
+/// the GUI-side bridge that loads that surface into `sred`, which remains an
+/// editor engine rather than a Noet workspace object.
+struct SredEditorAdapter;
+
+impl SredEditorAdapter {
+    fn load_note_body(ui: &AppWindow, body: &str) {
+        rich_load(ui, body);
+    }
 }
 
 /// Re-evaluate inline autocomplete after a typing/caret change: detect a trigger
@@ -630,6 +645,7 @@ fn rich_named(name: &str) -> (bool, bool) {
 /// Backend + the live, unified filter shared by every view.
 pub(crate) struct State {
     pub(crate) backend: Backend,
+    pub(crate) app: AppModel,
     pub(crate) filter: Filter,
     pub(crate) cal_year: i32,
     pub(crate) cal_month: u32,
@@ -744,7 +760,13 @@ fn to_note_item(n: &backend::Note) -> NoteItem {
     }
 }
 
-const PERSON_ONEONONE_TAG: &str = "meeting/one-on-one";
+fn to_note_item_from_summary(n: &backend::NoteSummary) -> NoteItem {
+    NoteItem {
+        id: n.id.clone().into(),
+        title: n.title.clone().into(),
+        subtitle: n.updated.replace('T', " ").into(),
+    }
+}
 
 // ---- Sample / rendering-test note --------------------------------------------
 
@@ -1011,6 +1033,22 @@ fn to_todo_item(t: &backend::Todo) -> TodoItem {
     }
 }
 
+fn to_todo_item_from_fact(t: &backend::TaskFact) -> TodoItem {
+    TodoItem {
+        id: t.id.clone().into(),
+        note_id: t.source.note_id.clone().into(),
+        kind: t.workflow.as_str().into(),
+        status: t.status.as_str().into(),
+        text: t.text.clone().into(),
+        project: t.workstreams.first().cloned().unwrap_or_default().into(),
+        person: t.people.first().cloned().unwrap_or_default().into(),
+        due: t.due.clone().into(),
+        external: t.external.clone().into(),
+        priority: t.priority.clone().into(),
+        done: !t.status.is_open(),
+    }
+}
+
 fn day(s: &str) -> Option<NaiveDate> {
     NaiveDate::parse_from_str(s, "%Y-%m-%d").ok()
 }
@@ -1122,6 +1160,7 @@ fn active_summary(f: &Filter) -> String {
 pub(crate) fn refresh(ui: &AppWindow, state: &State) {
     let b = &state.backend;
     let f = &state.filter;
+    workspace_adapter::sync(ui, &state.app);
     // Only recompute what the visible view needs. The left-rail facets + filter
     // chrome below always run (they're cheap and shown on every view); the heavy
     // per-view queries (board / agenda / gantt / tasks / person) are gated so a
@@ -1264,130 +1303,156 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
         if ui.get_selected_person().is_empty() && !workspace_person.is_empty() {
             ui.set_selected_person(workspace_person.clone().into());
         }
-        let pf = Filter {
-            person: workspace_person.clone(),
-            status: "open".into(),
-            ..Default::default()
-        };
-        let ptodos = if workspace_person.is_empty() {
-            Vec::new()
-        } else {
-            b.query_todos(&pf).unwrap_or_default()
-        };
-        let person_history_todos = if workspace_person.is_empty() {
-            Vec::new()
-        } else {
-            b.query_todos(&Filter {
-                person: workspace_person.clone(),
-                ..Default::default()
-            })
-            .unwrap_or_default()
-        };
-        let pick = |keep: &dyn Fn(&str) -> bool| -> ModelRc<TodoItem> {
-            ModelRc::new(VecModel::from(
-                ptodos
-                    .iter()
-                    .filter(|t| keep(&t.kind))
-                    .map(to_todo_item)
-                    .collect::<Vec<_>>(),
-            ))
-        };
-        ui.set_person_discuss(pick(&|k| k == "followup" || k == "waiting"));
-        ui.set_person_delegated(pick(&|k| k == "delegated"));
-        ui.set_person_delegated_history(ModelRc::new(VecModel::from(
-            person_history_todos
-                .iter()
-                .filter(|t| t.kind == "delegated" || t.kind == "followup" || t.kind == "waiting")
-                .map(to_todo_item)
-                .collect::<Vec<_>>(),
-        )));
-        ui.set_person_other(pick(&|k| {
-            k != "waiting" && k != "followup" && k != "delegated"
-        }));
-        let oneonone_notes = if workspace_person.is_empty() {
-            Vec::new()
-        } else {
-            b.query_notes(&Filter {
-                person: workspace_person.clone(),
-                tag: PERSON_ONEONONE_TAG.into(),
-                ..Default::default()
-            })
-            .unwrap_or_default()
-        };
-        let current_id = ui.get_current_id().to_string();
-        let current_idx = oneonone_notes
-            .iter()
-            .position(|n| n.id == current_id)
-            .unwrap_or(0);
-        let current_oneonone = oneonone_notes.get(current_idx);
-        let prev_oneonone = if current_idx > 0 {
-            oneonone_notes.get(current_idx - 1)
-        } else {
+        let oneonone_context = if workspace_person.is_empty() {
             None
+        } else {
+            b.one_on_one_context(&workspace_person).ok()
         };
-        let next_oneonone = oneonone_notes.get(current_idx + 1);
-        let last_oneonone = next_oneonone;
-        let last_followups = if let Some(prev) = last_oneonone {
-            ptodos
+        let empty_todos = || ModelRc::new(VecModel::from(Vec::<TodoItem>::new()));
+        let empty_notes = || ModelRc::new(VecModel::from(Vec::<NoteItem>::new()));
+        if let Some(oneonone_context) = oneonone_context {
+            let mut discuss = oneonone_context.followups.clone();
+            discuss.extend(oneonone_context.waiting.clone());
+            ui.set_person_discuss(ModelRc::new(VecModel::from(
+                discuss
+                    .iter()
+                    .map(to_todo_item_from_fact)
+                    .collect::<Vec<_>>(),
+            )));
+            ui.set_person_delegated(ModelRc::new(VecModel::from(
+                oneonone_context
+                    .delegated
+                    .iter()
+                    .map(to_todo_item_from_fact)
+                    .collect::<Vec<_>>(),
+            )));
+            ui.set_person_delegated_history(ModelRc::new(VecModel::from(
+                oneonone_context
+                    .open_items
+                    .iter()
+                    .filter(|t| {
+                        matches!(
+                            &t.workflow,
+                            backend::TaskWorkflow::Delegated
+                                | backend::TaskWorkflow::Followup
+                                | backend::TaskWorkflow::Waiting
+                        )
+                    })
+                    .map(to_todo_item_from_fact)
+                    .collect::<Vec<_>>(),
+            )));
+            ui.set_person_other(ModelRc::new(VecModel::from(
+                oneonone_context
+                    .open_items
+                    .iter()
+                    .filter(|t| {
+                        !matches!(
+                            &t.workflow,
+                            backend::TaskWorkflow::Delegated
+                                | backend::TaskWorkflow::Followup
+                                | backend::TaskWorkflow::Waiting
+                        )
+                    })
+                    .map(to_todo_item_from_fact)
+                    .collect::<Vec<_>>(),
+            )));
+            let oneonone_notes = oneonone_context.history.clone();
+            let current_id = ui.get_current_id().to_string();
+            let current_idx = oneonone_notes
                 .iter()
-                .filter(|t| {
-                    t.note_id == prev.id
-                        && (t.kind == "followup" || t.kind == "delegated" || t.kind == "waiting")
-                })
-                .map(to_todo_item)
-                .collect::<Vec<_>>()
-        } else {
-            Vec::new()
-        };
-        if let Some(n) = current_oneonone {
-            ui.set_person_current_oneonone_id(n.id.clone().into());
-            ui.set_person_current_oneonone_title(n.title.clone().into());
-            if current_id != n.id {
-                open_in_editor(ui, b, &n.id);
-                if view == "oneonone" {
-                    ui.set_view("oneonone".into());
+                .position(|n| n.id == current_id)
+                .unwrap_or(0);
+            let current_oneonone = oneonone_notes.get(current_idx);
+            let prev_oneonone = if current_idx > 0 {
+                oneonone_notes.get(current_idx - 1)
+            } else {
+                None
+            };
+            let next_oneonone = oneonone_notes.get(current_idx + 1);
+            let last_oneonone = next_oneonone;
+            let last_followups = if let Some(prev) = last_oneonone {
+                oneonone_context
+                    .open_items
+                    .iter()
+                    .filter(|t| {
+                        t.source.note_id == prev.id
+                            && matches!(
+                                &t.workflow,
+                                backend::TaskWorkflow::Followup
+                                    | backend::TaskWorkflow::Delegated
+                                    | backend::TaskWorkflow::Waiting
+                            )
+                    })
+                    .map(to_todo_item_from_fact)
+                    .collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            };
+            if let Some(n) = current_oneonone {
+                ui.set_person_current_oneonone_id(n.id.clone().into());
+                ui.set_person_current_oneonone_title(n.title.clone().into());
+                if current_id != n.id {
+                    open_in_editor(ui, b, &n.id);
+                    if view == "oneonone" {
+                        ui.set_view("oneonone".into());
+                    }
                 }
+            } else {
+                ui.set_person_current_oneonone_id("".into());
+                ui.set_person_current_oneonone_title("".into());
             }
+            ui.set_person_last_oneonone_title(
+                last_oneonone
+                    .map(|n| n.title.clone())
+                    .unwrap_or_default()
+                    .into(),
+            );
+            ui.set_person_prev_oneonone_id(
+                prev_oneonone
+                    .map(|n| n.id.clone())
+                    .unwrap_or_default()
+                    .into(),
+            );
+            ui.set_person_next_oneonone_id(
+                next_oneonone
+                    .map(|n| n.id.clone())
+                    .unwrap_or_default()
+                    .into(),
+            );
+            ui.set_person_oneonone_index(current_idx as i32);
+            ui.set_person_oneonone_count(oneonone_notes.len() as i32);
+            ui.set_person_last_followups(ModelRc::new(VecModel::from(last_followups)));
+            ui.set_person_oneonone_notes(ModelRc::new(VecModel::from(
+                oneonone_notes
+                    .iter()
+                    .map(to_note_item_from_summary)
+                    .collect::<Vec<_>>(),
+            )));
+            let pnotes = b
+                .query_notes(&Filter {
+                    person: workspace_person.clone(),
+                    ..Default::default()
+                })
+                .unwrap_or_default();
+            ui.set_person_notes(ModelRc::new(VecModel::from(
+                pnotes.iter().map(to_note_item).collect::<Vec<_>>(),
+            )));
         } else {
+            ui.set_person_discuss(empty_todos());
+            ui.set_person_delegated(empty_todos());
+            ui.set_person_delegated_history(empty_todos());
+            ui.set_person_other(empty_todos());
             ui.set_person_current_oneonone_id("".into());
             ui.set_person_current_oneonone_title("".into());
+            ui.set_person_last_oneonone_title("".into());
+            ui.set_person_prev_oneonone_id("".into());
+            ui.set_person_next_oneonone_id("".into());
+            ui.set_person_oneonone_index(0);
+            ui.set_person_oneonone_count(0);
+            ui.set_person_last_followups(empty_todos());
+            ui.set_person_oneonone_notes(empty_notes());
+            ui.set_person_notes(empty_notes());
         }
-        ui.set_person_last_oneonone_title(
-            last_oneonone
-                .map(|n| n.title.clone())
-                .unwrap_or_default()
-                .into(),
-        );
-        ui.set_person_prev_oneonone_id(
-            prev_oneonone
-                .map(|n| n.id.clone())
-                .unwrap_or_default()
-                .into(),
-        );
-        ui.set_person_next_oneonone_id(
-            next_oneonone
-                .map(|n| n.id.clone())
-                .unwrap_or_default()
-                .into(),
-        );
-        ui.set_person_oneonone_index(current_idx as i32);
-        ui.set_person_oneonone_count(oneonone_notes.len() as i32);
-        ui.set_person_last_followups(ModelRc::new(VecModel::from(last_followups)));
-        ui.set_person_oneonone_notes(ModelRc::new(VecModel::from(
-            oneonone_notes.iter().map(to_note_item).collect::<Vec<_>>(),
-        )));
-        let pnotes = if workspace_person.is_empty() {
-            Vec::new()
-        } else {
-            b.query_notes(&Filter {
-                person: workspace_person.clone(),
-                ..Default::default()
-            })
-            .unwrap_or_default()
-        };
-        ui.set_person_notes(ModelRc::new(VecModel::from(
-            pnotes.iter().map(to_note_item).collect::<Vec<_>>(),
-        )));
     }
 
     if view == "board" || view == "workspace" {
@@ -1673,7 +1738,7 @@ fn open_in_editor(ui: &AppWindow, b: &Backend, note_id: &str) {
         // The sred WYSIWYG editor is the sole note surface (it renders + scrolls);
         // opening a note enters the edit state so autosave/edit flows are active.
         ui.set_editing(true);
-        rich_load(ui, &n.body);
+        SredEditorAdapter::load_note_body(ui, &n.body);
         render_read(ui, b, &n); // still feeds entity-chip / backlink models
     }
 }
@@ -1863,6 +1928,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         .unwrap_or_default();
     let state = Rc::new(RefCell::new(State {
         backend,
+        app: AppModel::new(),
         filter: Filter::default(),
         cal_year: chrono::Datelike::year(&now),
         cal_month: chrono::Datelike::month(&now),
@@ -2417,6 +2483,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                     let _ = s.backend.add_link(&id, &proj);
                 }
                 open_in_editor(&ui, &s.backend, &id);
+                s.app.apply(AppCommand::OpenNote(id));
                 ui.set_status_text(if proj.is_empty() {
                     "New note".into()
                 } else {
@@ -2447,6 +2514,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             }
             FOLDS.with(|f| f.borrow_mut().clear()); // fresh folds per note
             open_in_editor(&ui, &s.backend, &id); // records the recent (tab strip)
+            s.app.apply(AppCommand::OpenNote(id.to_string()));
             ui.set_editing(false); // selecting shows the read view (content visible)
             ui.set_status_text("".into());
             refresh(&ui, &s); // refresh() rebuilds the tab strip
@@ -2621,6 +2689,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         let state = state.clone();
         ui.on_set_view(move |v: SharedString| {
             let ui = ui_w.unwrap();
+            let requested = v.to_string();
             // Remember where we came from so panels (Settings/About/Trash) can
             // offer a "close → back to where I was" action.
             let cur = ui.get_view();
@@ -2629,8 +2698,107 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             }
             // Explicit navigation ends a todo→note "follow-up" trail.
             ui.set_note_return_view("".into());
-            ui.set_view(v);
+            if requested == "workspace" {
+                let workspace_id = workspace_adapter::workspace_id_from_key(
+                    &ui.get_workspace_primary().to_string(),
+                );
+                state
+                    .borrow_mut()
+                    .app
+                    .apply(AppCommand::SwitchWorkspace(workspace_id));
+            }
+            ui.set_view(requested.into());
             refresh(&ui, &state.borrow());
+        });
+    }
+
+    // workspace shell commands
+    {
+        let ui_w = ui.as_weak();
+        let state = state.clone();
+        ui.on_workspace_switch(move |workspace_id: SharedString| {
+            let ui = ui_w.unwrap();
+            let mut s = state.borrow_mut();
+            let workspace_id = workspace_adapter::workspace_id_from_key(&workspace_id);
+            let outcome = s.app.apply(AppCommand::SwitchWorkspace(workspace_id));
+            if !outcome.accepted {
+                if let Some(message) = outcome.message {
+                    ui.set_status_text(message.into());
+                }
+            }
+            ui.set_view("workspace".into());
+            refresh(&ui, &s);
+        });
+    }
+    {
+        let ui_w = ui.as_weak();
+        let state = state.clone();
+        ui.on_workspace_open_pane(move |pane_id: SharedString| {
+            if pane_id.is_empty() {
+                return;
+            }
+            let ui = ui_w.unwrap();
+            let mut s = state.borrow_mut();
+            let outcome = s.app.apply(AppCommand::OpenPane(pane_id.to_string()));
+            if !outcome.accepted {
+                if let Some(message) = outcome.message {
+                    ui.set_status_text(message.into());
+                }
+            }
+            workspace_adapter::sync(&ui, &s.app);
+        });
+    }
+    {
+        let ui_w = ui.as_weak();
+        let state = state.clone();
+        ui.on_workspace_close_pane(move |pane_id: SharedString| {
+            if pane_id.is_empty() {
+                return;
+            }
+            let ui = ui_w.unwrap();
+            let mut s = state.borrow_mut();
+            let outcome = s.app.apply(AppCommand::ClosePane(pane_id.to_string()));
+            if !outcome.accepted {
+                if let Some(message) = outcome.message {
+                    ui.set_status_text(message.into());
+                }
+            }
+            workspace_adapter::sync(&ui, &s.app);
+        });
+    }
+    {
+        let ui_w = ui.as_weak();
+        let state = state.clone();
+        ui.on_workspace_resize_pane(move |pane_id: SharedString, size| {
+            if pane_id.is_empty() {
+                return;
+            }
+            let ui = ui_w.unwrap();
+            let mut s = state.borrow_mut();
+            let _ = s.app.apply(AppCommand::ResizePane {
+                pane_id: pane_id.to_string(),
+                size,
+            });
+            workspace_adapter::sync(&ui, &s.app);
+        });
+    }
+    {
+        let ui_w = ui.as_weak();
+        let state = state.clone();
+        ui.on_workspace_set_nav_surface(move |key: SharedString| {
+            let ui = ui_w.unwrap();
+            let pane_id = ui.get_workspace_left_pane_id().to_string();
+            if pane_id.is_empty() {
+                return;
+            }
+            let mut s = state.borrow_mut();
+            let surface = workspace_adapter::navigation_surface_from_key(&key);
+            let _ = s.app.apply(AppCommand::SetPaneSurface {
+                pane_id: pane_id.clone(),
+                surface,
+            });
+            let _ = s.app.apply(AppCommand::OpenPane(pane_id));
+            refresh(&ui, &s);
         });
     }
 
@@ -3347,13 +3515,19 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                     }
                 }
                 open_in_editor(&ui, &s.backend, &id);
+                s.app.apply(AppCommand::OpenNote(id.clone()));
+                if t.as_str() == "oneonone" {
+                    if !ui.get_selected_person().is_empty() {
+                        s.app
+                            .apply(AppCommand::SelectPerson(ui.get_selected_person().to_string()));
+                    }
+                    s.app
+                        .apply(AppCommand::SwitchWorkspace("one-on-one-focus".into()));
+                } else if started_in_workspace {
+                    s.app.apply(AppCommand::SwitchWorkspace("notes".into()));
+                }
                 ui.set_editing(true);
                 ui.set_view(if started_in_workspace {
-                    if t.as_str() == "oneonone" {
-                        ui.set_workspace_primary("oneonone".into());
-                    } else {
-                        ui.set_workspace_primary("notes".into());
-                    }
                     "workspace".into()
                 } else if t.as_str() == "oneonone" {
                     "oneonone".into()
@@ -3532,16 +3706,17 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_pick_person(move |name: SharedString| {
             let ui = ui_w.unwrap();
             let name = name.to_string();
+            let mut s = state.borrow_mut();
+            s.app.apply(AppCommand::SelectPerson(name.clone()));
             ui.set_selected_person(name.clone().into());
             if ui.get_view().to_string() == "workspace" {
-                ui.set_workspace_primary("oneonone".into());
-                ui.set_workspace_left_open(false);
+                ui.set_view("workspace".into());
             } else {
                 ui.set_view("oneonone".into());
                 ui.set_person_list_open(false);
             }
             ui.set_rail_hidden(true);
-            refresh(&ui, &state.borrow());
+            refresh(&ui, &s);
         });
     }
 
