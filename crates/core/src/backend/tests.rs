@@ -11,7 +11,7 @@ use std::path::Path;
 fn parses_typed_todos_and_tokens() {
     let body = "\
 - meeting notes\n\
-- [ ] draft agenda [[Acme]] due:2026-06-10 jira:PROJ-12\n\
+- [ ] draft agenda [[Acme]] due:2026-06-10 ref:https://example.com/proj-12\n\
 - [ ] check pricing @[[Jane]] #followup\n\
 - [x] skim the rust book #reading\n";
     let todos = parse_todos("N1", body);
@@ -21,7 +21,7 @@ fn parses_typed_todos_and_tokens() {
     assert_eq!(do_t.kind, "do");
     assert_eq!(do_t.project, "Acme");
     assert_eq!(do_t.due, "2026-06-10");
-    assert_eq!(do_t.external, "jira:PROJ-12");
+    assert_eq!(do_t.external, "ref:https://example.com/proj-12");
     assert_eq!(do_t.text, "draft agenda"); // tokens stripped
     assert!(!do_t.done);
     assert_eq!(do_t.id, "N1:1");

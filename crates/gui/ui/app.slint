@@ -135,8 +135,8 @@ component Chip inherits Rectangle {
     }
 }
 
-// A clickable external-ref chip (jira: / gh: / URL) — opens the ticket/issue in
-// the browser. Same compact footprint as Chip, but hovers + clicks.
+// A clickable external-ref chip (URL / ref: / gh:) — opens the target in the
+// browser. Same compact footprint as Chip, but hovers + clicks.
 component ExtChip inherits Rectangle {
     in property <string> text;
     callback clicked;
@@ -786,47 +786,21 @@ export component AppWindow inherits Window {
     in-out property <string> index-path;
     in-out property <string> settings-path;
     in-out property <string> vault-input;
-    // Jira connector credentials (Settings view).
-    in-out property <string> jira-base;
-    in-out property <string> jira-email;
-    in-out property <string> jira-token;
-    in-out property <bool> jira-configured;
-    in-out property <bool> outlook-sync-on-open;
     in-out property <bool> launch-on-startup;          // registered to run at login
     in property <bool> launch-on-startup-supported;    // only wired on Windows today
-    // Google connector (Gmail + Tasks share one OAuth) — fields named gmail-* but
-    // cover both.
-    in-out property <string> gmail-client-id;
-    in-out property <string> gmail-client-secret;
-    in-out property <bool> gmail-connected;
-    // Todoist connector (Settings).
-    in-out property <string> todoist-token;
-    in-out property <bool> todoist-configured;
     // About / open-source licenses view.
     in-out property <string> app-version;
     in-out property <[LicenseRow]> license-rows;
     in-out property <string> license-summary;
-    // "Needs review" inbox: open todos linked to a flagged Outlook item.
-    in property <[TodoItem]> review-todos;
 
     // Callbacks
     callback quit();
     callback note-title-edited(string);
     callback save-settings(string); // persist a new vault path
-    callback save-jira(string, string, string); // base-url, email, token
-    callback open-external(string); // open a jira:/gh:/URL ref in the browser
+    callback open-external(string); // open a URL/ref in the browser
     callback open-licenses(); // open the full third-party license notices
     callback open-vault-folder(); // open the vault folder in the file manager
-    callback save-outlook-sync(bool); // persist the sync-on-startup setting
     callback set-launch-on-startup(bool); // register/unregister launch at login
-    callback save-gmail(string, string); // Google client id, client secret
-    callback connect-gmail(); // run the Google OAuth consent flow (Gmail + Tasks)
-    callback import-gmail(); // import recent starred Gmail into notes
-    callback import-gtasks(); // import Google Tasks into notes
-    callback save-todoist(string); // Todoist API token
-    callback import-todoist(); // import active Todoist tasks into notes
-    callback import-outlook(); // import the selected Classic-Outlook email (Windows)
-    callback sync-outlook(); // import/reconcile flagged + Noet-categorized mail (Windows)
     callback export-note(string); // format: "md" | "pdf"
     callback reindex-finished();
     callback new-note();
@@ -941,7 +915,6 @@ export component AppWindow inherits Window {
                     editTitle := MenuTitle { label: "Edit"; menu-id: "edit"; open-menu <=> root.open-menu; }
                     noteTitle := MenuTitle { label: "Note"; menu-id: "note"; open-menu <=> root.open-menu; }
                     viewTitle := MenuTitle { label: "View"; menu-id: "view"; open-menu <=> root.open-menu; }
-                    connTitle := MenuTitle { label: "Connectors"; menu-id: "connectors"; open-menu <=> root.open-menu; }
                     helpTitle := MenuTitle { label: "Help"; menu-id: "help"; open-menu <=> root.open-menu; }
                 }
             }
@@ -983,7 +956,7 @@ export component AppWindow inherits Window {
             // ===== Context toolbar (per-view actions) =====
             if (!root.focus-mode && (root.view == "today" || root.view == "notes" || root.view == "tasks"
                 || root.view == "agenda" || root.view == "gantt" || root.view == "inbox"
-                || root.view == "review" || root.view == "board" || root.view == "calendar"
+                || root.view == "board" || root.view == "calendar"
                 || root.view == "labels" || root.view == "people")): Rectangle {
                 height: 40px;
                 background: Theme.surface2;
@@ -1011,7 +984,6 @@ export component AppWindow inherits Window {
                     if (root.view == "notes"): ActionButton { icon: Icons.download; label: "Export PDF"; clicked => { root.export-note("pdf"); } }
                     if (root.view == "tasks" || root.view == "agenda" || root.view == "gantt"): ActionButton { icon: Icons.check; label: "Add todo"; clicked => { root.open-add-todo(); } }
                     if (root.view == "inbox"): ActionButton { icon: Icons.plus; label: "New note"; primary: true; clicked => { root.new-note(); } }
-                    if (root.view == "review"): ActionButton { icon: Icons.refresh; label: "Sync Outlook"; clicked => { root.sync-outlook(); } }
                     Rectangle { horizontal-stretch: 1; }
                     if (root.active-summary != ""): Text { text: root.active-summary; font-size: (11px * Z.f); color: Theme.text3; vertical-alignment: center; }
                     // Close this view (back to the previously open view).
@@ -1054,7 +1026,6 @@ export component AppWindow inherits Window {
                         Rectangle { height: root.nav-eff-collapsed ? 4px : 0px; }
                         NavItem { icon: Icons.notes; label: "Notes"; view: "notes"; current: root.view; clicked => { root.set-view("notes"); } }
                         NavItem { icon: Icons.inbox; label: "Inbox"; view: "inbox"; current: root.view; clicked => { root.set-view("inbox"); } }
-                        NavItem { icon: Icons.review; label: "Review"; view: "review"; current: root.view; clicked => { root.set-view("review"); } }
                         if !root.nav-eff-collapsed : Text { text: "ORGANIZE"; font-size: (9px * Z.f); letter-spacing: 1px; color: Theme.text3; }
                         Rectangle { height: root.nav-eff-collapsed ? 4px : 0px; }
                         NavItem { icon: Icons.people; label: "People"; view: "people"; current: root.view; clicked => { root.set-view("people"); } }
@@ -1948,35 +1919,6 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                // ----- NEEDS-REVIEW view (flagged Outlook items) -----
-                if (root.view == "review"): Rectangle {
-                    horizontal-stretch: 1;
-                    background: Theme.bg;
-                    VerticalLayout {
-                        padding: 10px; spacing: 8px;
-                        HorizontalLayout {
-                            Text { text: "NEEDS REVIEW — items you flagged / categorized 'Noet' in Outlook"; font-size: (11px * Z.f); letter-spacing: 0.5px; color: Theme.text3; vertical-alignment: center; horizontal-stretch: 1; }
-                            CloseX { closed => { root.set-view(root.prev-view); } }
-                        }
-                        Rectangle {
-                            vertical-stretch: 1; background: Theme.surface; border-radius: 8px;
-                            ListView {
-                                for t in root.review-todos: AgendaRow {
-                                    t: t;
-                                    cycle(id) => { root.cycle-todo(id); }
-                                    edit(id) => { root.edit-todo(id); }
-                                    open(id) => { root.open-note(id); }
-                                }
-                            }
-                            if (root.review-todos.length == 0): Text {
-                                x: 12px; y: 12px;
-                                text: "Nothing to review. Flag emails in Outlook (or tag them 'Noet'), then File ▸ Sync flagged Outlook mail.";
-                                color: Theme.text3; font-size: (13px * Z.f); font-italic: true; wrap: word-wrap; width: parent.width - 24px;
-                            }
-                        }
-                    }
-                }
-
                 // ----- SETTINGS view -----
                 if (root.view == "settings"): Rectangle {
                     horizontal-stretch: 1;
@@ -2036,115 +1978,6 @@ export component AppWindow inherits Window {
                                     spacing: 2px;
                                     Text { text: "Settings file"; font-size: (11px * Z.f); color: Theme.text3; }
                                     Text { text: root.settings-path; font-size: (12px * Z.f); color: Theme.text; wrap: word-wrap; }
-                                }
-                            }
-                        }
-
-                        // --- Jira connector ---
-                        Rectangle {
-                            background: Theme.surface; border-radius: 8px; border-width: 1px; border-color: Theme.border;
-                            VerticalLayout {
-                                padding: 14px; spacing: 8px;
-                                HorizontalLayout {
-                                    spacing: 8px;
-                                    Text { text: "Jira"; font-size: (13px * Z.f); font-weight: 700; color: Theme.text; vertical-alignment: center; }
-                                    Text {
-                                        text: root.jira-configured ? "● connected" : "○ not configured";
-                                        font-size: (10px * Z.f); color: root.jira-configured ? #1f7a44 : Theme.text3;
-                                        vertical-alignment: center; horizontal-stretch: 1;
-                                    }
-                                }
-                                Text {
-                                    text: "Link tickets with jira:KEY-123 on a todo, then click the 🔗 chip on the Board or Gantt to open it. Cloud: site URL + your email + an API token. Server/Data Center: site URL + a Personal Access Token (leave email blank).";
-                                    font-size: (11px * Z.f); color: Theme.text3; wrap: word-wrap;
-                                }
-                                jira-base-field := LineEdit { text <=> root.jira-base; placeholder-text: "https://your-site.atlassian.net"; }
-                                jira-email-field := LineEdit { text <=> root.jira-email; placeholder-text: "email (Cloud only; blank for Server PAT)"; }
-                                jira-token-field := LineEdit {
-                                    text <=> root.jira-token;
-                                    placeholder-text: "API token / Personal Access Token";
-                                    input-type: password;
-                                }
-                                HorizontalLayout {
-                                    Rectangle { horizontal-stretch: 1; }
-                                    Button {
-                                        text: "Save Jira settings";
-                                        primary: true;
-                                        clicked => { root.save-jira(jira-base-field.text, jira-email-field.text, jira-token-field.text); }
-                                    }
-                                }
-                            }
-                        }
-
-                        // --- Gmail ---
-                        Rectangle {
-                            background: Theme.surface; border-radius: 8px; border-width: 1px; border-color: Theme.border;
-                            VerticalLayout {
-                                padding: 14px; spacing: 8px;
-                                HorizontalLayout {
-                                    spacing: 8px;
-                                    Text { text: "Google (Gmail + Tasks)"; font-size: (13px * Z.f); font-weight: 700; color: Theme.text; vertical-alignment: center; }
-                                    Text {
-                                        text: root.gmail-connected ? "● connected" : "○ not connected";
-                                        font-size: (10px * Z.f); color: root.gmail-connected ? #1f7a44 : Theme.text3;
-                                        vertical-alignment: center; horizontal-stretch: 1;
-                                    }
-                                }
-                                Text {
-                                    text: "Register your own OAuth 'Desktop app' in Google Cloud (on a Workspace you admin, mark it Internal to skip verification). Paste its client id + secret, Save, then Connect — a browser opens once to grant access to Gmail + Tasks. Then File ▸ Import from Gmail / Google Tasks.";
-                                    font-size: (11px * Z.f); color: Theme.text3; wrap: word-wrap;
-                                }
-                                gmail-id-field := LineEdit { text <=> root.gmail-client-id; placeholder-text: "client id (…apps.googleusercontent.com)"; }
-                                gmail-secret-field := LineEdit { text <=> root.gmail-client-secret; placeholder-text: "client secret"; input-type: password; }
-                                HorizontalLayout {
-                                    spacing: 8px;
-                                    Rectangle { horizontal-stretch: 1; }
-                                    Button { text: "Save"; clicked => { root.save-gmail(gmail-id-field.text, gmail-secret-field.text); } }
-                                    Button { text: "Connect…"; primary: true; clicked => { root.connect-gmail(); } }
-                                }
-                            }
-                        }
-
-                        // --- Todoist ---
-                        Rectangle {
-                            background: Theme.surface; border-radius: 8px; border-width: 1px; border-color: Theme.border;
-                            VerticalLayout {
-                                padding: 14px; spacing: 8px;
-                                HorizontalLayout {
-                                    spacing: 8px;
-                                    Text { text: "Todoist"; font-size: (13px * Z.f); font-weight: 700; color: Theme.text; vertical-alignment: center; }
-                                    Text {
-                                        text: root.todoist-configured ? "● configured" : "○ not configured";
-                                        font-size: (10px * Z.f); color: root.todoist-configured ? #1f7a44 : Theme.text3;
-                                        vertical-alignment: center; horizontal-stretch: 1;
-                                    }
-                                }
-                                Text {
-                                    text: "Paste your personal API token (Todoist → Settings → Integrations → Developer). Then File ▸ Import from Todoist — tasks come in with priority, project, labels, and due date.";
-                                    font-size: (11px * Z.f); color: Theme.text3; wrap: word-wrap;
-                                }
-                                todoist-token-field := LineEdit { text <=> root.todoist-token; placeholder-text: "Todoist API token"; input-type: password; }
-                                HorizontalLayout {
-                                    Rectangle { horizontal-stretch: 1; }
-                                    Button { text: "Save"; primary: true; clicked => { root.save-todoist(todoist-token-field.text); } }
-                                }
-                            }
-                        }
-
-                        // --- Outlook ---
-                        Rectangle {
-                            background: Theme.surface; border-radius: 8px; border-width: 1px; border-color: Theme.border;
-                            VerticalLayout {
-                                padding: 14px; spacing: 8px;
-                                Text { text: "Outlook"; font-size: (13px * Z.f); font-weight: 700; color: Theme.text; }
-                                CheckBox {
-                                    text: "Sync flagged Outlook mail on startup (Windows)";
-                                    checked <=> root.outlook-sync-on-open;
-                                    toggled => { root.save-outlook-sync(self.checked); }
-                                }
-                                Text {
-                                    text: "Off by default. When on, Noet runs the Outlook flag/category sync once each launch (it launches Classic Outlook via COM). You can always run it manually from File ▸ Sync flagged Outlook mail.";
-                                    font-size: (10px * Z.f); color: Theme.text3; wrap: word-wrap;
                                 }
                             }
                         }
@@ -2961,7 +2794,7 @@ export component AppWindow inherits Window {
                         }
                         Field {
                             label: "External reference";
-                            LineEdit { placeholder-text: "jira:ABC-123, gh:owner/repo#1, or URL"; text <=> root.form-external; }
+                            LineEdit { placeholder-text: "ref:https://example.com/item, gh:owner/repo#1, or URL"; text <=> root.form-external; }
                         }
                     }
                     Rectangle { vertical-stretch: 1; }
@@ -2998,19 +2831,6 @@ export component AppWindow inherits Window {
             MenuItem { icon: Icons.trash2; label: "Open Trash"; clicked => { root.open-menu = ""; root.set-view("trash"); } }
             MenuSep {}
             MenuItem { icon: Icons.power; label: "Exit Noet"; shortcut: "Ctrl+Q"; clicked => { root.open-menu = ""; root.quit(); } }
-        }
-        if root.open-menu == "connectors": MenuPanel {
-            x: connTitle.absolute-position.x;
-            y: connTitle.absolute-position.y + connTitle.height + 3px;
-            width: 250px;
-            MenuItem { icon: Icons.mail; label: "Import from Gmail (starred)"; clicked => { root.open-menu = ""; root.import-gmail(); } }
-            MenuItem { icon: Icons.check; label: "Import from Google Tasks"; clicked => { root.open-menu = ""; root.import-gtasks(); } }
-            MenuItem { icon: Icons.check; label: "Import from Todoist"; clicked => { root.open-menu = ""; root.import-todoist(); } }
-            MenuSep {}
-            MenuItem { icon: Icons.mail; label: "Import selected Outlook email"; clicked => { root.open-menu = ""; root.import-outlook(); } }
-            MenuItem { icon: Icons.swap; label: "Sync flagged Outlook mail"; clicked => { root.open-menu = ""; root.sync-outlook(); } }
-            MenuSep {}
-            MenuItem { icon: Icons.settings; label: "Connection settings…"; clicked => { root.open-menu = ""; root.set-view("settings"); } }
         }
         if root.open-menu == "help": MenuPanel {
             x: helpTitle.absolute-position.x;

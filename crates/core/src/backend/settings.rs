@@ -1,5 +1,5 @@
 //! App-level settings, persisted as JSON in the OS config dir (NOT in the vault,
-//! so it never syncs). Currently just the vault location; room to grow defaults.
+//! so it never syncs).
 
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
@@ -8,10 +8,6 @@ use std::path::{Path, PathBuf};
 pub struct Settings {
     /// Where the markdown vault lives.
     pub vault: PathBuf,
-    /// Run the Outlook flag/category sync once at app startup (Windows only).
-    /// Off by default so the app never launches Outlook/PowerShell unasked.
-    #[serde(default)]
-    pub outlook_sync_on_open: bool,
     /// Use the sred WYSIWYG editor (beta) instead of the raw-markdown TextEdit.
     /// Off by default — the raw editor stays the safe fallback until sred is the
     /// proven default. Editor integration is opt-in.

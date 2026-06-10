@@ -423,7 +423,7 @@ pub fn parse_todos(note_id: &str, body: &str) -> Vec<Todo> {
             let repeat = prop("repeat");
             let external = property_re()
                 .captures_iter(&rest)
-                .find(|m| matches!(&m["key"], "jira" | "gh" | "src" | "ref"))
+                .find(|m| matches!(&m["key"], "gh" | "ref"))
                 .map(|m| format!("{}:{}", &m["key"], &m["val"]))
                 .unwrap_or_default();
 

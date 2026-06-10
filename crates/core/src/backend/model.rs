@@ -25,7 +25,7 @@ pub struct Todo {
     pub person: String,
     pub start: String, // optional start:YYYY-MM-DD (for Gantt bars)
     pub due: String,
-    pub external: String, // forward-compat: "JIRA:PROJ-12" / "outlook" / ...
+    pub external: String, // optional local/user ref, usually ref:https://...
     pub priority: String, // "A" / "B" / "C" / "" (org-style [#A])
     pub repeat: String,   // e.g. "1w" / "3d" / "1m" — recurring interval
     pub done: bool,

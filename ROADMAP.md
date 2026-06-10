@@ -51,29 +51,14 @@ someday / reading) → workstreams, with 1:1 prep, agenda, board, and capture.
   Today button, click a day's todo to open its note.
 - [ ] **1:1 history & continuity** — per-person time-ordered note thread, "last met".
 
-## Phase 3 — Reliability & integrations
-> Connector architecture, auth models, the "avoid corporate IT" rules, and the
-> per-connector plan (Gmail/Workspace, Todoist, Monday, SharePoint-via-WebView,
-> Outlook→Tasks, …) are documented in [docs/connectors.md](docs/connectors.md).
+## Phase 3 — Reliability & local-first hardening
 
 - [ ] **Git-backed version history** — view/restore previous versions of a note.
 - [ ] **Sync-conflict awareness** — detect concurrent OneDrive/Drive edits.
-- [~] **Jira connector** — Cloud (email + API token, Basic auth) and Server/DC
-  (Personal Access Token, Bearer). Add `jira:KEY-123` to a todo, then click the 🔗
-  chip on the Board/Gantt to open the ticket; secrets live in macOS Keychain on
-  macOS and private config fallback elsewhere, edited in Settings. Core also has
-  `fetch_issue` (summary + status). *Next: surface fetched summary/status inline
-  + an in-app ticket browser.*
-- [~] **Outlook connector** — Windows-only via a PowerShell COM bridge
-  (`Outlook.Application`), graceful elsewhere. File ▸ "Import from Outlook" turns
-  the selected email into a note; File ▸ "Sync flagged Outlook mail" imports
-  every flagged / `Noet`-categorized message, dedups by EntryID, and reconciles
-  both ways (un-flag in Outlook → resolve+archive in Noet; finish the review todo
-  in Noet → `MarkComplete` back in Outlook). Each review todo carries a
-  `src:outlook:<EntryID>` 🔗 chip that reopens the live message. See
-  [docs/outlook-connector.md](docs/outlook-connector.md). *Next: category→
-  workstream/kind mapping, Calendar/Task items, opt-in periodic poll.*
-- [ ] **Calendar integration** — pull meetings, spawn meeting notes.
+- [ ] **Local reference model** — keep clickable `ref:`, URL, and `gh:` metadata
+  without storing third-party credentials or importing remote state.
+- [ ] **Calendar/meeting import strategy** — design a local-first path before
+  adding account integrations.
 - [x] **Export (per note)** — File menu: "Export note as Markdown" (copies the
   .md) and "Export note as PDF" (Typst CLI; typst notes natively, markdown via a
   lightweight heading/bullet converter). Writes to `<vault>/exports/` and opens

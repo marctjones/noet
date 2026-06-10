@@ -16,18 +16,14 @@ use slint::Model;
 
 #[test]
 fn headless_ui_smoke() {
-    // Hermetic: route settings.json / jira.json / the index into a temp dir so
-    // the test never touches the developer's real config or cache (XDG on Linux).
+    // Hermetic: route settings.json and the index into a temp dir so the test
+    // never touches the developer's real config or cache (XDG on Linux).
     let tmp = std::env::temp_dir().join(format!("noet-uitest-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);
     std::env::set_var("XDG_CONFIG_HOME", tmp.join("config"));
     std::env::set_var("XDG_CACHE_HOME", tmp.join("cache"));
     std::env::set_var("NOET_CONFIG_DIR", tmp.join("config").join("noet"));
     std::env::set_var("NOET_CACHE_DIR", tmp.join("cache").join("noet"));
-    #[cfg(target_os = "macos")]
-    let keychain_service = format!("NoetTest-{}", std::process::id());
-    #[cfg(target_os = "macos")]
-    std::env::set_var("NOET_KEYCHAIN_SERVICE", &keychain_service);
     let vault = tmp.join("vault");
 
     itest::init_no_event_loop();
@@ -80,108 +76,6 @@ fn headless_ui_smoke() {
         "settings.json should have been written"
     );
 
-    // saving Jira credentials flips the configured flag and persists jira.json
-    ui.invoke_save_jira(
-        "https://acme.atlassian.net".into(),
-        "me@acme.com".into(),
-        "tok".into(),
-    );
-    assert!(ui.get_jira_configured());
-    let jira_path = noet_core::connectors::jira::JiraConfig::path().unwrap();
-    let jira_disk = noet_core::connectors::jira::JiraConfig::load_from(&jira_path).unwrap();
-    assert_eq!(jira_disk.base_url, "https://acme.atlassian.net");
-    assert_eq!(jira_disk.email, "me@acme.com");
-    #[cfg(target_os = "macos")]
-    assert!(
-        jira_disk.token.is_empty(),
-        "macOS stores the token in Keychain"
-    );
-    #[cfg(not(target_os = "macos"))]
-    assert!(jira_disk.is_configured());
-    #[cfg(target_os = "macos")]
-    let _ = std::process::Command::new("security")
-        .args([
-            "delete-generic-password",
-            "-s",
-            &keychain_service,
-            "-a",
-            "jira.token",
-        ])
-        .output();
-
-    // the new "Needs review" view switches like any other view
-    ui.invoke_set_view("review".into());
-    assert_eq!(ui.get_view(), "review");
-
-    // the Outlook sync-on-startup opt-in persists to settings.json
-    ui.invoke_save_outlook_sync(true);
-    assert!(
-        noet_core::backend::Settings::load()
-            .unwrap()
-            .outlook_sync_on_open
-    );
-
-    // saving Gmail OAuth client creds persists to gmail.json
-    ui.invoke_save_gmail("cid.apps.googleusercontent.com".into(), "secret".into());
-    let gmail_path = noet_core::connectors::gmail::GmailConfig::path().unwrap();
-    let gmail_disk = noet_core::connectors::gmail::GmailConfig::load_from(&gmail_path).unwrap();
-    assert_eq!(gmail_disk.client_id, "cid.apps.googleusercontent.com");
-    #[cfg(target_os = "macos")]
-    assert!(
-        gmail_disk.client_secret.is_empty(),
-        "macOS stores the client secret in Keychain"
-    );
-    #[cfg(not(target_os = "macos"))]
-    assert!(gmail_disk.has_client());
-    #[cfg(target_os = "macos")]
-    let _ = std::process::Command::new("security")
-        .args([
-            "delete-generic-password",
-            "-s",
-            &keychain_service,
-            "-a",
-            "gmail.client_secret",
-        ])
-        .output();
-
-    // saving the Todoist token persists to todoist.json
-    ui.invoke_save_todoist("tok123".into());
-    let todoist_path = noet_core::connectors::todoist::TodoistConfig::path().unwrap();
-    let todoist_disk =
-        noet_core::connectors::todoist::TodoistConfig::load_from(&todoist_path).unwrap();
-    #[cfg(target_os = "macos")]
-    assert!(
-        todoist_disk.token.is_empty(),
-        "macOS stores the token in Keychain"
-    );
-    #[cfg(not(target_os = "macos"))]
-    assert!(todoist_disk.is_configured());
-    #[cfg(target_os = "macos")]
-    let _ = std::process::Command::new("security")
-        .args([
-            "delete-generic-password",
-            "-s",
-            &keychain_service,
-            "-a",
-            "todoist.token",
-        ])
-        .output();
-    #[cfg(target_os = "macos")]
-    std::env::remove_var("NOET_KEYCHAIN_SERVICE");
-
-    // Google Tasks import guards on connection (no token yet → status, no panic)
-    ui.invoke_import_gtasks();
-    assert!(ui.get_status_text().contains("Connect Google"));
-
-    // The Outlook connector reports a status rather than panicking when it can't
-    // run (off-Windows it's "only available on Windows"; on a Windows runner
-    // without Outlook installed it's a COM error — either way, no crash).
-    ui.invoke_sync_outlook();
-    assert!(
-        !ui.get_status_text().is_empty(),
-        "Outlook sync should surface a status, not panic"
-    );
-
     // ----- Level 2: element introspection + accessible queries -----
     // The left nav rail is always present; each NavItem is an accessible tab.
     let tabs = ElementQuery::from_root(ui)
@@ -228,7 +122,7 @@ fn headless_ui_smoke() {
     );
 
     // ----- Level 2d: structural query by accessible role -----
-    // The Settings view exposes several Buttons (Save, Save Jira, licenses…).
+    // The Settings view exposes app-level buttons (Save, open vault, licenses).
     ui.invoke_set_view("settings".into());
     itest::mock_elapsed_time(std::time::Duration::from_millis(16));
     let buttons = ElementQuery::from_root(ui)

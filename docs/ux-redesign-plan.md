@@ -24,7 +24,9 @@ material through labels, people, links, dates, and task state.
 Noet is for the user's personal command center. Team systems such as Jira,
 Webex, SharePoint, OneDrive, and Outlook may remain the shared systems of
 record. Noet should help the user remember, prepare, decide, and follow up
-without trying to replace every team collaboration tool.
+without trying to replace every team collaboration tool. The current product
+surface is local-only; account connectors and remote imports are intentionally
+out of scope until the local workflow is excellent.
 
 ## Platform Direction
 
@@ -34,7 +36,7 @@ runtime as the desktop application architecture.
 Target platforms:
 
 - Windows 11: primary work platform. It must feel reliable in a managed
-  corporate environment and integrate cleanly with Outlook/Office workflows.
+  corporate environment while keeping the user's Noet data local.
 - macOS: primary personal platform. It needs polished app packaging, Keychain
   storage, and a simple unsigned-local install path until Developer ID signing
   exists.
@@ -47,11 +49,8 @@ Architecture implications:
 - Keep the core engine in Rust: parsing, vault IO, indexing, search, task
   extraction, label hierarchy, people, and write-back.
 - Keep vault data as plain Markdown files plus a rebuildable local SQLite index.
-- Keep connector secrets outside the vault, using platform credential storage:
-  macOS Keychain, Windows Credential Manager, and Secret Service/libsecret on
-  Linux when available.
-- Keep GUI work in Slint/native-style desktop code. Avoid web-view-driven
-  application surfaces unless a specific connector requires a web login surface.
+- Avoid storing third-party credentials in the app for this phase.
+- Keep GUI work in Slint/native-style desktop code.
 
 ## Design Principles
 
@@ -283,8 +282,8 @@ After migration, old syntax should not be emitted.
 2. Finish the clean Noet Markdown implementation already in progress:
    task-list parsing, H1-derived titles, nested labels, people mentions,
    properties, and source-line write-back.
-3. Update connectors, samples, templates, tests, and UI code so Noet no longer
-   emits or depends on old `TODO(kind)` or `+[[Workstream]]` syntax.
+3. Update samples, templates, tests, and UI code so Noet no longer emits or
+   depends on old `TODO(kind)` or `+[[Workstream]]` syntax.
 4. Stabilize the People/1:1 cockpit with current note editing, previous 1:1
    notes, open follow-ups, delegated/waiting items, and context notes.
 5. Refactor view data into purpose-built models instead of passing raw task
@@ -324,5 +323,4 @@ Defer from this checkpoint:
 - Inline-task promotion UX beyond core model support unless it is already low
   risk.
 - Windows installer and Linux package release artifacts.
-- Connector feature expansion beyond making existing connectors emit the new
-  Markdown syntax.
+- Account connectors and remote imports.

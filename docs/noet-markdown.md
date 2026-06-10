@@ -134,9 +134,8 @@ due:2026-06-17
 start:2026-06-10
 repeat:1w
 priority:A
-src:gmail:18abc
-jira:PROJ-12
 ref:https://example.com/item
+gh:owner/repo#12
 ```
 
 Properties attach by scope:
@@ -146,8 +145,8 @@ Properties attach by scope:
 - In a task note, top-level properties attach to the task note.
 
 Noet should avoid creating separate one-off syntaxes for due dates, priorities,
-external sources, or connector references. New structured metadata should fit
-this same property system unless there is a strong reason it cannot.
+or external references. New structured metadata should fit this same property
+system unless there is a strong reason it cannot.
 
 ## Scope
 

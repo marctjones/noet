@@ -3,7 +3,7 @@ name = "noet-core"
 version = "0.6.0"
 edition = "2021"
 license = "GPL-3.0-only"
-description = "Noet core: UI-agnostic domain logic — plain-markdown vault, SQLite index, typed todos, connectors. No GUI dependencies, so any frontend (Slint GUI, future TUI, CLI) can build on it."
+description = "Noet core: UI-agnostic domain logic — plain-markdown vault, SQLite index, and typed todos. No GUI dependencies, so any frontend (Slint GUI, future TUI, CLI) can build on it."
 
 [lib]
 name = "noet_core"
@@ -26,11 +26,3 @@ chrono = { version = "0.4", features = ["serde"] }
 anyhow = "1"
 walkdir = "2"
 dirs = "5"
-# Connectors (Jira) need a small blocking HTTP client. ureq is light (rustls, no
-# async runtime); fetches run off the UI thread.
-ureq = { version = "2", features = ["json"] }
-# SHA-256 for OAuth PKCE (S256). Randomness for the code verifier reuses `ulid`.
-sha2 = "0.10"
-
-[target.'cfg(target_os = "macos")'.dependencies]
-security-framework = "3"

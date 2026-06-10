@@ -13,8 +13,9 @@ workflow, and plain-file ownership.
 
 Noet is not trying to replace shared team systems. Jira, Outlook, Webex,
 SharePoint, OneDrive, and similar tools can remain the systems used by the team.
-Noet is the user's private operating layer for remembering what matters,
-preparing for conversations, and acting on commitments.
+For this phase, Noet is deliberately local-only: the user's private operating
+layer for remembering what matters, preparing for conversations, and acting on
+commitments without account integrations.
 
 ## Platform Direction
 
@@ -26,7 +27,7 @@ Noet should stay cross-platform without becoming an Electron app.
 
 The core should remain Rust, the vault should remain Markdown files, and the
 index should remain rebuildable SQLite. Platform-specific code should be limited
-to packaging, desktop integration, and credential storage.
+to packaging and desktop integration.
 
 ## Current Checkpoint Goal
 
@@ -35,8 +36,7 @@ The next commit should stabilize the foundation for the redesign:
 - Noet Markdown syntax is documented.
 - Core parsing understands GFM-style task lists, nested labels, people mentions,
   wiki links, properties, and H1-derived note titles.
-- Old syntax is no longer emitted by templates, connectors, tests, or sample
-  data.
+- Old syntax is no longer emitted by templates, tests, or sample data.
 - GUI compiles against the new title/task behavior.
 - People/1:1 view has the minimum useful workflow: current note, previous notes,
   person-related active tasks, and delegated/waiting items.
@@ -81,8 +81,8 @@ This checkpoint should not attempt to finish every visual redesign.
 ### 5. Fix Tests
 
 - Rewrite tests around the new grammar instead of preserving old behavior.
-- Keep tests for parsing, formatting, indexing, filtering, task mutation,
-  connector emissions, and GUI smoke behavior.
+- Keep tests for parsing, formatting, indexing, filtering, task mutation, and GUI
+  smoke behavior.
 - Run `cargo test -p noet-core`, then GUI smoke tests, then workspace tests.
 
 ### 6. Package Local macOS Build
@@ -110,5 +110,4 @@ Create the next local release artifact only after that commit.
 - Inline task promotion UI, unless the core implementation is already stable.
 - Windows `.msi` or `.exe` installer.
 - Linux Flatpak/AppImage packaging.
-- New connector capabilities beyond emitting and parsing the new Markdown
-  syntax.
+- Account connectors and remote imports.

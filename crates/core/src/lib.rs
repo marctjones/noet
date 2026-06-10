@@ -8,7 +8,6 @@
 //! The public surface is the [`Backend`] façade plus the parsing/model helpers.
 
 pub mod backend;
-pub mod connectors;
 
 // Re-export the common types so frontends can `use noet_core::{Backend, Filter, …}`
 // without reaching into module paths.

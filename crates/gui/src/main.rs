@@ -16,7 +16,6 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 mod chrome;
-mod imports;
 mod ipc;
 mod startup;
 mod tray;
@@ -835,7 +834,6 @@ const PALETTE_VIEWS: &[(&str, &str)] = &[
     ("people", "People"),
     ("labels", "Labels"),
     ("inbox", "Inbox"),
-    ("review", "Needs review"),
     ("trash", "Trash"),
     ("settings", "Settings"),
     ("about", "About / open-source licenses"),
@@ -1061,6 +1059,33 @@ fn due_display(b: &str) -> &'static str {
     }
 }
 
+fn resolve_external_url(external: &str) -> Option<String> {
+    let ext = external.trim();
+    if ext.starts_with("http://") || ext.starts_with("https://") {
+        return Some(ext.to_string());
+    }
+    if let Some(rest) = ext.strip_prefix("ref:") {
+        let r = rest.trim();
+        if r.starts_with("http://") || r.starts_with("https://") {
+            return Some(r.to_string());
+        }
+    }
+    if let Some(rest) = ext.strip_prefix("gh:") {
+        let (repo, num) = match rest.split_once('#') {
+            Some((r, n)) => (r, Some(n)),
+            None => (rest, None),
+        };
+        let base = format!("https://github.com/{}", repo.trim_end_matches('/'));
+        return Some(match num {
+            Some(n) if !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()) => {
+                format!("{base}/issues/{n}")
+            }
+            _ => base,
+        });
+    }
+    None
+}
+
 fn active_summary(f: &Filter) -> String {
     let mut parts = Vec::new();
     if !f.project.is_empty() {
@@ -1151,14 +1176,6 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
             })
             .collect();
         ui.set_hub_notes(ModelRc::new(VecModel::from(notes)));
-    }
-
-    // "Needs review" inbox: open todos linked to a flagged Outlook item.
-    if view == "review" {
-        if let Ok(todos) = b.todos_by_external_prefix("src:outlook:") {
-            let items: Vec<TodoItem> = todos.iter().filter(|t| !t.done).map(to_todo_item).collect();
-            ui.set_review_todos(ModelRc::new(VecModel::from(items)));
-        }
     }
 
     // agenda buckets by due date relative to today
@@ -1711,8 +1728,6 @@ struct AppCtx {
     spawn_reindex: Rc<dyn Fn()>,
     indexing: Rc<std::cell::Cell<bool>>,
     dirty: Rc<std::cell::Cell<bool>>,
-    /// Drains connector-import results on the UI thread; held so it lives for the run.
-    import_timer: slint::Timer,
 }
 
 /// Most-recently-opened notes kept in the tab strip.
@@ -1779,7 +1794,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
              - [ ] check pricing with Jane @[[Jane]] [[Acme Onboarding]] #followup\n\
              - [ ] send NDA @[[Sam]] [[Acme Onboarding]] #delegated due:2026-06-12\n\
              - [ ] skim the Rust async book #reading\n\
-             - [ ] wire up the API [[Platform]] jira:PROJ-12 due:2026-06-20\n\n\
+             - [ ] wire up the API [[Platform]] ref:https://example.com/proj-12 due:2026-06-20\n\n\
              Try: the Board tab (group by status/kind/project/person), the Gantt tab,\n\
              and the search box + Projects/Tags/People filters on the left.\n",
         )?;
@@ -1849,21 +1864,6 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         );
     }
 
-    // Populate the Jira connector fields from jira.json (if present).
-    {
-        let cfg = noet_core::connectors::jira::JiraConfig::load().unwrap_or_default();
-        ui.set_jira_base(cfg.base_url.clone().into());
-        ui.set_jira_email(cfg.email.clone().into());
-        ui.set_jira_token(cfg.token.clone().into());
-        ui.set_jira_configured(cfg.is_configured());
-    }
-
-    // Reflect the persisted Outlook "sync on startup" opt-in.
-    ui.set_outlook_sync_on_open(
-        backend::Settings::load()
-            .map(|s| s.outlook_sync_on_open)
-            .unwrap_or(false),
-    );
     // Launch-on-startup: source of truth is the OS (registry on Windows), not
     // settings.json — reflect the actual registered state.
     ui.set_launch_on_startup_supported(startup::SUPPORTED);
@@ -2164,108 +2164,6 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         });
     }
 
-    // Persist the Outlook sync-on-startup toggle (merges into settings.json).
-    {
-        let ui_w = ui.as_weak();
-        ui.on_save_outlook_sync(move |on: bool| {
-            let ui = ui_w.unwrap();
-            if let Some(mut cfg) = backend::Settings::load() {
-                cfg.outlook_sync_on_open = on;
-                match cfg.save() {
-                    Ok(()) => ui.set_status_text(
-                        if on {
-                            "Outlook will sync on startup."
-                        } else {
-                            "Outlook startup sync off."
-                        }
-                        .into(),
-                    ),
-                    Err(e) => ui.set_status_text(format!("Couldn't save: {e}").into()),
-                }
-            }
-        });
-    }
-
-    // Gmail connector: reflect saved creds/connection.
-    {
-        let g = noet_core::connectors::gmail::GmailConfig::load().unwrap_or_default();
-        ui.set_gmail_client_id(g.client_id.clone().into());
-        ui.set_gmail_client_secret(g.client_secret.clone().into());
-        ui.set_gmail_connected(g.is_connected());
-    }
-
-    // Save Gmail OAuth client id/secret (preserving any existing refresh token).
-    {
-        let ui_w = ui.as_weak();
-        ui.on_save_gmail(move |id: SharedString, secret: SharedString| {
-            let ui = ui_w.unwrap();
-            let mut g = noet_core::connectors::gmail::GmailConfig::load().unwrap_or_default();
-            g.client_id = id.trim().to_string();
-            g.client_secret = secret.trim().to_string();
-            match g.save() {
-                Ok(()) => ui.set_status_text("Gmail client saved. Click Connect…".into()),
-                Err(e) => ui.set_status_text(format!("Couldn't save: {e}").into()),
-            }
-        });
-    }
-
-    // Connect Gmail: run the OAuth consent flow on a worker thread (it blocks on
-    // the loopback redirect) and open the browser via the system opener.
-    {
-        let ui_w = ui.as_weak();
-        ui.on_connect_gmail(move || {
-            let ui = ui_w.unwrap();
-            let cfg = noet_core::connectors::gmail::GmailConfig::load().unwrap_or_default();
-            if !cfg.has_client() {
-                ui.set_status_text("Enter your Google client id + secret, then Save.".into());
-                return;
-            }
-            ui.set_status_text("Opening your browser to connect Gmail…".into());
-            let ui_w = ui.as_weak();
-            std::thread::spawn(move || {
-                let res = noet_core::connectors::gmail::connect(cfg, |url| {
-                    let _ = open::that(url);
-                });
-                let _ = slint::invoke_from_event_loop(move || {
-                    if let Some(ui) = ui_w.upgrade() {
-                        match res {
-                            Ok(_) => {
-                                ui.set_gmail_connected(true);
-                                ui.set_status_text("Gmail connected.".into());
-                            }
-                            Err(e) => {
-                                ui.set_status_text(format!("Gmail connect failed: {e}").into())
-                            }
-                        }
-                    }
-                });
-            });
-        });
-    }
-
-    // Todoist connector: reflect saved token.
-    {
-        let t = noet_core::connectors::todoist::TodoistConfig::load().unwrap_or_default();
-        ui.set_todoist_token(t.token.clone().into());
-        ui.set_todoist_configured(t.is_configured());
-    }
-    {
-        let ui_w = ui.as_weak();
-        ui.on_save_todoist(move |token: SharedString| {
-            let ui = ui_w.unwrap();
-            let cfg = noet_core::connectors::todoist::TodoistConfig {
-                token: token.trim().to_string(),
-            };
-            match cfg.save() {
-                Ok(()) => {
-                    ui.set_todoist_configured(cfg.is_configured());
-                    ui.set_status_text("Todoist token saved.".into());
-                }
-                Err(e) => ui.set_status_text(format!("Couldn't save: {e}").into()),
-            }
-        });
-    }
-
     // Populate the open-source licenses view from the embedded component list.
     {
         let rows: Vec<LicenseRow> = THIRD_PARTY_COMPONENTS
@@ -2347,111 +2245,17 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         });
     }
 
-    // Save Jira credentials to jira.json (OS config dir, never the vault).
-    {
-        let ui_w = ui.as_weak();
-        ui.on_save_jira(
-            move |base: SharedString, email: SharedString, token: SharedString| {
-                let ui = ui_w.unwrap();
-                let cfg = noet_core::connectors::jira::JiraConfig {
-                    base_url: base.trim().to_string(),
-                    email: email.trim().to_string(),
-                    token: token.trim().to_string(),
-                };
-                match cfg.save() {
-                    Ok(()) => {
-                        ui.set_jira_configured(cfg.is_configured());
-                        ui.set_status_text("Jira settings saved.".into());
-                    }
-                    Err(e) => {
-                        ui.set_status_text(format!("Couldn't save Jira settings: {e}").into())
-                    }
-                }
-            },
-        );
-    }
-
-    // Open an external ref (jira:/gh:/URL) in the browser. jira: refs resolve via
-    // the saved Jira base URL; if it can't be resolved we say so.
+    // Open a local/user-entered external ref in the browser.
     {
         let ui_w = ui.as_weak();
         ui.on_open_external(move |external: SharedString| {
             let ui = ui_w.unwrap();
             let ext = external.to_string();
-            // An Outlook back-link reopens the live message via COM (Windows only).
-            if let Some(entry_id) = noet_core::connectors::outlook::entry_id_of(&ext) {
-                if let Err(e) = noet_core::connectors::outlook::open_in_outlook(entry_id) {
-                    ui.set_status_text(format!("{e}").into());
-                }
-                return;
-            }
-            let jira = noet_core::connectors::jira::JiraConfig::load();
-            match noet_core::connectors::resolve_external_url(&ext, jira.as_ref()) {
+            match resolve_external_url(&ext) {
                 Some(url) => {
                     let _ = open::that(&url);
                 }
-                None => ui.set_status_text(
-                    format!("Can't open '{ext}' — set the Jira site URL in Settings?").into(),
-                ),
-            }
-        });
-    }
-
-    // Sync flagged / Noet-categorized Outlook mail: import new ones, resolve ones
-    // Outlook cleared, push completed reviews back. Windows-only; errors surface.
-    {
-        let ui_w = ui.as_weak();
-        let state = state.clone();
-        ui.on_sync_outlook(move || {
-            let ui = ui_w.unwrap();
-            match noet_core::connectors::outlook::fetch_flagged() {
-                Ok(flagged) => {
-                    let mut s = state.borrow_mut();
-                    match noet_core::connectors::outlook::sync_into(&mut s.backend, &flagged) {
-                        Ok(sum) => {
-                            ui.set_status_text(
-                                format!(
-                                    "Outlook sync: {} new, {} resolved, {} reopened, {} pushed back",
-                                    sum.created, sum.resolved, sum.reopened, sum.pushed_back
-                                )
-                                .into(),
-                            );
-                            refresh(&ui, &s);
-                        }
-                        Err(e) => ui.set_status_text(format!("Sync failed: {e}").into()),
-                    }
-                }
-                Err(e) => ui.set_status_text(format!("{e}").into()),
-            }
-        });
-    }
-
-    // Import the selected Classic-Outlook email as a note (Windows only; the
-    // connector returns an error off-Windows, which we surface as a status).
-    {
-        let ui_w = ui.as_weak();
-        let state = state.clone();
-        ui.on_import_outlook(move || {
-            let ui = ui_w.unwrap();
-            match noet_core::connectors::outlook::import_selected() {
-                Ok(mail) => {
-                    let (title, body) = noet_core::connectors::outlook::mail_to_note(&mail);
-                    let mut s = state.borrow_mut();
-                    match s
-                        .backend
-                        .new_note()
-                        .and_then(|n| s.backend.save_note(&n.id, &title, &body).map(|_| n.id))
-                    {
-                        Ok(id) => {
-                            ui.set_view("notes".into());
-                            open_in_editor(&ui, &s.backend, &id);
-                            ui.set_status_text(format!("Imported “{title}” from Outlook").into());
-                            refresh(&ui, &s);
-                        }
-                        Err(e) => ui.set_status_text(format!("Import failed: {e}").into()),
-                    }
-                }
-                Err(e) => ui.set_status_text(format!("{e}").into()),
+                None => ui.set_status_text(format!("Can't open '{ext}'").into()),
             }
         });
     }
@@ -3781,8 +3585,6 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         });
     }
 
-    let import_timer = imports::register(&ui, state.clone());
-
     // Restore remembered window + layout state.
     {
         let cfg = backend::Settings::load().unwrap_or_default();
@@ -3829,7 +3631,6 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         spawn_reindex,
         indexing,
         dirty,
-        import_timer,
     })
 }
 
@@ -3852,56 +3653,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let vault = resolve_vault();
     let AppCtx {
         ui,
-        state,
+        state: _state,
         spawn_reindex,
         indexing,
         dirty,
-        import_timer: _import_timer,
     } = setup_app(vault.clone())?;
-
-    // Opt-in: sync flagged Outlook mail once at startup (Windows only). The slow
-    // COM call runs on a worker thread; a timer drains the result on the UI thread
-    // and applies it (sync_into touches the Backend, so it must stay on this
-    // thread). Held in `_outlook_timer` so it lives for the session.
-    let _outlook_timer = if noet_core::connectors::outlook::is_supported()
-        && backend::Settings::load()
-            .map(|s| s.outlook_sync_on_open)
-            .unwrap_or(false)
-    {
-        let (otx, orx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let _ = otx.send(noet_core::connectors::outlook::fetch_flagged());
-        });
-        let ui_w = ui.as_weak();
-        let state = state.clone();
-        let timer = slint::Timer::default();
-        timer.start(
-            slint::TimerMode::Repeated,
-            std::time::Duration::from_millis(500),
-            move || {
-                let Ok(result) = orx.try_recv() else { return };
-                let Some(ui) = ui_w.upgrade() else { return };
-                if let Ok(mails) = result {
-                    let mut s = state.borrow_mut();
-                    if let Ok(sum) =
-                        noet_core::connectors::outlook::sync_into(&mut s.backend, &mails)
-                    {
-                        ui.set_status_text(
-                            format!(
-                                "Outlook sync: {} new, {} resolved, {} reopened, {} pushed back",
-                                sum.created, sum.resolved, sum.reopened, sum.pushed_back
-                            )
-                            .into(),
-                        );
-                        refresh(&ui, &s);
-                    }
-                }
-            },
-        );
-        Some(timer)
-    } else {
-        None
-    };
 
     // Live file-reload: watch the vault for external edits (another editor,
     // OneDrive/Drive sync) and rebuild in the BACKGROUND so the UI never blocks.
