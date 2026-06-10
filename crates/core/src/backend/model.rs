@@ -59,7 +59,14 @@ pub struct MdBlock {
 }
 
 /// The six todo kinds, in board-column order.
-pub const KINDS: [&str; 6] = ["do", "followup", "delegated", "todelegate", "someday", "reading"];
+pub const KINDS: [&str; 6] = [
+    "do",
+    "followup",
+    "delegated",
+    "todelegate",
+    "someday",
+    "reading",
+];
 /// The three statuses, in board-column order.
 pub const STATUSES: [&str; 3] = ["todo", "doing", "done"];
 
@@ -71,8 +78,8 @@ pub struct Filter {
     pub person: String,
     pub tag: String,
     pub kind: String,
-    pub status: String, // "" = any, "open" = not done, else a specific status
-    pub priority: String, // "" / A / B / C
+    pub status: String,     // "" = any, "open" = not done, else a specific status
+    pub priority: String,   // "" / A / B / C
     pub due_bucket: String, // "" / overdue / week / hasdate / nodate
     pub show_archived: bool,
 }

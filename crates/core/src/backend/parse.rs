@@ -105,7 +105,11 @@ pub fn line_segments(raw: &str) -> Vec<Segment> {
     let mut last = 0usize;
     let push_plain = |segs: &mut Vec<Segment>, s: &str| {
         if !s.is_empty() {
-            segs.push(Segment { text: strip_inline(s), kind: String::new(), value: String::new() });
+            segs.push(Segment {
+                text: strip_inline(s),
+                kind: String::new(),
+                value: String::new(),
+            });
         }
     };
     for caps in re.captures_iter(raw) {
@@ -116,20 +120,53 @@ pub fn line_segments(raw: &str) -> Vec<Segment> {
         let seg = if let Some(g) = caps.name("mdlink") {
             let s = g.as_str();
             let txt = s[1..].split(']').next().unwrap_or("").to_string();
-            let url = s.rsplit('(').next().unwrap_or("").trim_end_matches(')').to_string();
-            Segment { text: txt, kind: "url".into(), value: url }
+            let url = s
+                .rsplit('(')
+                .next()
+                .unwrap_or("")
+                .trim_end_matches(')')
+                .to_string();
+            Segment {
+                text: txt,
+                kind: "url".into(),
+                value: url,
+            }
         } else if let Some(g) = caps.name("url") {
-            Segment { text: g.as_str().into(), kind: "url".into(), value: g.as_str().into() }
+            Segment {
+                text: g.as_str().into(),
+                kind: "url".into(),
+                value: g.as_str().into(),
+            }
         } else if let Some(g) = caps.name("proj") {
-            let name = g.as_str().trim_start_matches('+').trim_start_matches("[[").trim_end_matches("]]").to_string();
-            Segment { text: name.clone(), kind: "project".into(), value: name }
+            let name = g
+                .as_str()
+                .trim_start_matches('+')
+                .trim_start_matches("[[")
+                .trim_end_matches("]]")
+                .to_string();
+            Segment {
+                text: name.clone(),
+                kind: "project".into(),
+                value: name,
+            }
         } else if let Some(g) = caps.name("pers") {
             let inner = g.as_str().trim_start_matches('@');
-            let name = inner.trim_start_matches("[[").trim_end_matches("]]").to_string();
-            Segment { text: format!("@{name}"), kind: "person".into(), value: name }
+            let name = inner
+                .trim_start_matches("[[")
+                .trim_end_matches("]]")
+                .to_string();
+            Segment {
+                text: format!("@{name}"),
+                kind: "person".into(),
+                value: name,
+            }
         } else if let Some(g) = caps.name("tag") {
             let name = g.as_str().trim_start_matches('#').to_string();
-            Segment { text: format!("#{name}"), kind: "tag".into(), value: name }
+            Segment {
+                text: format!("#{name}"),
+                kind: "tag".into(),
+                value: name,
+            }
         } else {
             continue;
         };
@@ -165,7 +202,11 @@ pub fn markdown_blocks(body: &str) -> Vec<MdBlock> {
         if line.trim_start().starts_with("```") {
             if in_code {
                 let kind = if code_is_typst { "typst" } else { "code" };
-                out.push(MdBlock { kind: kind.into(), text: code.trim_end().into(), indent: 0 });
+                out.push(MdBlock {
+                    kind: kind.into(),
+                    text: code.trim_end().into(),
+                    indent: 0,
+                });
                 code.clear();
                 in_code = false;
                 code_is_typst = false;
@@ -192,43 +233,74 @@ pub fn markdown_blocks(body: &str) -> Vec<MdBlock> {
         }
         if t == "---" || t == "***" || t == "___" {
             flush_para(&mut para, &mut out);
-            out.push(MdBlock { kind: "rule".into(), text: String::new(), indent: 0 });
+            out.push(MdBlock {
+                kind: "rule".into(),
+                text: String::new(),
+                indent: 0,
+            });
             continue;
         }
         // todo line -> an interactive checkbox block (id/done resolved by the UI layer)
         if let Some(c) = todo_re().captures(t) {
             flush_para(&mut para, &mut out);
             let todos = parse_todos("", t);
-            let label = todos.first().map(|x| x.text.clone()).unwrap_or_else(|| c["rest"].to_string());
-            out.push(MdBlock { kind: "todo".into(), text: label, indent });
+            let label = todos
+                .first()
+                .map(|x| x.text.clone())
+                .unwrap_or_else(|| c["rest"].to_string());
+            out.push(MdBlock {
+                kind: "todo".into(),
+                text: label,
+                indent,
+            });
             continue;
         }
         // headings
         if let Some(rest) = t.strip_prefix("### ") {
             flush_para(&mut para, &mut out);
-            out.push(MdBlock { kind: "h3".into(), text: rest.to_string(), indent: 0 });
+            out.push(MdBlock {
+                kind: "h3".into(),
+                text: rest.to_string(),
+                indent: 0,
+            });
             continue;
         }
         if let Some(rest) = t.strip_prefix("## ") {
             flush_para(&mut para, &mut out);
-            out.push(MdBlock { kind: "h2".into(), text: rest.to_string(), indent: 0 });
+            out.push(MdBlock {
+                kind: "h2".into(),
+                text: rest.to_string(),
+                indent: 0,
+            });
             continue;
         }
         if let Some(rest) = t.strip_prefix("# ") {
             flush_para(&mut para, &mut out);
-            out.push(MdBlock { kind: "h1".into(), text: rest.to_string(), indent: 0 });
+            out.push(MdBlock {
+                kind: "h1".into(),
+                text: rest.to_string(),
+                indent: 0,
+            });
             continue;
         }
         // blockquote
         if let Some(rest) = t.strip_prefix("> ") {
             flush_para(&mut para, &mut out);
-            out.push(MdBlock { kind: "quote".into(), text: rest.to_string(), indent });
+            out.push(MdBlock {
+                kind: "quote".into(),
+                text: rest.to_string(),
+                indent,
+            });
             continue;
         }
         // bullet
         if let Some(rest) = t.strip_prefix("- ").or_else(|| t.strip_prefix("* ")) {
             flush_para(&mut para, &mut out);
-            out.push(MdBlock { kind: "bullet".into(), text: format!("•  {rest}"), indent });
+            out.push(MdBlock {
+                kind: "bullet".into(),
+                text: format!("•  {rest}"),
+                indent,
+            });
             continue;
         }
         // numbered: "1. ", "2. " …
@@ -250,7 +322,11 @@ pub fn markdown_blocks(body: &str) -> Vec<MdBlock> {
         para.push_str(t);
     }
     if in_code && !code.trim().is_empty() {
-        out.push(MdBlock { kind: "code".into(), text: code.trim_end().into(), indent: 0 });
+        out.push(MdBlock {
+            kind: "code".into(),
+            text: code.trim_end().into(),
+            indent: 0,
+        });
     }
     flush_para(&mut para, &mut out);
     out
@@ -285,7 +361,9 @@ pub fn parse_todos(note_id: &str, body: &str) -> Vec<Todo> {
             let rest = c["rest"].to_string();
 
             let grab = |re: &Regex, key: &str| {
-                re.captures(&rest).map(|m| m[key].to_string()).unwrap_or_default()
+                re.captures(&rest)
+                    .map(|m| m[key].to_string())
+                    .unwrap_or_default()
             };
             let project = grab(proj_re, "p");
             let person = person_re()
@@ -345,7 +423,11 @@ pub(crate) fn format_todo_line(f: &TodoFields) -> String {
         "done" => "DONE",
         _ => "TODO",
     };
-    let kind = if f.kind.is_empty() { "do" } else { f.kind.as_str() };
+    let kind = if f.kind.is_empty() {
+        "do"
+    } else {
+        f.kind.as_str()
+    };
     let mut s = format!("{marker}({kind}) ");
     if !f.priority.is_empty() {
         s += &format!("[#{}] ", f.priority.trim());

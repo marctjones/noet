@@ -93,14 +93,23 @@ mod imp {
             .expect("primary binds the socket");
 
             // A "second instance" forwards its action; the primary receives it.
-            assert!(forward_at(&path, "new-meeting"), "forward succeeds to a live instance");
-            let got = rx.recv_timeout(Duration::from_secs(2)).expect("command delivered");
+            assert!(
+                forward_at(&path, "new-meeting"),
+                "forward succeeds to a live instance"
+            );
+            let got = rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("command delivered");
             assert_eq!(got, "new-meeting");
 
             // With nothing listening, forward reports false (caller becomes primary).
-            let dead = std::env::temp_dir().join(format!("noet-ipc-none-{}.sock", std::process::id()));
+            let dead =
+                std::env::temp_dir().join(format!("noet-ipc-none-{}.sock", std::process::id()));
             let _ = std::fs::remove_file(&dead);
-            assert!(!forward_at(&dead, "x"), "forward fails when no instance is running");
+            assert!(
+                !forward_at(&dead, "x"),
+                "forward fails when no instance is running"
+            );
 
             drop(server);
             assert!(!path.exists(), "socket file removed on drop");

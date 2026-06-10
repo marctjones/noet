@@ -47,7 +47,9 @@ pub(crate) fn parse_categories(categories: &str) -> (Option<String>, Option<Stri
         let c = raw.trim();
         let rest = match c.strip_prefix("Noet") {
             // "Noet: X" / "Noet/X" / "Noet X" → X ; bare "Noet" or "Noetbook" → skip
-            Some(r) if r.starts_with([':', '/', ' ']) => r.trim_start_matches([':', '/', ' ']).trim(),
+            Some(r) if r.starts_with([':', '/', ' ']) => {
+                r.trim_start_matches([':', '/', ' ']).trim()
+            }
             _ => continue,
         };
         if rest.is_empty() {
@@ -122,7 +124,10 @@ pub fn import_selected() -> Result<OutlookMail> {
             let err = String::from_utf8_lossy(&out.stderr);
             anyhow::bail!(
                 "Outlook import failed: {}",
-                err.lines().last().unwrap_or("is Classic Outlook running?").trim()
+                err.lines()
+                    .last()
+                    .unwrap_or("is Classic Outlook running?")
+                    .trim()
             );
         }
         parse_mail_json(&String::from_utf8_lossy(&out.stdout))
@@ -138,7 +143,11 @@ pub fn import_selected() -> Result<OutlookMail> {
 /// lands as an actionable note. Pure + tested.
 pub fn mail_to_note(mail: &OutlookMail) -> (String, String) {
     let subject = mail.subject.trim();
-    let title = if subject.is_empty() { "Email".to_string() } else { subject.to_string() };
+    let title = if subject.is_empty() {
+        "Email".to_string()
+    } else {
+        subject.to_string()
+    };
 
     // Prefer the display name for the @mention; fall back to the address.
     let who = if !mail.sender.trim().is_empty() {
@@ -170,7 +179,11 @@ pub fn mail_to_note(mail: &OutlookMail) -> (String, String) {
     // workstream, links back to the live message, and carries the flag due.
     let (kind, workstream) = parse_categories(&mail.categories);
     let kind = kind.unwrap_or_else(|| "followup".to_string());
-    let subj_for_todo = if subject.is_empty() { "this item".to_string() } else { format!("\"{subject}\"") };
+    let subj_for_todo = if subject.is_empty() {
+        "this item".to_string()
+    } else {
+        format!("\"{subject}\"")
+    };
     let mut todo = format!("TODO({kind}) Follow up: {subj_for_todo}");
     if !who.is_empty() {
         todo.push_str(&format!(" @[[{who}]]"));
@@ -213,7 +226,12 @@ pub fn open_in_outlook(entry_id: &str) -> Result<()> {
     #[cfg(windows)]
     {
         let out = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-Command", &open_script(entry_id)])
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                &open_script(entry_id),
+            ])
             .output()
             .context("failed to launch PowerShell")?;
         if !out.status.success() {
@@ -305,14 +323,22 @@ pub fn fetch_flagged() -> Result<Vec<OutlookMail>> {
     #[cfg(windows)]
     {
         let out = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-Command", flagged_script()])
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                flagged_script(),
+            ])
             .output()
             .context("failed to launch PowerShell")?;
         if !out.status.success() {
             let err = String::from_utf8_lossy(&out.stderr);
             anyhow::bail!(
                 "Outlook sync failed: {}",
-                err.lines().last().unwrap_or("is Classic Outlook running?").trim()
+                err.lines()
+                    .last()
+                    .unwrap_or("is Classic Outlook running?")
+                    .trim()
             );
         }
         parse_mail_list(&String::from_utf8_lossy(&out.stdout))
@@ -341,13 +367,22 @@ pub fn mark_flag_complete(entry_id: &str) -> Result<()> {
     #[cfg(windows)]
     {
         let out = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-Command", &complete_flag_script(entry_id)])
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                &complete_flag_script(entry_id),
+            ])
             .output()
             .context("failed to launch PowerShell")?;
         if !out.status.success() {
             anyhow::bail!(
                 "Couldn't update the Outlook flag: {}",
-                String::from_utf8_lossy(&out.stderr).lines().last().unwrap_or("").trim()
+                String::from_utf8_lossy(&out.stderr)
+                    .lines()
+                    .last()
+                    .unwrap_or("")
+                    .trim()
             );
         }
         Ok(())
@@ -385,8 +420,11 @@ pub enum SyncAction {
 /// [`fetch_flagged`]/[`sync_into`].
 pub fn reconcile(flagged: &[OutlookMail], imported: &[(String, bool, bool)]) -> Vec<SyncAction> {
     use std::collections::HashSet;
-    let live: HashSet<&str> =
-        flagged.iter().map(|m| m.entry_id.trim()).filter(|s| !s.is_empty()).collect();
+    let live: HashSet<&str> = flagged
+        .iter()
+        .map(|m| m.entry_id.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
     let known: HashSet<&str> = imported.iter().map(|(id, _, _)| id.as_str()).collect();
 
     let mut actions = Vec::new();
@@ -427,7 +465,10 @@ pub struct SyncSummary {
 /// mail, resolve (done + archive) ones Outlook cleared, and push completed Noet
 /// reviews back to Outlook. Testable with a temp `Backend` (the push-back COM
 /// call is best-effort and a no-op off Windows).
-pub fn sync_into(backend: &mut crate::backend::Backend, flagged: &[OutlookMail]) -> Result<SyncSummary> {
+pub fn sync_into(
+    backend: &mut crate::backend::Backend,
+    flagged: &[OutlookMail],
+) -> Result<SyncSummary> {
     let existing = backend.todos_by_external_prefix(OUTLOOK_REF_PREFIX)?;
     let imported: Vec<(String, bool, bool)> = existing
         .iter()
@@ -438,7 +479,11 @@ pub fn sync_into(backend: &mut crate::backend::Backend, flagged: &[OutlookMail])
             })
         })
         .collect();
-    let find = |id: &str| existing.iter().find(|t| entry_id_of(&t.external) == Some(id));
+    let find = |id: &str| {
+        existing
+            .iter()
+            .find(|t| entry_id_of(&t.external) == Some(id))
+    };
 
     let mut summary = SyncSummary::default();
     for action in reconcile(flagged, &imported) {
@@ -583,7 +628,10 @@ mod tests {
         assert!(body.contains("+[[Legal]]"));
         assert!(body.contains("src:outlook:X1"));
         // no category -> defaults to followup, no workstream
-        let (_t2, body2) = mail_to_note(&OutlookMail { subject: "Hi".into(), ..Default::default() });
+        let (_t2, body2) = mail_to_note(&OutlookMail {
+            subject: "Hi".into(),
+            ..Default::default()
+        });
         assert!(body2.contains("TODO(followup) Follow up: \"Hi\""));
         assert!(!body2.contains("+[["));
     }
@@ -617,7 +665,9 @@ mod tests {
     #[test]
     fn parse_mail_list_handles_array_object_and_empty() {
         // array of two
-        let two = parse_mail_list(r#"[{"subject":"a","entry_id":"1"},{"subject":"b","entry_id":"2"}]"#).unwrap();
+        let two =
+            parse_mail_list(r#"[{"subject":"a","entry_id":"1"},{"subject":"b","entry_id":"2"}]"#)
+                .unwrap();
         assert_eq!(two.len(), 2);
         // single object (PowerShell collapses a 1-element array)
         let one = parse_mail_list(r#"{"subject":"solo","entry_id":"9"}"#).unwrap();
@@ -630,10 +680,22 @@ mod tests {
 
     #[test]
     fn reconcile_covers_create_resolve_complete_leave() {
-        let a = OutlookMail { entry_id: "A".into(), ..Default::default() };
-        let b = OutlookMail { entry_id: "B".into(), ..Default::default() };
-        let d = OutlookMail { entry_id: "D".into(), ..Default::default() };
-        let e = OutlookMail { entry_id: "E".into(), ..Default::default() };
+        let a = OutlookMail {
+            entry_id: "A".into(),
+            ..Default::default()
+        };
+        let b = OutlookMail {
+            entry_id: "B".into(),
+            ..Default::default()
+        };
+        let d = OutlookMail {
+            entry_id: "D".into(),
+            ..Default::default()
+        };
+        let e = OutlookMail {
+            entry_id: "E".into(),
+            ..Default::default()
+        };
         let flagged = vec![a.clone(), b.clone(), d.clone(), e.clone()];
         // imported (id, done, archived):
         //   B done, flagged, not archived -> push back
@@ -663,13 +725,31 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("noet-osync-{}", ulid::Ulid::new()));
         let mut b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();
 
-        let m1 = OutlookMail { subject: "A".into(), entry_id: "ID1".into(), ..Default::default() };
-        let m2 = OutlookMail { subject: "B".into(), entry_id: "ID2".into(), ..Default::default() };
+        let m1 = OutlookMail {
+            subject: "A".into(),
+            entry_id: "ID1".into(),
+            ..Default::default()
+        };
+        let m2 = OutlookMail {
+            subject: "B".into(),
+            entry_id: "ID2".into(),
+            ..Default::default()
+        };
 
         // first sync creates two review notes
-        assert_eq!(sync_into(&mut b, &[m1.clone(), m2.clone()]).unwrap().created, 2);
+        assert_eq!(
+            sync_into(&mut b, &[m1.clone(), m2.clone()])
+                .unwrap()
+                .created,
+            2
+        );
         // re-sync with the same flags is a no-op (dedup by EntryID)
-        assert_eq!(sync_into(&mut b, &[m1.clone(), m2.clone()]).unwrap().created, 0);
+        assert_eq!(
+            sync_into(&mut b, &[m1.clone(), m2.clone()])
+                .unwrap()
+                .created,
+            0
+        );
 
         // m1 un-flagged in Outlook -> resolved (todo done + note archived)
         let s = sync_into(&mut b, &[m2.clone()]).unwrap();

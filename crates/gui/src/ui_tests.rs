@@ -22,6 +22,12 @@ fn headless_ui_smoke() {
     let _ = std::fs::remove_dir_all(&tmp);
     std::env::set_var("XDG_CONFIG_HOME", tmp.join("config"));
     std::env::set_var("XDG_CACHE_HOME", tmp.join("cache"));
+    std::env::set_var("NOET_CONFIG_DIR", tmp.join("config").join("noet"));
+    std::env::set_var("NOET_CACHE_DIR", tmp.join("cache").join("noet"));
+    #[cfg(target_os = "macos")]
+    let keychain_service = format!("NoetTest-{}", std::process::id());
+    #[cfg(target_os = "macos")]
+    std::env::set_var("NOET_KEYCHAIN_SERVICE", &keychain_service);
     let vault = tmp.join("vault");
 
     itest::init_no_event_loop();
@@ -50,11 +56,20 @@ fn headless_ui_smoke() {
 
     // creating a note runs the real handler (writes a file + incremental index)
     let count = |c: &AppCtx| {
-        c.state.borrow().backend.query_notes(&noet_core::backend::Filter::default()).unwrap().len()
+        c.state
+            .borrow()
+            .backend
+            .query_notes(&noet_core::backend::Filter::default())
+            .unwrap()
+            .len()
     };
     let before = count(&ctx);
     ui.invoke_new_note();
-    assert_eq!(count(&ctx), before + 1, "new-note should add exactly one note");
+    assert_eq!(
+        count(&ctx),
+        before + 1,
+        "new-note should add exactly one note"
+    );
 
     // saving settings persists to the (temp) config dir
     let vault_str = vault.to_string_lossy().to_string();
@@ -66,9 +81,33 @@ fn headless_ui_smoke() {
     );
 
     // saving Jira credentials flips the configured flag and persists jira.json
-    ui.invoke_save_jira("https://acme.atlassian.net".into(), "me@acme.com".into(), "tok".into());
+    ui.invoke_save_jira(
+        "https://acme.atlassian.net".into(),
+        "me@acme.com".into(),
+        "tok".into(),
+    );
     assert!(ui.get_jira_configured());
-    assert!(noet_core::connectors::jira::JiraConfig::load().unwrap().is_configured());
+    let jira_path = noet_core::connectors::jira::JiraConfig::path().unwrap();
+    let jira_disk = noet_core::connectors::jira::JiraConfig::load_from(&jira_path).unwrap();
+    assert_eq!(jira_disk.base_url, "https://acme.atlassian.net");
+    assert_eq!(jira_disk.email, "me@acme.com");
+    #[cfg(target_os = "macos")]
+    assert!(
+        jira_disk.token.is_empty(),
+        "macOS stores the token in Keychain"
+    );
+    #[cfg(not(target_os = "macos"))]
+    assert!(jira_disk.is_configured());
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("security")
+        .args([
+            "delete-generic-password",
+            "-s",
+            &keychain_service,
+            "-a",
+            "jira.token",
+        ])
+        .output();
 
     // the new "Needs review" view switches like any other view
     ui.invoke_set_view("review".into());
@@ -76,15 +115,59 @@ fn headless_ui_smoke() {
 
     // the Outlook sync-on-startup opt-in persists to settings.json
     ui.invoke_save_outlook_sync(true);
-    assert!(noet_core::backend::Settings::load().unwrap().outlook_sync_on_open);
+    assert!(
+        noet_core::backend::Settings::load()
+            .unwrap()
+            .outlook_sync_on_open
+    );
 
     // saving Gmail OAuth client creds persists to gmail.json
     ui.invoke_save_gmail("cid.apps.googleusercontent.com".into(), "secret".into());
-    assert!(noet_core::connectors::gmail::GmailConfig::load().unwrap().has_client());
+    let gmail_path = noet_core::connectors::gmail::GmailConfig::path().unwrap();
+    let gmail_disk = noet_core::connectors::gmail::GmailConfig::load_from(&gmail_path).unwrap();
+    assert_eq!(gmail_disk.client_id, "cid.apps.googleusercontent.com");
+    #[cfg(target_os = "macos")]
+    assert!(
+        gmail_disk.client_secret.is_empty(),
+        "macOS stores the client secret in Keychain"
+    );
+    #[cfg(not(target_os = "macos"))]
+    assert!(gmail_disk.has_client());
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("security")
+        .args([
+            "delete-generic-password",
+            "-s",
+            &keychain_service,
+            "-a",
+            "gmail.client_secret",
+        ])
+        .output();
 
     // saving the Todoist token persists to todoist.json
     ui.invoke_save_todoist("tok123".into());
-    assert!(noet_core::connectors::todoist::TodoistConfig::load().unwrap().is_configured());
+    let todoist_path = noet_core::connectors::todoist::TodoistConfig::path().unwrap();
+    let todoist_disk =
+        noet_core::connectors::todoist::TodoistConfig::load_from(&todoist_path).unwrap();
+    #[cfg(target_os = "macos")]
+    assert!(
+        todoist_disk.token.is_empty(),
+        "macOS stores the token in Keychain"
+    );
+    #[cfg(not(target_os = "macos"))]
+    assert!(todoist_disk.is_configured());
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("security")
+        .args([
+            "delete-generic-password",
+            "-s",
+            &keychain_service,
+            "-a",
+            "todoist.token",
+        ])
+        .output();
+    #[cfg(target_os = "macos")]
+    std::env::remove_var("NOET_KEYCHAIN_SERVICE");
 
     // Google Tasks import guards on connection (no token yet → status, no panic)
     ui.invoke_import_gtasks();
@@ -94,7 +177,10 @@ fn headless_ui_smoke() {
     // run (off-Windows it's "only available on Windows"; on a Windows runner
     // without Outlook installed it's a COM error — either way, no crash).
     ui.invoke_sync_outlook();
-    assert!(!ui.get_status_text().is_empty(), "Outlook sync should surface a status, not panic");
+    assert!(
+        !ui.get_status_text().is_empty(),
+        "Outlook sync should surface a status, not panic"
+    );
 
     // ----- Level 2: element introspection + accessible queries -----
     // The left nav rail is always present; each NavItem is an accessible tab.
@@ -102,7 +188,11 @@ fn headless_ui_smoke() {
         .match_descendants()
         .match_accessible_role(AccessibleRole::Tab)
         .find_all();
-    assert!(tabs.len() >= 8, "expected the full nav rail (≥8 tabs), got {}", tabs.len());
+    assert!(
+        tabs.len() >= 8,
+        "expected the full nav rail (≥8 tabs), got {}",
+        tabs.len()
+    );
 
     // Find the Settings nav item by its accessible label. The label matches both
     // the NavItem (role Tab) and the Text inside it (role Text), so pick the tab.
@@ -116,15 +206,26 @@ fn headless_ui_smoke() {
 
     // ----- Level 2b: simulated input via the accessibility action -----
     settings.invoke_accessible_default_action();
-    assert_eq!(ui.get_view(), "settings", "activating the Settings tab switched the view");
+    assert_eq!(
+        ui.get_view(),
+        "settings",
+        "activating the Settings tab switched the view"
+    );
 
     // ----- Level 2c: synthesized pointer input (real hit-testing) + geometry -----
     let board = ElementHandle::find_by_accessible_label(ui, "Board")
         .find(|e| e.accessible_role() == Some(AccessibleRole::Tab))
         .expect("a Board nav tab");
-    assert!(board.size().width > 0.0, "a laid-out element should have a non-zero size");
+    assert!(
+        board.size().width > 0.0,
+        "a laid-out element should have a non-zero size"
+    );
     board.mock_single_click(slint::platform::PointerEventButton::Left);
-    assert_eq!(ui.get_view(), "board", "mouse-clicking the Board tab navigated");
+    assert_eq!(
+        ui.get_view(),
+        "board",
+        "mouse-clicking the Board tab navigated"
+    );
 
     // ----- Level 2d: structural query by accessible role -----
     // The Settings view exposes several Buttons (Save, Save Jira, licenses…).
@@ -134,7 +235,10 @@ fn headless_ui_smoke() {
         .match_descendants()
         .match_accessible_role(AccessibleRole::Button)
         .find_all();
-    assert!(!buttons.is_empty(), "the Settings view should expose Buttons");
+    assert!(
+        !buttons.is_empty(),
+        "the Settings view should expose Buttons"
+    );
 
     // ----- Level 3: more real handlers (templates, filters, smart lists) -----
     ui.invoke_set_view("notes".into());
@@ -149,27 +253,50 @@ fn headless_ui_smoke() {
     let n0 = count(&ctx);
     ui.invoke_new_from_template("meeting".into());
     assert_eq!(count(&ctx), n0 + 1, "template should add one note");
-    assert!(ui.get_current_body().contains("## Attendees"), "meeting template body opened");
+    assert!(
+        ui.get_current_body().contains("## Attendees"),
+        "meeting template body opened"
+    );
 
     // smart lists: save the current filter, change it, then re-apply to restore
     ui.invoke_save_smart_list("My open items".into());
     assert!(
-        ctx.state.borrow().backend.list_smart_lists().iter().any(|n| n == "My open items"),
+        ctx.state
+            .borrow()
+            .backend
+            .list_smart_lists()
+            .iter()
+            .any(|n| n == "My open items"),
         "smart list should be saved"
     );
     ui.invoke_set_status_filter("done".into());
     assert_eq!(ctx.state.borrow().filter.status, "done");
     ui.invoke_apply_smart_list("My open items".into());
-    assert_eq!(ctx.state.borrow().filter.status, "open", "applying the smart list restored the filter");
+    assert_eq!(
+        ctx.state.borrow().filter.status,
+        "open",
+        "applying the smart list restored the filter"
+    );
 
     // ----- Level 3b: mocked-clock test of the 180ms debounced search -----
     ui.invoke_set_search("Welcome".into());
-    assert_eq!(ctx.state.borrow().filter.search, "Welcome", "search sets the filter immediately");
+    assert_eq!(
+        ctx.state.borrow().filter.search,
+        "Welcome",
+        "search sets the filter immediately"
+    );
     itest::mock_elapsed_time(std::time::Duration::from_millis(250)); // fire the debounce timer
-    assert!(ui.get_notes().row_count() >= 1, "'Welcome' should match the welcome note");
+    assert!(
+        ui.get_notes().row_count() >= 1,
+        "'Welcome' should match the welcome note"
+    );
     ui.invoke_set_search("zzz-no-such-note".into());
     itest::mock_elapsed_time(std::time::Duration::from_millis(250));
-    assert_eq!(ui.get_notes().row_count(), 0, "a non-matching search yields no notes");
+    assert_eq!(
+        ui.get_notes().row_count(),
+        0,
+        "a non-matching search yields no notes"
+    );
 
     // ----- Level 4: the sred WYSIWYG editor (the sole editor) -----
     // A fresh note opens straight into edit mode, which instantiates the
@@ -179,7 +306,7 @@ fn headless_ui_smoke() {
     itest::mock_elapsed_time(std::time::Duration::from_millis(250));
     ui.invoke_set_view("notes".into());
     ui.invoke_new_note(); // new notes open straight into edit mode (editing = true)
-    // typing into sred mirrors back into current-body (the autosave source)
+                          // typing into sred mirrors back into current-body (the autosave source)
     ui.invoke_rich_insert_text("Hello sred".into());
     assert!(
         ui.get_current_body().contains("Hello sred"),
@@ -202,7 +329,10 @@ fn headless_ui_smoke() {
     ui.invoke_rich_insert_text("- item".into());
     let typed = ui.get_current_body().to_string();
     assert!(typed.contains("- item"), "list line typed: {typed:?}");
-    assert!(!typed.contains("  - item"), "not indented before Tab: {typed:?}");
+    assert!(
+        !typed.contains("  - item"),
+        "not indented before Tab: {typed:?}"
+    );
 
     ui.invoke_rich_special("indent".into()); // Tab
     let indented = ui.get_current_body().to_string();
@@ -230,14 +360,23 @@ fn headless_ui_smoke() {
     }
     ctx.state.borrow_mut().backend.reindex_all().unwrap();
     assert!(
-        ctx.state.borrow().backend.list_tags().unwrap().iter().any(|t| t.name == "urgent"),
+        ctx.state
+            .borrow()
+            .backend
+            .list_tags()
+            .unwrap()
+            .iter()
+            .any(|t| t.name == "urgent"),
         "seed tag indexed"
     );
 
     // Tag completion: typing "#u" opens the popup with "urgent"; accept inserts it.
     ui.invoke_new_note();
     ui.invoke_rich_insert_text("#u".into());
-    assert!(ui.get_rich_ac_open(), "typing #u opens the tag autocomplete");
+    assert!(
+        ui.get_rich_ac_open(),
+        "typing #u opens the tag autocomplete"
+    );
     let items = ui.get_rich_ac_items();
     assert!(
         (0..items.row_count()).any(|i| items.row_data(i).unwrap() == "urgent"),
@@ -254,7 +393,10 @@ fn headless_ui_smoke() {
     // Workstream completion: "[[Ac" offers "Acme"; accept closes the wikilink.
     ui.invoke_new_note();
     ui.invoke_rich_insert_text("[[Ac".into());
-    assert!(ui.get_rich_ac_open(), "typing [[Ac opens the workstream autocomplete");
+    assert!(
+        ui.get_rich_ac_open(),
+        "typing [[Ac opens the workstream autocomplete"
+    );
     let items = ui.get_rich_ac_items();
     assert!(
         (0..items.row_count()).any(|i| items.row_data(i).unwrap() == "Acme"),
@@ -274,9 +416,13 @@ fn headless_ui_smoke() {
     {
         let mut st = ctx.state.borrow_mut();
         let a = st.backend.new_note().unwrap();
-        st.backend.save_note(&a.id, "Acme kickoff", "[[Acme]] @[[Jane]]\n").unwrap();
+        st.backend
+            .save_note(&a.id, "Acme kickoff", "[[Acme]] @[[Jane]]\n")
+            .unwrap();
         let cur = st.backend.new_note().unwrap();
-        st.backend.save_note(&cur.id, "Acme sync today", "[[Acme]]\n").unwrap();
+        st.backend
+            .save_note(&cur.id, "Acme sync today", "[[Acme]]\n")
+            .unwrap();
         cur_id = cur.id.clone();
     }
     ctx.state.borrow_mut().backend.reindex_all().unwrap();
@@ -295,7 +441,10 @@ fn headless_ui_smoke() {
 
     // ----- Level 5: command palette -----
     ui.invoke_palette_search("".into()); // empty query → views + commands + recent notes
-    assert!(ui.get_palette_results().row_count() > 0, "empty palette query yields default results");
+    assert!(
+        ui.get_palette_results().row_count() > 0,
+        "empty palette query yields default results"
+    );
     ui.invoke_palette_search("Board".into());
     let pr = ui.get_palette_results();
     assert!(
@@ -306,18 +455,39 @@ fn headless_ui_smoke() {
     ui.invoke_palette_activate("v:board".into());
     assert_eq!(ui.get_view(), "board", "palette activate → view changed");
     // activating a note opens the notes view + selects it
-    let nid = ctx.state.borrow().backend.query_notes(&noet_core::backend::Filter::default()).unwrap()[0].id.clone();
+    let nid = ctx
+        .state
+        .borrow()
+        .backend
+        .query_notes(&noet_core::backend::Filter::default())
+        .unwrap()[0]
+        .id
+        .clone();
     ui.invoke_palette_activate(format!("n:{nid}").into());
     assert_eq!(ui.get_view(), "notes", "palette activate note → notes view");
 
     // ----- Level 6: quick capture -----
     // The palette command opens the summonable capture overlay.
     ui.invoke_palette_activate("c:capture".into());
-    assert!(ui.get_quick_capture_open(), "palette 'Quick capture' opens the overlay");
+    assert!(
+        ui.get_quick_capture_open(),
+        "palette 'Quick capture' opens the overlay"
+    );
     // Capturing drops a note into the inbox, titled from the text.
-    let before = ctx.state.borrow().backend.query_notes(&noet_core::backend::Filter::default()).unwrap().len();
+    let before = ctx
+        .state
+        .borrow()
+        .backend
+        .query_notes(&noet_core::backend::Filter::default())
+        .unwrap()
+        .len();
     ui.invoke_quick_capture("buy milk before standup".into());
-    let notes = ctx.state.borrow().backend.query_notes(&noet_core::backend::Filter::default()).unwrap();
+    let notes = ctx
+        .state
+        .borrow()
+        .backend
+        .query_notes(&noet_core::backend::Filter::default())
+        .unwrap();
     assert_eq!(notes.len(), before + 1, "quick capture adds one note");
     assert!(
         notes.iter().any(|n| n.title.contains("buy milk")),
@@ -338,20 +508,38 @@ fn headless_ui_smoke() {
     ui.invoke_set_view("board".into());
     // The TODO is on line 3 (0-based); a todo id is "<note_id>:<line_no>".
     ui.invoke_open_note(format!("{nav_id}:3").into());
-    assert_eq!(ui.get_view(), "notes", "opening a todo goes to the notes view");
+    assert_eq!(
+        ui.get_view(),
+        "notes",
+        "opening a todo goes to the notes view"
+    );
     assert!(ui.get_editing(), "opens in edit mode to act on the todo");
     let caret = RICH.with(|r| r.borrow().carets().first().copied().unwrap_or(0));
-    assert_eq!(caret, line_char_offset(nav_body, 3), "caret landed on the todo's line");
-    assert_eq!(ui.get_note_return_view(), "board", "back-trail remembers the origin list");
+    assert_eq!(
+        caret,
+        line_char_offset(nav_body, 3),
+        "caret landed on the todo's line"
+    );
+    assert_eq!(
+        ui.get_note_return_view(),
+        "board",
+        "back-trail remembers the origin list"
+    );
     // Returning (or any explicit nav) clears the trail.
     ui.invoke_set_view("board".into());
-    assert_eq!(ui.get_note_return_view(), "", "explicit nav clears the back-trail");
+    assert_eq!(
+        ui.get_note_return_view(),
+        "",
+        "explicit nav clears the back-trail"
+    );
 
     // ----- Level 8: Waiting view lists open delegated items -----
     {
         let mut st = ctx.state.borrow_mut();
         let n = st.backend.new_note().unwrap();
-        st.backend.save_note(&n.id, "Deleg", "TODO(delegated) ship it @[[Sam]]\n").unwrap();
+        st.backend
+            .save_note(&n.id, "Deleg", "TODO(delegated) ship it @[[Sam]]\n")
+            .unwrap();
     }
     ctx.state.borrow_mut().backend.reindex_all().unwrap();
     ui.invoke_set_view("waiting".into());
@@ -365,14 +553,22 @@ fn headless_ui_smoke() {
     {
         let mut st = ctx.state.borrow_mut();
         let n = st.backend.new_note().unwrap();
-        st.backend.save_note(&n.id, "Acme work", "TODO(do) build it +[[Acme]]\n").unwrap();
+        st.backend
+            .save_note(&n.id, "Acme work", "TODO(do) build it +[[Acme]]\n")
+            .unwrap();
     }
     ctx.state.borrow_mut().backend.reindex_all().unwrap();
     ui.invoke_palette_activate("p:Acme".into());
     assert_eq!(ui.get_view(), "workstream", "palette workstream → hub view");
     assert_eq!(ui.get_hub_name(), "Acme");
-    assert!(ui.get_hub_todos().row_count() >= 1, "hub lists the workstream's open todos");
-    assert!(ui.get_hub_notes().row_count() >= 1, "hub lists notes referencing the workstream");
+    assert!(
+        ui.get_hub_todos().row_count() >= 1,
+        "hub lists the workstream's open todos"
+    );
+    assert!(
+        ui.get_hub_notes().row_count() >= 1,
+        "hub lists notes referencing the workstream"
+    );
 
     // ----- Level 10: open-notes tab strip + pin/close -----
     let tab_id;
@@ -393,8 +589,10 @@ fn headless_ui_smoke() {
     {
         let tabs = ui.get_note_tabs();
         assert!(
-            (0..tabs.row_count())
-                .any(|i| { let t = tabs.row_data(i).unwrap(); t.id == tab_id && t.pinned }),
+            (0..tabs.row_count()).any(|i| {
+                let t = tabs.row_data(i).unwrap();
+                t.id == tab_id && t.pinned
+            }),
             "pinned note is flagged pinned"
         );
     }
@@ -406,9 +604,13 @@ fn headless_ui_smoke() {
     {
         let mut st = ctx.state.borrow_mut();
         let a = st.backend.new_note().unwrap();
-        st.backend.save_note(&a.id, "Split A", "# A\nbody a\n").unwrap();
+        st.backend
+            .save_note(&a.id, "Split A", "# A\nbody a\n")
+            .unwrap();
         let b = st.backend.new_note().unwrap();
-        st.backend.save_note(&b.id, "Split B", "# B\nbody b\n").unwrap();
+        st.backend
+            .save_note(&b.id, "Split B", "# B\nbody b\n")
+            .unwrap();
         note_a = a.id.clone();
         note_b = b.id.clone();
     }
@@ -417,11 +619,22 @@ fn headless_ui_smoke() {
     ui.invoke_open_in_split(note_b.clone().into()); // reference pane shows B
     assert_eq!(ui.get_split_note_id(), note_b);
     assert_eq!(ui.get_split_title(), "Split B");
-    assert!(ui.get_split_doc_height() > 0.0, "reference pane rendered a non-empty doc");
+    assert!(
+        ui.get_split_doc_height() > 0.0,
+        "reference pane rendered a non-empty doc"
+    );
     // ✎ Edit the reference (B) → editor=B, the prior note (A) becomes the reference.
     ui.invoke_edit_split();
-    assert_eq!(ui.get_current_id(), note_b, "edit-split loads the reference into the editor");
-    assert_eq!(ui.get_split_note_id(), note_a, "prior note moves to the reference pane");
+    assert_eq!(
+        ui.get_current_id(),
+        note_b,
+        "edit-split loads the reference into the editor"
+    );
+    assert_eq!(
+        ui.get_split_note_id(),
+        note_a,
+        "prior note moves to the reference pane"
+    );
     ui.invoke_close_split();
     assert_eq!(ui.get_split_note_id(), "", "close clears the split");
 
@@ -439,7 +652,10 @@ fn headless_ui_smoke() {
 fn ac_detect_grammar() {
     // Workstream / project: `[[` or `+[[`, kind "project".
     assert_eq!(ac_detect("see [[Ac"), Some(("project", "Ac".into())));
-    assert_eq!(ac_detect("do +[[Acme Co"), Some(("project", "Acme Co".into())));
+    assert_eq!(
+        ac_detect("do +[[Acme Co"),
+        Some(("project", "Acme Co".into()))
+    );
     assert_eq!(ac_detect("x [["), Some(("project", "".into())));
     // Person: `@[[`, kind "person".
     assert_eq!(ac_detect("ping @[[Ja"), Some(("person", "Ja".into())));
@@ -450,7 +666,11 @@ fn ac_detect_grammar() {
     assert_eq!(ac_detect("done [[Acme]]"), None, "closed wikilink");
     assert_eq!(ac_detect("a#b"), None, "# mid-word is not a tag");
     assert_eq!(ac_detect("plain text"), None);
-    assert_eq!(ac_detect("[[multi\nline"), None, "newline closes the wikilink scan");
+    assert_eq!(
+        ac_detect("[[multi\nline"),
+        None,
+        "newline closes the wikilink scan"
+    );
 }
 
 /// Char offset for "jump to a todo's line" when opening its note from a task/card.
@@ -461,7 +681,10 @@ fn line_char_offset_lands_on_the_right_line() {
     assert_eq!(line_char_offset(body, 1), 8, "after '# Title\\n'");
     assert_eq!(line_char_offset(body, 2), 9, "after the blank line");
     // line 3 starts right after "TODO(do) first\n"
-    assert_eq!(line_char_offset(body, 3), 9 + "TODO(do) first\n".chars().count());
+    assert_eq!(
+        line_char_offset(body, 3),
+        9 + "TODO(do) first\n".chars().count()
+    );
     // past the end clamps to total length (no panic)
     assert_eq!(line_char_offset(body, 99), body.chars().count());
 }
@@ -477,6 +700,11 @@ fn typst_fragment_renderer_produces_an_image() {
     ed.set_text("$x^2 + 1$");
     let frags = ed.math_fragments();
     assert!(!frags.is_empty(), "math fragment detected in Typst source");
-    let img = ed.render_fragment(&frags[0]).expect("fragment renders to an image");
-    assert!(img.width > 0 && img.height > 0 && !img.rgba.is_empty(), "non-empty RGBA image");
+    let img = ed
+        .render_fragment(&frags[0])
+        .expect("fragment renders to an image");
+    assert!(
+        img.width > 0 && img.height > 0 && !img.rgba.is_empty(),
+        "non-empty RGBA image"
+    );
 }

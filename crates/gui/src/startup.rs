@@ -3,6 +3,8 @@
 //! on Linux (so it works on GNOME/Wayland without a tray or any system libs).
 
 mod imp {
+    #[cfg(target_os = "macos")]
+    use auto_launch::MacOSLaunchMode;
     use auto_launch::{AutoLaunch, AutoLaunchBuilder};
 
     fn auto_launch() -> Option<AutoLaunch> {
@@ -12,13 +14,15 @@ mod imp {
         // macOS: a Launch Agent (plist in ~/Library/LaunchAgents) rather than an
         // AppleScript login item — cleaner and survives without Automation perms.
         #[cfg(target_os = "macos")]
-        b.set_use_launch_agent(true);
+        b.set_macos_launch_mode(MacOSLaunchMode::LaunchAgent);
         b.build().ok()
     }
 
     /// Whether Noet is registered to launch at login.
     pub fn is_enabled() -> bool {
-        auto_launch().and_then(|a| a.is_enabled().ok()).unwrap_or(false)
+        auto_launch()
+            .and_then(|a| a.is_enabled().ok())
+            .unwrap_or(false)
     }
 
     /// Enable/disable launch-at-login. Returns the resulting state (so the caller

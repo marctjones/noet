@@ -120,8 +120,18 @@ pub(crate) fn write_note(note: &Note) -> Result<()> {
 pub(crate) fn safe_filename(title: &str, id: &str) -> String {
     let s: String = title
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     let s = s.trim();
-    if s.is_empty() { id.to_string() } else { s.chars().take(60).collect() }
+    if s.is_empty() {
+        id.to_string()
+    } else {
+        s.chars().take(60).collect()
+    }
 }

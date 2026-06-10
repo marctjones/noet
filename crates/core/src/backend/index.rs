@@ -39,7 +39,11 @@ fn delete_note_rows(tx: &rusqlite::Transaction, id: &str, fts: bool) -> Result<(
 /// Turn a user query into an FTS5 prefix-match expression (sanitized).
 pub(crate) fn fts_query(s: &str) -> String {
     s.split_whitespace()
-        .map(|w| w.chars().filter(|c| c.is_alphanumeric()).collect::<String>())
+        .map(|w| {
+            w.chars()
+                .filter(|c| c.is_alphanumeric())
+                .collect::<String>()
+        })
         .filter(|w| !w.is_empty())
         .map(|w| format!("{w}*"))
         .collect::<Vec<_>>()
@@ -84,7 +88,11 @@ pub fn reindex_incremental_connection(
     {
         let mut stmt = conn.prepare("SELECT id, path, mtime FROM notes")?;
         let rows = stmt.query_map([], |r| {
-            Ok((r.get::<_, String>(1)?, r.get::<_, String>(0)?, r.get::<_, i64>(2)?))
+            Ok((
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(2)?,
+            ))
         })?;
         for row in rows {
             let (path, id, mtime) = row?;
@@ -156,9 +164,18 @@ pub(crate) fn default_index_dir(vault: &Path) -> PathBuf {
         .map(|s| s.to_string_lossy())
         .unwrap_or_else(|| "vault".into())
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     let key = format!("{name}-{:016x}", h.finish());
+    if let Ok(dir) = std::env::var("NOET_CACHE_DIR") {
+        return PathBuf::from(dir).join(key);
+    }
     dirs::cache_dir()
         .map(|c| c.join("noet").join(key))
         .unwrap_or_else(|| vault.join(".index"))
@@ -228,7 +245,12 @@ impl Backend {
                 "DROP TABLE IF EXISTS notes_fts; CREATE VIRTUAL TABLE notes_fts USING fts5(note_id, title, body);",
             )
             .is_ok();
-        Ok(Backend { vault, index_dir, conn, fts })
+        Ok(Backend {
+            vault,
+            index_dir,
+            conn,
+            fts,
+        })
     }
 
     /// Open and fully index synchronously (data ready on return).
@@ -293,8 +315,7 @@ impl Backend {
         }
         // A note is archived when it lives under a `archive/` folder. Check a path
         // *component* (not a "/archive/" substring) so it works on Windows (`\`) too.
-        let archived =
-            note.path.components().any(|c| c.as_os_str() == "archive") as i64;
+        let archived = note.path.components().any(|c| c.as_os_str() == "archive") as i64;
         tx.execute(
             "INSERT OR REPLACE INTO notes(id,title,path,created,updated,kind,body,archived,mtime) VALUES(?,?,?,?,?,?,?,?,?)",
             rusqlite::params![

@@ -12,7 +12,10 @@ use std::path::PathBuf;
 pub(crate) fn typst_escape(s: &str) -> String {
     let mut o = String::with_capacity(s.len() + 8);
     for c in s.chars() {
-        if matches!(c, '\\' | '#' | '$' | '*' | '_' | '`' | '<' | '>' | '@' | '~' | '=' | '[' | ']') {
+        if matches!(
+            c,
+            '\\' | '#' | '$' | '*' | '_' | '`' | '<' | '>' | '@' | '~' | '=' | '[' | ']'
+        ) {
             o.push('\\');
         }
         o.push(c);
@@ -69,7 +72,8 @@ fn render_inline(s: &str) -> String {
                 if c[i] == '@' {
                     out.push_str(&chip(&name, "fdeede", "9a5b1b")); // person
                 } else {
-                    out.push_str(&chip(&format!("▸ {name}"), "e7f7ec", "1f7a44")); // workstream
+                    out.push_str(&chip(&format!("▸ {name}"), "e7f7ec", "1f7a44"));
+                    // workstream
                 }
                 i = end + 2;
                 continue;
@@ -219,7 +223,10 @@ impl Backend {
                     Ok(o) if o.status.success() => Ok(dest),
                     Ok(o) => anyhow::bail!(
                         "typst failed: {}",
-                        String::from_utf8_lossy(&o.stderr).lines().next().unwrap_or("compile error")
+                        String::from_utf8_lossy(&o.stderr)
+                            .lines()
+                            .next()
+                            .unwrap_or("compile error")
                     ),
                     Err(_) => anyhow::bail!("typst CLI not found — install typst to export PDF"),
                 }

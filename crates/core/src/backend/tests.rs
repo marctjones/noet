@@ -39,7 +39,10 @@ fn kind_detection() {
     assert_eq!(detect_kind("#set page(width: 10cm)\n= Hi"), "typst");
     assert_eq!(detect_kind("#figure(image(\"a.png\"))"), "typst");
     // prose with dollars must NOT be mistaken for typst math
-    assert_eq!(detect_kind("Budget is $5 to $10 for #urgent items"), "markdown");
+    assert_eq!(
+        detect_kind("Budget is $5 to $10 for #urgent items"),
+        "markdown"
+    );
     // plain markdown
     assert_eq!(detect_kind("# Heading\n- a bullet"), "markdown");
     // explicit declared kind wins over detection
@@ -57,7 +60,9 @@ fn markdown_blocks_structure() {
     assert_eq!(b[0].kind, "h1");
     assert_eq!(b[0].text, "Title");
     // the two text lines collapse into one paragraph
-    assert!(b.iter().any(|x| x.kind == "para" && x.text.contains("second line")));
+    assert!(b
+        .iter()
+        .any(|x| x.kind == "para" && x.text.contains("second line")));
     assert_eq!(kinds.iter().filter(|k| **k == "bullet").count(), 2);
     assert!(b.iter().any(|x| x.kind == "code" && x.text == "code here"));
     assert!(b.iter().any(|x| x.kind == "quote"));
@@ -75,9 +80,15 @@ fn typst_fence_and_wikilink_cleanup() {
     assert!(clean_inline(&para.text).contains("Acme Onboarding"));
     assert!(!clean_inline(&para.text).contains("[["));
     let segs = line_segments(&para.text);
-    assert!(segs.iter().any(|s| s.kind == "project" && s.value == "Acme Onboarding"));
-    assert!(segs.iter().any(|s| s.kind == "person" && s.value == "Jane Doe"));
-    assert!(segs.iter().any(|s| s.kind == "url" && s.value == "https://x.io"));
+    assert!(segs
+        .iter()
+        .any(|s| s.kind == "project" && s.value == "Acme Onboarding"));
+    assert!(segs
+        .iter()
+        .any(|s| s.kind == "person" && s.value == "Jane Doe"));
+    assert!(segs
+        .iter()
+        .any(|s| s.kind == "url" && s.value == "https://x.io"));
     // a ```typst fence becomes a typst block carrying its source
     let t = b.iter().find(|x| x.kind == "typst").unwrap();
     assert!(t.text.contains("#set page()"));
@@ -189,12 +200,22 @@ fn incremental_reindex_only_touches_changed_files() {
     // Deterministic mtimes so the test never depends on filesystem timestamp
     // resolution (incremental reindex keys off mtime).
     let set_mtime = |name: &str, secs: u64| {
-        let f = std::fs::OpenOptions::new().write(true).open(notes_dir.join(name)).unwrap();
-        f.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(secs)).unwrap();
+        let f = std::fs::OpenOptions::new()
+            .write(true)
+            .open(notes_dir.join(name))
+            .unwrap();
+        f.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(secs))
+            .unwrap();
     };
 
-    write("a.md", "---\nid: A\ntitle: Alpha\nkind: markdown\n---\nbody a\n");
-    write("b.md", "---\nid: B\ntitle: Beta\nkind: markdown\n---\nTODO(do) bee +[[P]]\n");
+    write(
+        "a.md",
+        "---\nid: A\ntitle: Alpha\nkind: markdown\n---\nbody a\n",
+    );
+    write(
+        "b.md",
+        "---\nid: B\ntitle: Beta\nkind: markdown\n---\nTODO(do) bee +[[P]]\n",
+    );
     set_mtime("a.md", 1000);
     set_mtime("b.md", 1000);
 
@@ -203,26 +224,54 @@ fn incremental_reindex_only_touches_changed_files() {
     assert_eq!(b.query_notes(&Filter::default()).unwrap().len(), 2);
 
     // Nothing changed on disk → incremental reconcile is a no-op.
-    assert_eq!(b.reindex_incremental().unwrap(), 0, "no-op when nothing changed");
+    assert_eq!(
+        b.reindex_incremental().unwrap(),
+        0,
+        "no-op when nothing changed"
+    );
 
     // Edit a.md (new title + a todo) and advance its mtime; b.md untouched.
-    write("a.md", "---\nid: A\ntitle: Alpha2\nkind: markdown\n---\nTODO(do) ay +[[P]]\n");
+    write(
+        "a.md",
+        "---\nid: A\ntitle: Alpha2\nkind: markdown\n---\nTODO(do) ay +[[P]]\n",
+    );
     set_mtime("a.md", 2000);
-    assert_eq!(b.reindex_incremental().unwrap(), 1, "only the one changed file re-parsed");
+    assert_eq!(
+        b.reindex_incremental().unwrap(),
+        1,
+        "only the one changed file re-parsed"
+    );
     let notes = b.query_notes(&Filter::default()).unwrap();
-    assert!(notes.iter().any(|n| n.title == "Alpha2"), "changed title reindexed");
-    assert_eq!(b.list_todos("project:P").unwrap().len(), 2, "a's new todo + b's todo");
+    assert!(
+        notes.iter().any(|n| n.title == "Alpha2"),
+        "changed title reindexed"
+    );
+    assert_eq!(
+        b.list_todos("project:P").unwrap().len(),
+        2,
+        "a's new todo + b's todo"
+    );
 
     // Delete b.md → its rows are dropped; nothing re-parsed.
     std::fs::remove_file(notes_dir.join("b.md")).unwrap();
-    assert_eq!(b.reindex_incremental().unwrap(), 0, "deletion re-parses nothing");
+    assert_eq!(
+        b.reindex_incremental().unwrap(),
+        0,
+        "deletion re-parses nothing"
+    );
     let notes = b.query_notes(&Filter::default()).unwrap();
     assert_eq!(notes.len(), 1);
-    assert!(notes.iter().all(|n| n.id != "B"), "deleted file removed from the index");
+    assert!(
+        notes.iter().all(|n| n.id != "B"),
+        "deleted file removed from the index"
+    );
     assert_eq!(b.list_todos("project:P").unwrap().len(), 1, "b's todo gone");
 
     // Add c.md → indexed; exactly one file re-parsed.
-    write("c.md", "---\nid: C\ntitle: Gamma\nkind: markdown\n---\nbody c\n");
+    write(
+        "c.md",
+        "---\nid: C\ntitle: Gamma\nkind: markdown\n---\nbody c\n",
+    );
     set_mtime("c.md", 3000);
     assert_eq!(b.reindex_incremental().unwrap(), 1, "new file indexed");
     assert_eq!(b.query_notes(&Filter::default()).unwrap().len(), 2);
@@ -238,14 +287,23 @@ fn pdf_export_renders_noet_markup() {
                 DONE(reading) old thing\n";
     let typ = markdown_to_typst("My note", body);
     // Inline entities become colored chips, not escaped literals.
-    assert!(typ.contains("rgb(\"e7f7ec\")"), "workstream chip color present");
+    assert!(
+        typ.contains("rgb(\"e7f7ec\")"),
+        "workstream chip color present"
+    );
     assert!(typ.contains("rgb(\"fdeede\")"), "person chip color present");
     assert!(typ.contains("rgb(\"f3ecfb\")"), "tag chip color present");
     // Todo lines render structurally (due chip + done strike), markers stripped.
     assert!(typ.contains("due 2026-07-01"), "due chip rendered");
     assert!(typ.contains("strike"), "done todo struck through");
-    assert!(!typ.contains("TODO(do)"), "todo marker not dumped as literal text");
-    assert!(!typ.contains("DONE(reading)"), "done marker not dumped as literal text");
+    assert!(
+        !typ.contains("TODO(do)"),
+        "todo marker not dumped as literal text"
+    );
+    assert!(
+        !typ.contains("DONE(reading)"),
+        "done marker not dumped as literal text"
+    );
 }
 
 #[test]
@@ -281,19 +339,26 @@ fn related_notes_by_shared_workstream_and_people() {
 
     // Two prior Acme meetings (one also with Jane), one unrelated note.
     let m1 = b.new_note().unwrap();
-    b.save_note(&m1.id, "Acme kickoff", "notes about [[Acme]] @[[Jane]]\n").unwrap();
+    b.save_note(&m1.id, "Acme kickoff", "notes about [[Acme]] @[[Jane]]\n")
+        .unwrap();
     let m2 = b.new_note().unwrap();
-    b.save_note(&m2.id, "Acme planning", "more [[Acme]] work\n").unwrap();
+    b.save_note(&m2.id, "Acme planning", "more [[Acme]] work\n")
+        .unwrap();
     let other = b.new_note().unwrap();
-    b.save_note(&other.id, "Gardening", "tomatoes [[Home]]\n").unwrap();
+    b.save_note(&other.id, "Gardening", "tomatoes [[Home]]\n")
+        .unwrap();
 
     // The new meeting note shares Acme (both priors) and Jane (m1 only).
     let cur = b.new_note().unwrap();
-    b.save_note(&cur.id, "Acme sync today", "[[Acme]] @[[Jane]] #urgent\n").unwrap();
+    b.save_note(&cur.id, "Acme sync today", "[[Acme]] @[[Jane]] #urgent\n")
+        .unwrap();
 
     let rel = b.related_notes(&cur.id, 10).unwrap();
     let ids: Vec<&str> = rel.iter().map(|r| r.id.as_str()).collect();
-    assert!(ids.contains(&m1.id.as_str()) && ids.contains(&m2.id.as_str()), "both Acme meetings surface");
+    assert!(
+        ids.contains(&m1.id.as_str()) && ids.contains(&m2.id.as_str()),
+        "both Acme meetings surface"
+    );
     assert!(!ids.contains(&other.id.as_str()), "unrelated note excluded");
     assert!(!ids.contains(&cur.id.as_str()), "self excluded");
     // m1 shares two entities (Acme + Jane) → ranks above m2 (Acme only).
@@ -325,7 +390,10 @@ fn status_tags_board_and_moves() {
 
     // status parsed (one DOING)
     let doing = b
-        .query_todos(&Filter { status: "doing".into(), ..Default::default() })
+        .query_todos(&Filter {
+            status: "doing".into(),
+            ..Default::default()
+        })
         .unwrap();
     assert_eq!(doing.len(), 1);
     assert!(doing[0].text.contains("write tests"));
@@ -338,7 +406,10 @@ fn status_tags_board_and_moves() {
 
     // filter by tag intersects todos
     let urgent = b
-        .query_todos(&Filter { tag: "urgent".into(), ..Default::default() })
+        .query_todos(&Filter {
+            tag: "urgent".into(),
+            ..Default::default()
+        })
         .unwrap();
     assert_eq!(urgent.len(), 3); // all todos live in the #urgent note
 
@@ -350,7 +421,10 @@ fn status_tags_board_and_moves() {
 
     // move "build api" status right: todo -> doing
     let build = b
-        .query_todos(&Filter { search: "build api".into(), ..Default::default() })
+        .query_todos(&Filter {
+            search: "build api".into(),
+            ..Default::default()
+        })
         .unwrap();
     let id = build[0].id.clone();
     b.board_move(&id, "status", 1).unwrap();
@@ -447,13 +521,33 @@ fn full_text_search() {
     let dir = std::env::temp_dir().join(format!("noet-test-{}", ulid::Ulid::new()));
     let mut b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();
     let a = b.new_note().unwrap();
-    b.save_note(&a.id, "Quarterly review", "We discussed the budget and pipeline.\n").unwrap();
+    b.save_note(
+        &a.id,
+        "Quarterly review",
+        "We discussed the budget and pipeline.\n",
+    )
+    .unwrap();
 
-    let hit = b.query_notes(&Filter { search: "budget".into(), ..Default::default() }).unwrap();
+    let hit = b
+        .query_notes(&Filter {
+            search: "budget".into(),
+            ..Default::default()
+        })
+        .unwrap();
     assert_eq!(hit.len(), 1);
-    let prefix = b.query_notes(&Filter { search: "pipe".into(), ..Default::default() }).unwrap();
+    let prefix = b
+        .query_notes(&Filter {
+            search: "pipe".into(),
+            ..Default::default()
+        })
+        .unwrap();
     assert_eq!(prefix.len(), 1);
-    let miss = b.query_notes(&Filter { search: "zzznope".into(), ..Default::default() }).unwrap();
+    let miss = b
+        .query_notes(&Filter {
+            search: "zzznope".into(),
+            ..Default::default()
+        })
+        .unwrap();
     assert_eq!(miss.len(), 0);
 
     std::fs::remove_dir_all(&dir).ok();
@@ -470,12 +564,18 @@ fn hierarchical_subtree_filter() {
 
     // parent shows the whole subtree
     let parent = b
-        .query_notes(&Filter { project: "Clients".into(), ..Default::default() })
+        .query_notes(&Filter {
+            project: "Clients".into(),
+            ..Default::default()
+        })
         .unwrap();
     assert_eq!(parent.len(), 2);
     // a leaf shows only itself
     let leaf = b
-        .query_notes(&Filter { project: "Clients/Acme".into(), ..Default::default() })
+        .query_notes(&Filter {
+            project: "Clients/Acme".into(),
+            ..Default::default()
+        })
         .unwrap();
     assert_eq!(leaf.len(), 1);
 
@@ -487,7 +587,8 @@ fn related_notes_and_filing() {
     let dir = std::env::temp_dir().join(format!("noet-test-{}", ulid::Ulid::new()));
     let mut b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();
     let a = b.new_note().unwrap();
-    b.save_note(&a.id, "Acme kickoff", "minutes [[Client Acme]]\n").unwrap();
+    b.save_note(&a.id, "Acme kickoff", "minutes [[Client Acme]]\n")
+        .unwrap();
 
     // a related note inherits the topic and back-links to the source
     let r = b.new_related_note(&a.id).unwrap();
@@ -496,7 +597,10 @@ fn related_notes_and_filing() {
     assert!(rn.body.contains("[[Acme kickoff]]"));
     // both notes are now in the cluster
     let cluster = b
-        .query_notes(&Filter { project: "Client Acme".into(), ..Default::default() })
+        .query_notes(&Filter {
+            project: "Client Acme".into(),
+            ..Default::default()
+        })
         .unwrap();
     assert_eq!(cluster.len(), 2);
 
@@ -505,7 +609,10 @@ fn related_notes_and_filing() {
     b.save_note(&c.id, "loose", "idea\n").unwrap();
     b.add_link(&c.id, "Client Acme").unwrap();
     let cluster2 = b
-        .query_notes(&Filter { project: "Client Acme".into(), ..Default::default() })
+        .query_notes(&Filter {
+            project: "Client Acme".into(),
+            ..Default::default()
+        })
         .unwrap();
     assert_eq!(cluster2.len(), 3);
 
@@ -518,9 +625,11 @@ fn inbox_backlinks_and_archive() {
     let mut b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();
     // an unfiled note (no links) -> inbox; a filed one -> not inbox
     let a = b.new_note().unwrap();
-    b.save_note(&a.id, "Loose thought", "just an idea\n").unwrap();
+    b.save_note(&a.id, "Loose thought", "just an idea\n")
+        .unwrap();
     let c = b.new_note().unwrap();
-    b.save_note(&c.id, "Filed", "work on [[Project X]]\n").unwrap();
+    b.save_note(&c.id, "Filed", "work on [[Project X]]\n")
+        .unwrap();
 
     let inbox: Vec<_> = b.inbox().unwrap().into_iter().map(|n| n.id).collect();
     assert!(inbox.contains(&a.id));
@@ -542,7 +651,10 @@ fn inbox_backlinks_and_archive() {
     assert!(!visible.contains(&a.id));
     // and shows again with show_archived
     let with_arch: Vec<_> = b
-        .query_notes(&Filter { show_archived: true, ..Default::default() })
+        .query_notes(&Filter {
+            show_archived: true,
+            ..Default::default()
+        })
         .unwrap()
         .into_iter()
         .map(|n| n.id)
@@ -559,17 +671,29 @@ fn mentions_make_people_and_add_tag() {
     let note = b.new_note().unwrap();
     // Mentions in plain prose (not a todo) still create people — both the
     // bare `@bob` form and the bracketed `@[[Two Words]]` form.
-    b.save_note(&note.id, "1:1", "Spoke with @bob and @[[Priya Patel]] about the plan.\n")
-        .unwrap();
+    b.save_note(
+        &note.id,
+        "1:1",
+        "Spoke with @bob and @[[Priya Patel]] about the plan.\n",
+    )
+    .unwrap();
 
-    let people: Vec<_> = b.list_people().unwrap().into_iter().map(|p| p.name).collect();
+    let people: Vec<_> = b
+        .list_people()
+        .unwrap()
+        .into_iter()
+        .map(|p| p.name)
+        .collect();
     assert!(people.contains(&"bob".to_string()));
     assert!(people.contains(&"Priya Patel".to_string())); // spaces survive
 
     // Filtering notes by either person finds this note.
     for who in ["bob", "Priya Patel"] {
         let notes = b
-            .query_notes(&Filter { person: who.into(), ..Default::default() })
+            .query_notes(&Filter {
+                person: who.into(),
+                ..Default::default()
+            })
             .unwrap();
         assert_eq!(notes.len(), 1, "person {who}");
         assert_eq!(notes[0].id, note.id);
@@ -603,14 +727,17 @@ fn typst_escape_covers_markup_chars() {
     assert_eq!(typst_escape("[#A]"), r"\[\#A\]");
     assert_eq!(typst_escape("@x +[[P]]"), r"\@x +\[\[P\]\]");
     assert_eq!(typst_escape("3 < 4 > 2 = 1"), r"3 \< 4 \> 2 \= 1");
-    assert_eq!(typst_escape("*b* _i_ `c` $x$ ~ \\"), r"\*b\* \_i\_ \`c\` \$x\$ \~ \\");
+    assert_eq!(
+        typst_escape("*b* _i_ `c` $x$ ~ \\"),
+        r"\*b\* \_i\_ \`c\` \$x\$ \~ \\"
+    );
     // ordinary text is untouched
     assert_eq!(typst_escape("plain text 123"), "plain text 123");
 }
 
 #[test]
 fn markdown_to_typst_converts_headings_and_escapes() {
-    let md = "# Title\n## Sub\n### Deep\n- bullet item\nplain @[[Jane]] [#A] line\n";
+    let md = "# Title\n## Sub\n### Deep\n- bullet item\nplain @[[Jane]] [#A] line #urgent\n";
     let typ = markdown_to_typst("Doc", md);
     assert!(typ.contains("#set page"));
     assert!(typ.contains("= Doc")); // injected document title
@@ -618,8 +745,10 @@ fn markdown_to_typst_converts_headings_and_escapes() {
     assert!(typ.contains("== Sub")); // h2 -> ==
     assert!(typ.contains("=== Deep")); // h3 -> ===
     assert!(typ.contains("- bullet item")); // bullets preserved
-    // tokens are escaped so they render literally and compile
-    assert!(typ.contains(r"\@\[\[Jane\]\] \[\#A\]"));
+                                            // plain Typst-sensitive tokens are escaped, while Noet entities become chips.
+    assert!(typ.contains(r"\[\#A\]"));
+    assert!(typ.contains("rgb(\"fdeede\")")); // person chip
+    assert!(typ.contains("rgb(\"f3ecfb\")")); // tag chip
 }
 
 #[test]
@@ -711,7 +840,10 @@ fn settings_roundtrip() {
     // absent file -> None
     assert!(Settings::load_from(&path).is_none());
 
-    let s = Settings { vault: dir.join("MyVault"), ..Default::default() };
+    let s = Settings {
+        vault: dir.join("MyVault"),
+        ..Default::default()
+    };
     s.save_to(&path).unwrap();
     assert!(path.exists());
 
@@ -740,7 +872,10 @@ fn index_lives_outside_vault_and_migrates_legacy() {
     // index.db is built in the cache dir, and the synced vault holds no index.
     assert_eq!(b.index_dir(), index_dir);
     assert!(index_dir.join("index.db").exists());
-    assert!(!legacy.exists(), "stale in-vault .index should be removed on migrate");
+    assert!(
+        !legacy.exists(),
+        "stale in-vault .index should be removed on migrate"
+    );
 
     // reindex_params reports the cache dir, and a background reindex against it works.
     let (reported_index, reported_vault, fts) = b.reindex_params();

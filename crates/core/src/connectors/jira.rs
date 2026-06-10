@@ -2,8 +2,8 @@
 //!
 //! Auth: Cloud uses `email` + an API token (HTTP Basic `email:token`); Server/DC
 //! uses a Personal Access Token (HTTP `Bearer`). If `email` is set we assume
-//! Cloud, otherwise Bearer. Credentials live in the OS config dir (`jira.json`),
-//! never in the vault.
+//! Cloud, otherwise Bearer. Tokens live in macOS Keychain on macOS, or in a
+//! private `jira.json` fallback elsewhere. They never live in the vault.
 //!
 //! Everything except the single network call ([`fetch_issue`]) is pure and
 //! unit-tested: key parsing, URL building, the auth header, and response
@@ -26,13 +26,27 @@ pub struct JiraConfig {
 }
 
 impl JiraConfig {
+    #[cfg(target_os = "macos")]
+    const TOKEN_KEY: &'static str = "jira.token";
+
     /// `<config dir>/noet/jira.json`. `None` if the platform has no config dir.
     pub fn path() -> Option<PathBuf> {
         dirs::config_dir().map(|c| c.join("noet").join("jira.json"))
     }
 
     pub fn load() -> Option<JiraConfig> {
-        Self::load_from(&Self::path()?)
+        let path = Self::path()?;
+        let mut cfg = Self::load_from(&path)?;
+        #[cfg(target_os = "macos")]
+        {
+            let disk_token = cfg.token.clone();
+            if let Some(token) = super::keychain::get(Self::TOKEN_KEY) {
+                cfg.token = token;
+            } else if !disk_token.is_empty() {
+                let _ = super::keychain::set(Self::TOKEN_KEY, &disk_token);
+            }
+        }
+        Some(cfg)
     }
 
     pub fn load_from(path: &Path) -> Option<JiraConfig> {
@@ -40,15 +54,25 @@ impl JiraConfig {
     }
 
     pub fn save(&self) -> Result<()> {
-        self.save_to(&Self::path().context("no OS config dir to store jira.json")?)
+        let path = Self::path().context("no OS config dir to store jira.json")?;
+        #[cfg(target_os = "macos")]
+        {
+            super::keychain::set(Self::TOKEN_KEY, &self.token)?;
+            let disk = JiraConfig {
+                base_url: self.base_url.clone(),
+                email: self.email.clone(),
+                token: String::new(),
+            };
+            return super::write_private_json(&path, &disk);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            self.save_to(&path)
+        }
     }
 
     pub fn save_to(&self, path: &Path) -> Result<()> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::write(path, serde_json::to_string_pretty(self)?)?;
-        Ok(())
+        super::write_private_json(path, self)
     }
 
     /// Enough to make API calls (a base URL + a token).
@@ -109,7 +133,11 @@ pub fn browse_url(base: &str, key: &str) -> String {
 
 /// REST endpoint for the issue (v2 works on both Cloud and Server/DC).
 pub fn api_url(base: &str, key: &str) -> String {
-    format!("{}/rest/api/2/issue/{}?fields=summary,status", trim_base(base), key)
+    format!(
+        "{}/rest/api/2/issue/{}?fields=summary,status",
+        trim_base(base),
+        key
+    )
 }
 
 /// Pull the fields we care about out of a Jira issue JSON body.
@@ -159,8 +187,16 @@ fn base64(input: &[u8]) -> String {
         let n = (b0 << 16) | (b1 << 8) | b2;
         out.push(T[((n >> 18) & 63) as usize] as char);
         out.push(T[((n >> 12) & 63) as usize] as char);
-        out.push(if chunk.len() > 1 { T[((n >> 6) & 63) as usize] as char } else { '=' });
-        out.push(if chunk.len() > 2 { T[(n & 63) as usize] as char } else { '=' });
+        out.push(if chunk.len() > 1 {
+            T[((n >> 6) & 63) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            T[(n & 63) as usize] as char
+        } else {
+            '='
+        });
     }
     out
 }
@@ -175,7 +211,7 @@ mod tests {
         assert_eq!(parse_key("PROJ-12").as_deref(), Some("PROJ-12"));
         assert_eq!(parse_key("jira:abc-7").as_deref(), Some("ABC-7")); // upper-cased
         assert_eq!(parse_key("jira:AB1-99").as_deref(), Some("AB1-99")); // alnum project
-        // invalid shapes
+                                                                         // invalid shapes
         assert_eq!(parse_key("jira:PROJ"), None); // no number
         assert_eq!(parse_key("jira:12-12"), None); // project must start alpha
         assert_eq!(parse_key("jira:PROJ-x"), None); // number must be digits
@@ -184,7 +220,10 @@ mod tests {
 
     #[test]
     fn builds_urls() {
-        assert_eq!(browse_url("https://x.atlassian.net/", "P-1"), "https://x.atlassian.net/browse/P-1");
+        assert_eq!(
+            browse_url("https://x.atlassian.net/", "P-1"),
+            "https://x.atlassian.net/browse/P-1"
+        );
         assert_eq!(
             api_url("https://x.atlassian.net", "P-1"),
             "https://x.atlassian.net/rest/api/2/issue/P-1?fields=summary,status"
@@ -193,10 +232,21 @@ mod tests {
 
     #[test]
     fn auth_header_picks_basic_or_bearer() {
-        let cloud = JiraConfig { base_url: "u".into(), email: "a@b.com".into(), token: "tok".into() };
+        let cloud = JiraConfig {
+            base_url: "u".into(),
+            email: "a@b.com".into(),
+            token: "tok".into(),
+        };
         // Basic base64("a@b.com:tok")
-        assert_eq!(cloud.auth_header(), format!("Basic {}", base64(b"a@b.com:tok")));
-        let server = JiraConfig { base_url: "u".into(), email: "".into(), token: "PAT".into() };
+        assert_eq!(
+            cloud.auth_header(),
+            format!("Basic {}", base64(b"a@b.com:tok"))
+        );
+        let server = JiraConfig {
+            base_url: "u".into(),
+            email: "".into(),
+            token: "PAT".into(),
+        };
         assert_eq!(server.auth_header(), "Bearer PAT");
     }
 
@@ -233,7 +283,11 @@ mod tests {
         let path = dir.join("jira.json");
         assert!(JiraConfig::load_from(&path).is_none());
 
-        let cfg = JiraConfig { base_url: "https://x".into(), email: "a@b".into(), token: "t".into() };
+        let cfg = JiraConfig {
+            base_url: "https://x".into(),
+            email: "a@b".into(),
+            token: "t".into(),
+        };
         cfg.save_to(&path).unwrap();
         let back = JiraConfig::load_from(&path).unwrap();
         assert_eq!(back.base_url, "https://x");
@@ -241,5 +295,15 @@ mod tests {
         assert!(!JiraConfig::default().is_configured());
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn config_accepts_redacted_token() {
+        let cfg: JiraConfig =
+            serde_json::from_str(r#"{"base_url":"https://x","email":"a@b"}"#).unwrap();
+        assert_eq!(cfg.base_url, "https://x");
+        assert_eq!(cfg.email, "a@b");
+        assert!(cfg.token.is_empty());
+        assert!(!cfg.is_configured());
     }
 }

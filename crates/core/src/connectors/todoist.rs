@@ -4,6 +4,7 @@
 //! `+[[Workstream]]`, labels → `#tags`, due → `due:`, plus a `src:todoist:` ref.
 //!
 //! Pure parts (config, parsing, note shaping) are unit-tested; HTTP is thin IO.
+//! Tokens live in macOS Keychain on macOS, or in a private JSON fallback elsewhere.
 
 use anyhow::{Context, Result};
 use std::collections::HashMap;
@@ -17,28 +18,51 @@ pub const TODOIST_REF_PREFIX: &str = "src:todoist:";
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct TodoistConfig {
     /// Personal API token from Todoist (Settings → Integrations → Developer).
+    #[serde(default)]
     pub token: String,
 }
 
 impl TodoistConfig {
+    #[cfg(target_os = "macos")]
+    const TOKEN_KEY: &'static str = "todoist.token";
+
     pub fn path() -> Option<PathBuf> {
         dirs::config_dir().map(|c| c.join("noet").join("todoist.json"))
     }
     pub fn load() -> Option<TodoistConfig> {
-        Self::load_from(&Self::path()?)
+        let path = Self::path()?;
+        let mut cfg = Self::load_from(&path)?;
+        #[cfg(target_os = "macos")]
+        {
+            let disk_token = cfg.token.clone();
+            if let Some(token) = super::keychain::get(Self::TOKEN_KEY) {
+                cfg.token = token;
+            } else if !disk_token.is_empty() {
+                let _ = super::keychain::set(Self::TOKEN_KEY, &disk_token);
+            }
+        }
+        Some(cfg)
     }
     pub fn load_from(path: &Path) -> Option<TodoistConfig> {
         serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
     }
     pub fn save(&self) -> Result<()> {
-        self.save_to(&Self::path().context("no OS config dir for todoist.json")?)
+        let path = Self::path().context("no OS config dir for todoist.json")?;
+        #[cfg(target_os = "macos")]
+        {
+            super::keychain::set(Self::TOKEN_KEY, &self.token)?;
+            let disk = TodoistConfig {
+                token: String::new(),
+            };
+            return super::write_private_json(&path, &disk);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            self.save_to(&path)
+        }
     }
     pub fn save_to(&self, path: &Path) -> Result<()> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::write(path, serde_json::to_string_pretty(self)?)?;
-        Ok(())
+        super::write_private_json(path, self)
     }
     pub fn is_configured(&self) -> bool {
         !self.token.trim().is_empty()
@@ -70,10 +94,26 @@ pub(crate) fn priority_letter(p: i64) -> &'static str {
 /// Parse a Todoist REST v2 task object (project name is resolved separately).
 pub(crate) fn parse_task(json: &serde_json::Value) -> TodoistTask {
     TodoistTask {
-        id: json.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        content: json.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        description: json.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        project_id: json.get("project_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        id: json
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        content: json
+            .get("content")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        description: json
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        project_id: json
+            .get("project_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
         project_name: String::new(),
         priority: json.get("priority").and_then(|v| v.as_i64()).unwrap_or(1),
         due: json
@@ -84,17 +124,27 @@ pub(crate) fn parse_task(json: &serde_json::Value) -> TodoistTask {
         labels: json
             .get("labels")
             .and_then(|v| v.as_array())
-            .map(|a| a.iter().filter_map(|l| l.as_str().map(String::from)).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|l| l.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default(),
     }
 }
 
 fn get_json(cfg: &TodoistConfig, url: &str) -> Result<serde_json::Value> {
-    match ureq::get(url).set("Authorization", &format!("Bearer {}", cfg.token.trim())).call() {
+    match ureq::get(url)
+        .set("Authorization", &format!("Bearer {}", cfg.token.trim()))
+        .call()
+    {
         Ok(r) => r.into_json().context("unexpected Todoist response"),
         Err(ureq::Error::Status(code, resp)) => {
             let body = resp.into_string().unwrap_or_default();
-            anyhow::bail!("Todoist API error (HTTP {code}): {}", body.chars().take(200).collect::<String>())
+            anyhow::bail!(
+                "Todoist API error (HTTP {code}): {}",
+                body.chars().take(200).collect::<String>()
+            )
         }
         Err(e) => anyhow::bail!("network error talking to Todoist: {e}"),
     }
@@ -143,7 +193,9 @@ fn urlencode(s: &str) -> String {
     let mut o = String::with_capacity(s.len());
     for b in s.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => o.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                o.push(b as char)
+            }
             _ => o.push_str(&format!("%{b:02X}")),
         }
     }
@@ -154,7 +206,11 @@ fn urlencode(s: &str) -> String {
 /// then a typed todo with priority, project (`+[[…]]`), labels (`#…`), due, and a
 /// `src:todoist:` back-link.
 pub fn task_to_note(task: &TodoistTask) -> (String, String) {
-    let title = if task.content.trim().is_empty() { "Task".to_string() } else { task.content.trim().to_string() };
+    let title = if task.content.trim().is_empty() {
+        "Task".to_string()
+    } else {
+        task.content.trim().to_string()
+    };
     let mut body = String::new();
     if !task.description.trim().is_empty() {
         body.push_str(task.description.trim());
@@ -250,8 +306,19 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("todoist.json");
         assert!(TodoistConfig::load_from(&path).is_none());
-        TodoistConfig { token: "abc".into() }.save_to(&path).unwrap();
+        TodoistConfig {
+            token: "abc".into(),
+        }
+        .save_to(&path)
+        .unwrap();
         assert!(TodoistConfig::load_from(&path).unwrap().is_configured());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn config_accepts_redacted_token() {
+        let cfg: TodoistConfig = serde_json::from_str("{}").unwrap();
+        assert!(cfg.token.is_empty());
+        assert!(!cfg.is_configured());
     }
 }

@@ -30,8 +30,9 @@ No installer — portable binaries on the [**Releases**](https://github.com/marc
 
 On first launch it creates your vault at `~/Documents/NoetVault` (change it in
 Settings, or set `NOET_VAULT`). The disposable index lives in your OS cache dir;
-settings and connector credentials live in your OS config dir — **never inside
-the vault**, so nothing sensitive syncs.
+settings live in your OS config dir, and connector secrets live in macOS
+Keychain on macOS (private config files elsewhere) — **never inside the vault**,
+so nothing sensitive syncs with your notes.
 
 ### Always-there capture (start a meeting note from anywhere)
 
@@ -89,9 +90,10 @@ the vault**, so nothing sensitive syncs.
 
 ## Connectors
 
-Credentials live in the OS config dir (never the vault/repo). Designed to need
-**no corporate-IT approval** — see [docs/connectors.md](docs/connectors.md) for
-the full design and auth rationale.
+Connector secrets live in macOS Keychain on macOS and private OS config files
+elsewhere, never the vault/repo. Designed to need **no corporate-IT approval** —
+see [docs/connectors.md](docs/connectors.md) for the full design and auth
+rationale.
 
 | Connector | Auth | Notes |
 |---|---|---|
@@ -136,6 +138,17 @@ cargo test --workspace                             # tests (core + headless GUI)
 cargo run --release -p noet-core --bin noet-bench -- 5000   # backend benchmark
 ./scripts/coverage.sh                              # coverage ratchet (needs cargo-llvm-cov)
 ```
+
+On Apple Silicon macOS, build a local app bundle, `.dmg`, and tarball:
+
+```bash
+./scripts/package-macos.sh
+```
+
+The local packaging script ad-hoc signs `Noet.app` and disables release LTO by
+default to avoid the current macOS tray/menu linker issue. If you later have a
+Developer ID identity, pass `SIGN_IDENTITY="Developer ID Application: ..."`; the
+default path does not require one.
 
 ## Architecture
 

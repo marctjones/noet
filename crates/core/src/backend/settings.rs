@@ -39,6 +39,9 @@ impl Settings {
     /// The canonical on-disk location: `<config dir>/noet/settings.json`.
     /// `None` only if the platform exposes no config dir.
     pub fn path() -> Option<PathBuf> {
+        if let Ok(dir) = std::env::var("NOET_CONFIG_DIR") {
+            return Some(PathBuf::from(dir).join("settings.json"));
+        }
         dirs::config_dir().map(|c| c.join("noet").join("settings.json"))
     }
 

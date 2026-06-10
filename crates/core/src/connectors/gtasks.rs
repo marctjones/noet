@@ -25,7 +25,12 @@ pub struct GoogleTask {
 
 /// Parse a Google Tasks `tasks.get`/`list` item; `list_title` is the parent list.
 pub(crate) fn parse_task(json: &serde_json::Value, list_title: &str) -> GoogleTask {
-    let s = |k: &str| json.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let s = |k: &str| {
+        json.get(k)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
     GoogleTask {
         id: s("id"),
         title: s("title"),
@@ -43,12 +48,19 @@ pub fn list_tasks(cfg: &GmailConfig, max_per_list: u32) -> Result<Vec<GoogleTask
         ureq::get(&format!("{API}/users/@me/lists"))
             .set("Authorization", &format!("Bearer {token}")),
     )?;
-    let lists = lists.get("items").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let lists = lists
+        .get("items")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
 
     let mut out = Vec::new();
     for list in &lists {
         let list_id = list.get("id").and_then(|v| v.as_str()).unwrap_or("");
-        let list_title = list.get("title").and_then(|v| v.as_str()).unwrap_or("Tasks");
+        let list_title = list
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Tasks");
         if list_id.is_empty() {
             continue;
         }
@@ -71,7 +83,11 @@ pub fn list_tasks(cfg: &GmailConfig, max_per_list: u32) -> Result<Vec<GoogleTask
 /// then a todo filed under the list (`+[[List]]`) with the due date and a
 /// `src:gtask:` back-link.
 pub fn task_to_note(task: &GoogleTask) -> (String, String) {
-    let title = if task.title.trim().is_empty() { "Task".to_string() } else { task.title.trim().to_string() };
+    let title = if task.title.trim().is_empty() {
+        "Task".to_string()
+    } else {
+        task.title.trim().to_string()
+    };
     let mut body = String::new();
     if !task.notes.trim().is_empty() {
         body.push_str(task.notes.trim());

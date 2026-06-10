@@ -1,6 +1,11 @@
 # Rust build output
 /target
 **/target
+/dist
+
+# Local release/package artifacts
+/noet-*-macos-*.dmg
+/noet-*-macos-*.tar.gz
 
 # The SQLite index is disposable — rebuilt from the markdown files.
 .index/

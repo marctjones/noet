@@ -28,7 +28,10 @@ pub struct Pkce {
 pub fn pkce() -> Pkce {
     let verifier = format!("{}{}", ulid::Ulid::new(), ulid::Ulid::new());
     let challenge = base64url(&Sha256::digest(verifier.as_bytes()));
-    Pkce { verifier, challenge }
+    Pkce {
+        verifier,
+        challenge,
+    }
 }
 
 /// URL-safe base64 without padding (RFC 4648 §5) — what PKCE/JWT use.
@@ -86,7 +89,9 @@ fn enc(s: &str) -> String {
     let mut o = String::with_capacity(s.len());
     for b in s.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => o.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                o.push(b as char)
+            }
             _ => o.push_str(&format!("%{b:02X}")),
         }
     }
@@ -125,8 +130,16 @@ pub struct Tokens {
 /// Parse a token endpoint JSON response. `refresh_token` is absent on refreshes.
 pub(crate) fn parse_token_response(json: &serde_json::Value) -> Tokens {
     Tokens {
-        access_token: json.get("access_token").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        refresh_token: json.get("refresh_token").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        access_token: json
+            .get("access_token")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        refresh_token: json
+            .get("refresh_token")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
         expires_in: json.get("expires_in").and_then(|v| v.as_i64()).unwrap_or(0),
     }
 }
@@ -134,7 +147,10 @@ pub(crate) fn parse_token_response(json: &serde_json::Value) -> Tokens {
 /// Extract the `code` from a loopback redirect's HTTP request line
 /// (`GET /?code=...&state=... HTTP/1.1`), verifying `state`. Pure + tested.
 pub(crate) fn parse_redirect(request_line: &str, expected_state: &str) -> Result<String> {
-    let path = request_line.split_whitespace().nth(1).context("malformed request line")?;
+    let path = request_line
+        .split_whitespace()
+        .nth(1)
+        .context("malformed request line")?;
     let query = path.split_once('?').map(|(_, q)| q).unwrap_or("");
     let mut code = None;
     let mut state = None;
@@ -328,7 +344,10 @@ mod tests {
         // generated pairs are well-formed and self-consistent
         let p = pkce();
         assert!(p.verifier.len() >= 43 && p.verifier.len() <= 128);
-        assert_eq!(p.challenge, base64url(&Sha256::digest(p.verifier.as_bytes())));
+        assert_eq!(
+            p.challenge,
+            base64url(&Sha256::digest(p.verifier.as_bytes()))
+        );
     }
 
     #[test]

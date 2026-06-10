@@ -2,7 +2,8 @@
 //! native-app loopback + PKCE flow (see [`super::oauth`]). You register your own
 //! OAuth "Desktop app" client in Google Cloud; on a Workspace you administer you
 //! can mark it **Internal**, which exempts it from Google verification. Creds +
-//! the long-lived refresh token live in `gmail.json` (OS config dir).
+//! the long-lived refresh token live in macOS Keychain on macOS, or in a
+//! private `gmail.json` fallback elsewhere.
 //!
 //! Pure parts (config, message parsing, note shaping) are unit-tested; the OAuth
 //! dance and HTTP are the thin IO.
@@ -32,12 +33,15 @@ pub const GMAIL_REF_PREFIX: &str = "src:gmail:";
 
 /// Google OAuth credentials. Despite the name this covers **both** Gmail and
 /// Google Tasks — one Desktop-app client, one consent, one refresh token (the
-/// scopes requested include both). Stored in `gmail.json`.
+/// scopes requested include both). Secret fields are stored in macOS Keychain on
+/// macOS; other platforms use the private JSON fallback.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct GmailConfig {
     /// OAuth client id (`*.apps.googleusercontent.com`).
+    #[serde(default)]
     pub client_id: String,
     /// OAuth client secret (Desktop clients require it; not actually confidential).
+    #[serde(default)]
     pub client_secret: String,
     /// Long-lived refresh token, obtained once via [`connect`].
     #[serde(default)]
@@ -45,24 +49,57 @@ pub struct GmailConfig {
 }
 
 impl GmailConfig {
+    #[cfg(target_os = "macos")]
+    const CLIENT_SECRET_KEY: &'static str = "gmail.client_secret";
+    #[cfg(target_os = "macos")]
+    const REFRESH_TOKEN_KEY: &'static str = "gmail.refresh_token";
+
     pub fn path() -> Option<PathBuf> {
         dirs::config_dir().map(|c| c.join("noet").join("gmail.json"))
     }
     pub fn load() -> Option<GmailConfig> {
-        Self::load_from(&Self::path()?)
+        let path = Self::path()?;
+        let mut cfg = Self::load_from(&path)?;
+        #[cfg(target_os = "macos")]
+        {
+            let disk_client_secret = cfg.client_secret.clone();
+            let disk_refresh_token = cfg.refresh_token.clone();
+            if let Some(secret) = super::keychain::get(Self::CLIENT_SECRET_KEY) {
+                cfg.client_secret = secret;
+            } else if !disk_client_secret.is_empty() {
+                let _ = super::keychain::set(Self::CLIENT_SECRET_KEY, &disk_client_secret);
+            }
+            if let Some(token) = super::keychain::get(Self::REFRESH_TOKEN_KEY) {
+                cfg.refresh_token = token;
+            } else if !disk_refresh_token.is_empty() {
+                let _ = super::keychain::set(Self::REFRESH_TOKEN_KEY, &disk_refresh_token);
+            }
+        }
+        Some(cfg)
     }
     pub fn load_from(path: &Path) -> Option<GmailConfig> {
         serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
     }
     pub fn save(&self) -> Result<()> {
-        self.save_to(&Self::path().context("no OS config dir for gmail.json")?)
+        let path = Self::path().context("no OS config dir for gmail.json")?;
+        #[cfg(target_os = "macos")]
+        {
+            super::keychain::set(Self::CLIENT_SECRET_KEY, &self.client_secret)?;
+            super::keychain::set(Self::REFRESH_TOKEN_KEY, &self.refresh_token)?;
+            let disk = GmailConfig {
+                client_id: self.client_id.clone(),
+                client_secret: String::new(),
+                refresh_token: String::new(),
+            };
+            return super::write_private_json(&path, &disk);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            self.save_to(&path)
+        }
     }
     pub fn save_to(&self, path: &Path) -> Result<()> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::write(path, serde_json::to_string_pretty(self)?)?;
-        Ok(())
+        super::write_private_json(path, self)
     }
     /// Has an app registered (client id/secret) — ready to [`connect`].
     pub fn has_client(&self) -> bool {
@@ -86,12 +123,22 @@ pub fn connect(mut cfg: GmailConfig, open_browser: impl FnOnce(&str)) -> Result<
     let state = ulid::Ulid::new().to_string();
     let (listener, redirect_uri) = oauth::loopback()?;
     let url = oauth::authorize_url(
-        AUTH_ENDPOINT, &cfg.client_id, &redirect_uri, SCOPES, &pkce.challenge, &state,
+        AUTH_ENDPOINT,
+        &cfg.client_id,
+        &redirect_uri,
+        SCOPES,
+        &pkce.challenge,
+        &state,
     );
     open_browser(&url);
     let code = oauth::wait_for_code(&listener, &state)?;
     let tokens = oauth::exchange_code(
-        TOKEN_ENDPOINT, &cfg.client_id, &cfg.client_secret, &code, &pkce.verifier, &redirect_uri,
+        TOKEN_ENDPOINT,
+        &cfg.client_id,
+        &cfg.client_secret,
+        &code,
+        &pkce.verifier,
+        &redirect_uri,
     )?;
     if tokens.refresh_token.is_empty() {
         anyhow::bail!("Google returned no refresh token — revoke prior access and retry");
@@ -112,12 +159,20 @@ pub(crate) fn access_token(cfg: &GmailConfig) -> Result<String> {
             return Ok(tok.clone());
         }
     }
-    let t = oauth::refresh_access(TOKEN_ENDPOINT, &cfg.client_id, &cfg.client_secret, &cfg.refresh_token)?;
+    let t = oauth::refresh_access(
+        TOKEN_ENDPOINT,
+        &cfg.client_id,
+        &cfg.client_secret,
+        &cfg.refresh_token,
+    )?;
     if t.access_token.is_empty() {
         anyhow::bail!("Gmail refresh returned no access token");
     }
     let ttl = (t.expires_in.max(60) as u64).saturating_sub(60);
-    *ACCESS_CACHE.lock().unwrap() = Some((t.access_token.clone(), Instant::now() + Duration::from_secs(ttl)));
+    *ACCESS_CACHE.lock().unwrap() = Some((
+        t.access_token.clone(),
+        Instant::now() + Duration::from_secs(ttl),
+    ));
     Ok(t.access_token)
 }
 
@@ -131,7 +186,11 @@ pub(crate) fn get_json(req: ureq::Request) -> Result<serde_json::Value> {
             let body = resp.into_string().unwrap_or_default();
             let detail = serde_json::from_str::<serde_json::Value>(&body)
                 .ok()
-                .and_then(|j| j.pointer("/error/message").and_then(|v| v.as_str()).map(str::to_string))
+                .and_then(|j| {
+                    j.pointer("/error/message")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string)
+                })
                 .unwrap_or_else(|| body.chars().take(200).collect());
             anyhow::bail!("Gmail API error (HTTP {code}): {detail}")
         }
@@ -208,7 +267,10 @@ pub(crate) fn parse_message(json: &serde_json::Value) -> GmailMessage {
             .and_then(|h| h.as_array())
             .and_then(|hs| {
                 hs.iter().find(|h| {
-                    h.get("name").and_then(|n| n.as_str()).map(|n| n.eq_ignore_ascii_case(name)).unwrap_or(false)
+                    h.get("name")
+                        .and_then(|n| n.as_str())
+                        .map(|n| n.eq_ignore_ascii_case(name))
+                        .unwrap_or(false)
                 })
             })
             .and_then(|h| h.get("value"))
@@ -218,12 +280,20 @@ pub(crate) fn parse_message(json: &serde_json::Value) -> GmailMessage {
     };
     let (from_name, from_email) = split_from(&header("From"));
     GmailMessage {
-        id: json.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        id: json
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
         subject: header("Subject"),
         from_name,
         from_email,
         date: header("Date"),
-        snippet: json.get("snippet").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        snippet: json
+            .get("snippet")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
         body: json.get("payload").map(extract_body).unwrap_or_default(),
     }
 }
@@ -256,7 +326,11 @@ pub fn list_recent(cfg: &GmailConfig, query: &str, max: u32) -> Result<Vec<Gmail
     let ids: Vec<String> = list
         .get("messages")
         .and_then(|m| m.as_array())
-        .map(|a| a.iter().filter_map(|m| m.get("id").and_then(|v| v.as_str()).map(String::from)).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|m| m.get("id").and_then(|v| v.as_str()).map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
 
     let mut out = Vec::new();
@@ -275,8 +349,16 @@ pub fn list_recent(cfg: &GmailConfig, query: &str, max: u32) -> Result<Vec<Gmail
 /// as an `@[[Person]]`, a `src:gmail:` back-link, and a follow-up todo. Pure.
 pub fn message_to_note(msg: &GmailMessage) -> (String, String) {
     let subject = msg.subject.trim();
-    let title = if subject.is_empty() { "Email".to_string() } else { subject.to_string() };
-    let who = if !msg.from_name.trim().is_empty() { msg.from_name.trim() } else { msg.from_email.trim() };
+    let title = if subject.is_empty() {
+        "Email".to_string()
+    } else {
+        subject.to_string()
+    };
+    let who = if !msg.from_name.trim().is_empty() {
+        msg.from_name.trim()
+    } else {
+        msg.from_email.trim()
+    };
 
     let mut body = String::new();
     let from = match (msg.from_name.trim(), msg.from_email.trim()) {
@@ -293,12 +375,20 @@ pub fn message_to_note(msg: &GmailMessage) -> (String, String) {
     }
     body.push('\n');
     // Prefer the full decoded body; fall back to the snippet preview.
-    let content = if !msg.body.trim().is_empty() { msg.body.trim() } else { msg.snippet.trim() };
+    let content = if !msg.body.trim().is_empty() {
+        msg.body.trim()
+    } else {
+        msg.snippet.trim()
+    };
     if !content.is_empty() {
         body.push_str(content);
         body.push_str("\n\n");
     }
-    let subj_for_todo = if subject.is_empty() { "this email".to_string() } else { format!("\"{subject}\"") };
+    let subj_for_todo = if subject.is_empty() {
+        "this email".to_string()
+    } else {
+        format!("\"{subject}\"")
+    };
     let mut todo = format!("TODO(followup) Follow up: {subj_for_todo}");
     if !who.is_empty() {
         todo.push_str(&format!(" @[[{who}]]"));
@@ -337,11 +427,23 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("gmail.json");
         assert!(GmailConfig::load_from(&path).is_none());
-        GmailConfig { client_id: "cid".into(), client_secret: "s".into(), refresh_token: "rt".into() }
-            .save_to(&path)
-            .unwrap();
+        GmailConfig {
+            client_id: "cid".into(),
+            client_secret: "s".into(),
+            refresh_token: "rt".into(),
+        }
+        .save_to(&path)
+        .unwrap();
         assert!(GmailConfig::load_from(&path).unwrap().is_connected());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn config_accepts_redacted_secret_fields() {
+        let cfg: GmailConfig = serde_json::from_str(r#"{"client_id":"cid"}"#).unwrap();
+        assert_eq!(cfg.client_id, "cid");
+        assert!(cfg.client_secret.is_empty());
+        assert!(cfg.refresh_token.is_empty());
     }
 
     #[test]
@@ -384,10 +486,18 @@ mod tests {
         assert_eq!(title, "Q3 budget");
         assert!(body.contains("**From:** Jane Doe <jane@x.com>"));
         assert!(body.contains("The full email body."));
-        assert!(!body.contains("preview…"), "full body should win over the snippet");
-        assert!(body.contains(r#"TODO(followup) Follow up: "Q3 budget" @[[Jane Doe]] src:gmail:18abc"#));
+        assert!(
+            !body.contains("preview…"),
+            "full body should win over the snippet"
+        );
+        assert!(
+            body.contains(r#"TODO(followup) Follow up: "Q3 budget" @[[Jane Doe]] src:gmail:18abc"#)
+        );
         // with no body, the snippet is the fallback
-        let m2 = GmailMessage { body: String::new(), ..m };
+        let m2 = GmailMessage {
+            body: String::new(),
+            ..m
+        };
         assert!(message_to_note(&m2).1.contains("preview…"));
     }
 
@@ -414,6 +524,9 @@ mod tests {
 
     #[test]
     fn message_url_points_at_gmail() {
-        assert_eq!(message_url("18abc"), "https://mail.google.com/mail/u/0/#all/18abc");
+        assert_eq!(
+            message_url("18abc"),
+            "https://mail.google.com/mail/u/0/#all/18abc"
+        );
     }
 }

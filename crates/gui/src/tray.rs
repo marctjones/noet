@@ -71,47 +71,55 @@ mod imp {
 
         let weak = ui.as_weak();
         let timer = slint::Timer::default();
-        timer.start(slint::TimerMode::Repeated, Duration::from_millis(150), move || {
-            // A click on the tray icon brings the window forward.
-            while let Ok(ev) = TrayIconEvent::receiver().try_recv() {
-                let bring = matches!(
-                    ev,
-                    TrayIconEvent::Click { .. } | TrayIconEvent::DoubleClick { .. }
-                );
-                if bring {
-                    if let Some(ui) = weak.upgrade() {
-                        let _ = ui.show();
+        timer.start(
+            slint::TimerMode::Repeated,
+            Duration::from_millis(150),
+            move || {
+                // A click on the tray icon brings the window forward.
+                while let Ok(ev) = TrayIconEvent::receiver().try_recv() {
+                    let bring = matches!(
+                        ev,
+                        TrayIconEvent::Click { .. } | TrayIconEvent::DoubleClick { .. }
+                    );
+                    if bring {
+                        if let Some(ui) = weak.upgrade() {
+                            let _ = ui.show();
+                        }
                     }
                 }
-            }
-            // Menu selections.
-            while let Ok(ev) = MenuEvent::receiver().try_recv() {
-                let Some(ui) = weak.upgrade() else { continue };
-                if ev.id == id_meeting {
-                    crate::dispatch_cmd(&ui, "new-meeting");
-                } else if ev.id == id_capture {
-                    crate::dispatch_cmd(&ui, "capture");
-                } else if ev.id == id_show {
-                    crate::dispatch_cmd(&ui, "show");
-                } else if ev.id == id_quit {
-                    let _ = slint::quit_event_loop();
+                // Menu selections.
+                while let Ok(ev) = MenuEvent::receiver().try_recv() {
+                    let Some(ui) = weak.upgrade() else { continue };
+                    if ev.id == id_meeting {
+                        crate::dispatch_cmd(&ui, "new-meeting");
+                    } else if ev.id == id_capture {
+                        crate::dispatch_cmd(&ui, "capture");
+                    } else if ev.id == id_show {
+                        crate::dispatch_cmd(&ui, "show");
+                    } else if ev.id == id_quit {
+                        let _ = slint::quit_event_loop();
+                    }
                 }
-            }
-            // Global hotkeys (fire on press only).
-            while let Ok(ev) = GlobalHotKeyEvent::receiver().try_recv() {
-                if ev.state() != HotKeyState::Pressed {
-                    continue;
+                // Global hotkeys (fire on press only).
+                while let Ok(ev) = GlobalHotKeyEvent::receiver().try_recv() {
+                    if ev.state() != HotKeyState::Pressed {
+                        continue;
+                    }
+                    let Some(ui) = weak.upgrade() else { continue };
+                    if ev.id() == hk_meeting_id {
+                        crate::dispatch_cmd(&ui, "new-meeting");
+                    } else if ev.id() == hk_capture_id {
+                        crate::dispatch_cmd(&ui, "capture");
+                    }
                 }
-                let Some(ui) = weak.upgrade() else { continue };
-                if ev.id() == hk_meeting_id {
-                    crate::dispatch_cmd(&ui, "new-meeting");
-                } else if ev.id() == hk_capture_id {
-                    crate::dispatch_cmd(&ui, "capture");
-                }
-            }
-        });
+            },
+        );
 
-        Some(Tray { _tray: tray, _hotkeys: hotkeys, _timer: timer })
+        Some(Tray {
+            _tray: tray,
+            _hotkeys: hotkeys,
+            _timer: timer,
+        })
     }
 
     /// A 32×32 brand-teal rounded-square icon, generated in code so we don't bundle

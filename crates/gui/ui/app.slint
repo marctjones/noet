@@ -146,8 +146,9 @@ component ExtChip inherits Rectangle {
     background: ec.has-hover ? #5b1b9a : #efe7fd;
     animate background { duration: 100ms; easing: ease-out; }
     HorizontalLayout {
-        padding-left: 6px; padding-right: 6px;
-        Text { text: "🔗 " + root.text; color: ec.has-hover ? white : #5b1b9a; font-size: (10px * Z.f); font-weight: 500; vertical-alignment: center; }
+        padding-left: 6px; padding-right: 6px; spacing: 4px;
+        Image { source: Icons.external; colorize: ec.has-hover ? white : #5b1b9a; width: 12px; height: 12px; vertical-alignment: center; }
+        Text { text: root.text; color: ec.has-hover ? white : #5b1b9a; font-size: (10px * Z.f); font-weight: 500; vertical-alignment: center; }
     }
     ec := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
@@ -292,13 +293,59 @@ component MiniBtn inherits Rectangle {
     t := TouchArea { clicked => { root.clicked(); } }
 }
 
+component ActionButton inherits Rectangle {
+    in property <image> icon;
+    in property <string> label;
+    in property <bool> primary;
+    in property <string> a11y: label;
+    callback clicked;
+    height: 30px;
+    width: label == "" ? 32px : ab-content.preferred-width + 20px;
+    border-radius: 5px;
+    background: primary ? Theme.accent : (ab-touch.has-hover ? Theme.hover : Theme.surface3);
+    border-width: 1px;
+    border-color: primary ? Theme.accent : Theme.border;
+    animate background { duration: 100ms; easing: ease-out; }
+    accessible-role: button;
+    accessible-label: a11y;
+    accessible-action-default => { root.clicked(); }
+    ab-content := HorizontalLayout {
+        padding-left: root.label == "" ? 0px : 9px;
+        padding-right: root.label == "" ? 0px : 10px;
+        spacing: 6px;
+        alignment: center;
+        Image {
+            source: root.icon;
+            colorize: root.primary ? white : Theme.text2;
+            width: 15px * Z.f;
+            height: 15px * Z.f;
+            vertical-alignment: center;
+        }
+        if root.label != "": Text {
+            text: root.label;
+            font-size: (12px * Z.f);
+            font-weight: root.primary ? 700 : 600;
+            color: root.primary ? white : Theme.text;
+            vertical-alignment: center;
+        }
+    }
+    ab-touch := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
 // A small, discreet ✕ for the top-right corner of a pane. Position it absolutely
 // (x: parent.width - self.width - 4px; y: 4px) inside the pane and wire `closed`.
 component CloseX inherits Rectangle {
     callback closed();
     width: 18px; height: 18px; border-radius: 4px;
     background: cx.has-hover ? #f8d7da : transparent;
-    Text { text: "✕"; font-size: (11px * Z.f); color: cx.has-hover ? #c82333 : Theme.text3; horizontal-alignment: center; vertical-alignment: center; }
+    Image {
+        source: Icons.x;
+        colorize: cx.has-hover ? #c82333 : Theme.text3;
+        width: 13px * Z.f;
+        height: 13px * Z.f;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+    }
     cx := TouchArea { clicked => { root.closed(); } }
 }
 
@@ -310,6 +357,102 @@ component KbRow inherits HorizontalLayout {
     spacing: 12px;
     Text { text: root.keys; font-size: (12px * Z.f); font-weight: 600; color: Theme.text2; width: 150px; vertical-alignment: center; }
     Text { text: root.desc; font-size: (12px * Z.f); color: Theme.text; horizontal-stretch: 1; vertical-alignment: center; overflow: elide; }
+}
+
+component SectionTitle inherits HorizontalLayout {
+    in property <string> title;
+    in property <string> detail;
+    in property <color> accent: Theme.accent;
+    height: 28px;
+    spacing: 8px;
+    Rectangle { width: 3px; height: 16px; y: (parent.height - self.height) / 2; border-radius: 2px; background: root.accent; }
+    Text { text: root.title; font-size: (11px * Z.f); font-weight: 800; letter-spacing: 0.5px; color: Theme.text; vertical-alignment: center; }
+    Text { text: root.detail; font-size: (11px * Z.f); color: Theme.text3; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+}
+
+component MetricTile inherits Rectangle {
+    in property <string> value;
+    in property <string> label;
+    in property <color> accent: Theme.accent;
+    height: 58px;
+    border-radius: 7px;
+    background: Theme.surface;
+    border-width: 1px;
+    border-color: Theme.border;
+    VerticalLayout {
+        padding-left: 10px; padding-right: 10px; padding-top: 7px; padding-bottom: 7px;
+        Text { text: root.value; font-size: (19px * Z.f); font-weight: 800; color: root.accent; }
+        Text { text: root.label; font-size: (10px * Z.f); color: Theme.text3; overflow: elide; }
+    }
+}
+
+component NoteRow inherits Rectangle {
+    in property <NoteItem> note;
+    callback open(string);
+    height: 44px;
+    border-radius: 6px;
+    background: nr.has-hover ? Theme.surface3 : transparent;
+    animate background { duration: 100ms; }
+    VerticalLayout {
+        padding-left: 8px; padding-right: 8px; padding-top: 6px; padding-bottom: 6px;
+        Text { text: note.title; font-size: (13px * Z.f); font-weight: 650; color: Theme.text; overflow: elide; }
+        Text { text: note.subtitle; font-size: (10px * Z.f); color: Theme.text3; overflow: elide; }
+    }
+    nr := TouchArea { mouse-cursor: pointer; clicked => { root.open(note.id); } }
+}
+
+component CommitmentRow inherits Rectangle {
+    in property <TodoItem> t;
+    in property <color> accent: Theme.accent;
+    in property <string> action-label: "Open";
+    callback cycle(string);
+    callback edit(string);
+    callback external(string);
+    callback open(string);
+    height: 62px;
+    border-radius: 7px;
+    background: crt.has-hover ? Theme.surface3 : transparent;
+    animate background { duration: 100ms; }
+    Rectangle { width: 3px; height: 100%; border-radius: 2px; background: root.accent; }
+    crt := TouchArea {
+        mouse-cursor: pointer;
+        double-clicked => { root.open(t.id); }
+    }
+    HorizontalLayout {
+        padding-left: 10px; padding-right: 8px; padding-top: 7px; padding-bottom: 7px;
+        spacing: 9px;
+        Rectangle {
+            width: 20px; height: 20px; y: 2px;
+            border-radius: 4px;
+            border-width: 1.5px;
+            border-color: (t.status == "doing" || crcb.has-hover) ? root.accent : Theme.text3;
+            background: t.status == "done" ? #1f9d57 : (t.status == "doing" ? Theme.sel : Theme.surface);
+            Text { text: t.status == "done" ? "✓" : (t.status == "doing" ? "•" : ""); color: t.status == "done" ? white : root.accent; font-size: (13px * Z.f); horizontal-alignment: center; vertical-alignment: center; }
+            crcb := TouchArea { mouse-cursor: pointer; clicked => { root.cycle(t.id); } }
+        }
+        KindDot { kind: t.kind; }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 4px;
+            Text {
+                text: (t.priority != "" ? "[" + t.priority + "] " : "") + t.text;
+                font-size: (13px * Z.f);
+                font-weight: 650;
+                color: t.done ? Theme.text3 : Theme.text;
+                overflow: elide;
+            }
+            HorizontalLayout {
+                spacing: 4px;
+                Chip { text: t.status; tint: #eef2f7; ink: #67727d; }
+                Chip { text: t.project; tint: #e7f7ec; ink: #1f7a44; }
+                Chip { text: t.person; tint: #fdeede; ink: #9a5b1b; }
+                Chip { text: t.due; tint: #fde7ea; ink: #9a1b33; }
+                ExtChip { text: t.external; clicked => { root.external(t.external); } }
+            }
+        }
+        Button { text: root.action-label; clicked => { root.open(t.id); } }
+        Button { text: "Edit"; clicked => { root.edit(t.id); } }
+    }
 }
 
 // Compact, content-sized toolbar button for the editor formatting bar.
@@ -423,16 +566,6 @@ component MenuPanel inherits Rectangle {
     }
 }
 
-// A tiny caption labelling a group of menu items.
-component MenuHeader inherits Rectangle {
-    in property <string> label;
-    height: 20px;
-    HorizontalLayout {
-        padding-left: 10px; padding-top: 6px;
-        Text { text: root.label; font-size: (9px * Z.f); letter-spacing: 1px; color: Theme.text3; }
-    }
-}
-
 // A clickable menu-bar title that opens its dropdown; auto-sizes to its label.
 // A menu-bar title. Click toggles its dropdown; once ANY menu is open, hovering
 // a different title switches to it instantly (classic menu-bar behavior). State
@@ -468,145 +601,6 @@ component Field inherits VerticalLayout {
     spacing: 4px;
     Text { text: label; font-size: (11px * Z.f); font-weight: 600; color: Theme.text2; }
     @children
-}
-
-// Rendered note content (markdown blocks or a compiled Typst image). Shared by
-// the read pane and the live edit-preview pane.
-component RenderedView inherits Rectangle {
-    in property <[MdBlock]> blocks;
-    in property <bool> is-typst;
-    in property <image> img;
-    callback toggle-todo(string);
-    callback edit-requested();
-    callback open-url(string);
-    callback filter-entity(string, string);
-    callback toggle-fold(int);
-    rv := ScrollView {
-        Rectangle {
-            width: rv.visible-width;
-            // background layer: click empty space to edit. Checkboxes / link
-            // chips render on top of this and receive their own clicks.
-            TouchArea { width: 100%; height: 100%; mouse-cursor: text; clicked => { root.edit-requested(); } }
-            VerticalLayout {
-                spacing: 6px;
-                if (root.is-typst): Image {
-                source: root.img;
-                width: rv.visible-width - 16px;
-                height: self.source.width > 0 ? self.width * self.source.height / self.source.width : 0px;
-                image-fit: contain;
-            }
-            if (!root.is-typst): VerticalLayout {
-                spacing: 6px;
-                for b in root.blocks: Rectangle {
-                    VerticalLayout {
-                        padding-left: b.indent * 18px;
-                        if (b.kind == "rule"): Rectangle {
-                            height: 11px;
-                            Rectangle { y: 5px; height: 1px; background: Theme.border; }
-                        }
-                        if (b.kind == "code"): Rectangle {
-                            background: #f3f5f8;
-                            border-radius: 6px;
-                            VerticalLayout {
-                                padding: 8px;
-                                Text { text: b.text; font-family: "monospace"; font-size: (12px * Z.f); color: Theme.text2; wrap: word-wrap; }
-                            }
-                        }
-                        if (b.kind == "typst"): Image {
-                            source: b.img;
-                            width: rv.visible-width - 16px;
-                            height: self.source.width > 0 ? self.width * self.source.height / self.source.width : 0px;
-                            image-fit: contain;
-                        }
-                        if (b.kind == "todo"): HorizontalLayout {
-                            spacing: 7px;
-                            Rectangle {
-                                width: 18px; height: 18px; y: 1px;
-                                border-radius: 4px;
-                                border-width: 1.5px;
-                                border-color: (b.status == "doing" || cb.has-hover) ? Theme.accent : Theme.text3;
-                                background: b.status == "done" ? #1f9d57 : (b.status == "doing" ? Theme.sel : white);
-                                animate border-color { duration: 100ms; easing: ease-out; }
-                                Text { text: b.status == "done" ? "✓" : (b.status == "doing" ? "•" : ""); color: b.status == "done" ? white : Theme.accent; font-size: (13px * Z.f); horizontal-alignment: center; vertical-alignment: center; }
-                                cb := TouchArea { mouse-cursor: pointer; clicked => { root.toggle-todo(b.todo-id); } }
-                            }
-                            Text {
-                                text: b.text;
-                                font-size: (13px * Z.f);
-                                color: b.done ? Theme.text3 : Theme.text;
-                                wrap: word-wrap;
-                                horizontal-stretch: 1;
-                            }
-                        }
-                        // headings, with a collapse toggle
-                        if (b.kind == "h1" || b.kind == "h2" || b.kind == "h3"): HorizontalLayout {
-                            spacing: 4px;
-                            Rectangle {
-                                width: 16px;
-                                Text { text: b.folded ? "▸" : "▾"; font-size: 11px * Z.f; color: ft.has-hover ? Theme.accent : Theme.text3; horizontal-alignment: center; vertical-alignment: center; }
-                                ft := TouchArea { mouse-cursor: pointer; clicked => { root.toggle-fold(b.block-id); } }
-                            }
-                            Text {
-                                text: b.text;
-                                font-size: (b.kind == "h1" ? 21px : b.kind == "h2" ? 17px : 14px) * Z.f;
-                                font-weight: 800;
-                                color: Theme.text;
-                                wrap: word-wrap;
-                                horizontal-stretch: 1;
-                            }
-                        }
-                        if (b.kind != "rule" && b.kind != "code" && b.kind != "typst" && b.kind != "todo" && b.kind != "h1" && b.kind != "h2" && b.kind != "h3" && b.segments.length == 0): Text {
-                            text: b.text;
-                            font-size: 13px * Z.f;
-                            font-weight: 400;
-                            color: b.kind == "quote" ? Theme.text2 : Theme.text;
-                            wrap: word-wrap;
-                        }
-                        // inline rich line: plain text + clickable entity chips + URLs
-                        if (b.segments.length > 0): HorizontalLayout {
-                            alignment: start;
-                            for s in b.segments: Rectangle {
-                                if (s.kind == ""): Text { text: s.text; font-size: (13px * Z.f); color: Theme.text; vertical-alignment: center; }
-                                if (s.kind == "url"): Rectangle {
-                                    Text { text: s.text; font-size: (13px * Z.f); color: Theme.accent; vertical-alignment: center; }
-                                    urlta := TouchArea { mouse-cursor: pointer; clicked => { root.open-url(s.value); } }
-                                }
-                                if (s.kind == "project"): Rectangle {
-                                    height: 19px; y: 1px; border-radius: 4px;
-                                    background: pta.has-hover ? #1f7a44 : #e7f7ec;
-                                    HorizontalLayout { padding-left: 5px; padding-right: 5px;
-                                        Text { text: s.text; font-size: (12px * Z.f); font-weight: 600; color: pta.has-hover ? white : #1f7a44; vertical-alignment: center; }
-                                    }
-                                    pta := TouchArea { mouse-cursor: pointer; clicked => { root.filter-entity("project", s.value); } }
-                                }
-                                if (s.kind == "person"): Rectangle {
-                                    height: 19px; y: 1px; border-radius: 4px;
-                                    background: peta.has-hover ? #9a5b1b : #fdeede;
-                                    HorizontalLayout { padding-left: 5px; padding-right: 5px;
-                                        Text { text: s.text; font-size: (12px * Z.f); font-weight: 600; color: peta.has-hover ? white : #9a5b1b; vertical-alignment: center; }
-                                    }
-                                    peta := TouchArea { mouse-cursor: pointer; clicked => { root.filter-entity("person", s.value); } }
-                                }
-                                if (s.kind == "tag"): Rectangle {
-                                    height: 19px; y: 1px; border-radius: 4px;
-                                    background: tta.has-hover ? #5b1b9a : #f3ecfb;
-                                    HorizontalLayout { padding-left: 5px; padding-right: 5px;
-                                        Text { text: s.text; font-size: (12px * Z.f); font-weight: 600; color: tta.has-hover ? white : #5b1b9a; vertical-alignment: center; }
-                                    }
-                                    tta := TouchArea { mouse-cursor: pointer; clicked => { root.filter-entity("tag", s.value); } }
-                                }
-                            }
-                        }
-                    }
-                }
-                if (root.blocks.length == 0): Text {
-                    text: "(nothing to preview yet)";
-                    color: Theme.text3; font-size: (13px * Z.f); font-italic: true;
-                }
-            }
-            }
-        }
-    }
 }
 
 // --- Main window ---------------------------------------------------------
@@ -681,6 +675,11 @@ export component AppWindow inherits Window {
     out property <bool> nav-eff-collapsed: root.nav-collapsed || root.win-w < 720px;
     out property <bool> rail-eff-hidden: root.rail-hidden || root.focus-mode || root.win-w < 860px;
     in-out property <string> open-menu: ""; // which menu-bar dropdown is open ("" = none)
+    in-out property <bool> note-context-open: false;
+    in-out property <string> note-context-id: "";
+    in-out property <string> note-context-title: "";
+    in-out property <length> note-context-x: 0px;
+    in-out property <length> note-context-y: 0px;
     in-out property <length> notes-width: 280px;
     in-out property <bool> resizing: false;
     in-out property <string> resize-target;
@@ -776,6 +775,7 @@ export component AppWindow inherits Window {
     in-out property <string> form-external;
     in-out property <string> form-priority;
     in-out property <string> form-repeat;
+    in-out property <bool> form-show-details: false;
 
     // Settings view: paths shown read-only; vault-input is the editable field.
     in-out property <string> vault-path;
@@ -829,6 +829,8 @@ export component AppWindow inherits Window {
     in property <[NoteTab]> note-tabs;   // open-notes tab strip (pinned + recent)
     callback pin-note(string);           // toggle a note's pinned bookmark
     callback close-tab(string);          // drop a note from the tab strip
+    callback delete-note-id(string);     // move a specific note to trash
+    callback archive-note-id(string, bool);
     callback save-note(string, string, string);
     callback reindex();
     callback toggle-todo(string);
@@ -954,16 +956,18 @@ export component AppWindow inherits Window {
                         horizontal-stretch: 1;
                         edited(t) => { root.set-search(t); }
                     }
-                    Button { text: "⌘K  Go to…"; clicked => { root.palette-query = ""; root.palette-search(""); root.palette-open = true; } }
-                    Button { text: root.focus-mode ? "⛶ Exit focus" : "⛶ Focus"; clicked => { root.focus-mode = !root.focus-mode; } }
-                    Button { text: "＋ New note"; primary: true; clicked => { root.new-note(); } }
-                    Button { text: "⟳"; clicked => { root.reindex(); } }
+                    ActionButton { icon: Icons.keyboard; label: "Go to…"; a11y: "Command palette"; clicked => { root.palette-query = ""; root.palette-search(""); root.palette-open = true; } }
+                    ActionButton { icon: Icons.focus; label: root.focus-mode ? "Exit focus" : "Focus"; clicked => { root.focus-mode = !root.focus-mode; } }
+                    ActionButton { icon: Icons.plus; label: "New note"; primary: true; clicked => { root.new-note(); } }
+                    ActionButton { icon: Icons.refresh; label: ""; a11y: "Reindex"; clicked => { root.reindex(); } }
                     Button { text: "A−"; clicked => { Z.f = max(Z.f - 0.1, 0.6); } }
                     Button { text: "A＋"; clicked => { Z.f = min(Z.f + 0.1, 2.5); } }
                     // Shows the current text zoom; click to reset to 100%.
                     Button { text: Math.round(Z.f * 100) + "%"; clicked => { Z.f = 1.0; } }
-                    Button {
-                        text: Theme.dark ? "☀" : "🌙";
+                    ActionButton {
+                        icon: Theme.dark ? Icons.sun : Icons.moon;
+                        label: "";
+                        a11y: Theme.dark ? "Light theme" : "Dark theme";
                         clicked => {
                             Palette.color-scheme = Theme.dark ? ColorScheme.light : ColorScheme.dark;
                         }
@@ -982,8 +986,8 @@ export component AppWindow inherits Window {
                 HorizontalLayout {
                     padding-left: 10px; padding-right: 10px; padding-top: 5px; padding-bottom: 5px; spacing: 6px;
                     alignment: start;
-                    if (root.view == "today"): Button { text: "＋ Capture"; clicked => { root.set-view("inbox"); } }
-                    if (root.view == "today"): Button { text: "⟳ Refresh"; clicked => { root.reindex(); } }
+                    if (root.view == "today"): ActionButton { icon: Icons.plus; label: "Capture"; clicked => { root.set-view("inbox"); } }
+                    if (root.view == "today"): ActionButton { icon: Icons.refresh; label: "Refresh"; clicked => { root.reindex(); } }
                     // After jumping to a note from a todo, offer a one-click return
                     // to the list (Tasks/Board/Today/…) you came from.
                     if (root.view == "notes" && root.note-return-view != ""): Button {
@@ -997,12 +1001,12 @@ export component AppWindow inherits Window {
                             root.note-return-view == "calendar" ? "Calendar" : "list");
                         clicked => { root.set-view(root.note-return-view); }
                     }
-                    if (root.view == "notes"): Button { text: "⎇ Related note"; clicked => { root.new-related-note(); } }
-                    if (root.view == "notes"): Button { text: "✓ Add todo"; clicked => { root.open-add-todo(); } }
-                    if (root.view == "notes"): Button { text: "⤓ Export PDF"; clicked => { root.export-note("pdf"); } }
-                    if (root.view == "tasks" || root.view == "agenda" || root.view == "gantt"): Button { text: "✓ Add todo"; clicked => { root.open-add-todo(); } }
-                    if (root.view == "inbox"): Button { text: "＋ New note"; primary: true; clicked => { root.new-note(); } }
-                    if (root.view == "review"): Button { text: "⇄ Sync Outlook"; clicked => { root.sync-outlook(); } }
+                    if (root.view == "notes"): ActionButton { icon: Icons.branch; label: "Related note"; clicked => { root.new-related-note(); } }
+                    if (root.view == "notes"): ActionButton { icon: Icons.check; label: "Add todo"; clicked => { root.open-add-todo(); } }
+                    if (root.view == "notes"): ActionButton { icon: Icons.download; label: "Export PDF"; clicked => { root.export-note("pdf"); } }
+                    if (root.view == "tasks" || root.view == "agenda" || root.view == "gantt"): ActionButton { icon: Icons.check; label: "Add todo"; clicked => { root.open-add-todo(); } }
+                    if (root.view == "inbox"): ActionButton { icon: Icons.plus; label: "New note"; primary: true; clicked => { root.new-note(); } }
+                    if (root.view == "review"): ActionButton { icon: Icons.refresh; label: "Sync Outlook"; clicked => { root.sync-outlook(); } }
                     Rectangle { horizontal-stretch: 1; }
                     if (root.active-summary != ""): Text { text: root.active-summary; font-size: (11px * Z.f); color: Theme.text3; vertical-alignment: center; }
                     // Close this view (back to the previously open view).
@@ -1198,7 +1202,7 @@ export component AppWindow inherits Window {
                             height: 100px;
                             ListView {
                                 for p in root.people: FacetRow {
-                                    name: "◷ " + p.name;
+                                    name: "@ " + p.name;
                                     count: p.count;
                                     active: p.active;
                                     ink: #9a5b1b;
@@ -1211,9 +1215,9 @@ export component AppWindow inherits Window {
                         HorizontalLayout {
                             spacing: 4px;
                             LineEdit { placeholder-text: "save filter as…"; text <=> root.smartlist-input; horizontal-stretch: 1; accepted => { root.save-smart-list(root.smartlist-input); } }
-                            Button { text: "💾"; clicked => { root.save-smart-list(root.smartlist-input); } }
+                            ActionButton { icon: Icons.save; label: ""; a11y: "Save filter"; clicked => { root.save-smart-list(root.smartlist-input); } }
                         }
-                        Button { text: "✕ Clear filters"; clicked => { root.clear-filters(); } }
+                        ActionButton { icon: Icons.filter-x; label: "Clear filters"; clicked => { root.clear-filters(); } }
                     }
                 }
 
@@ -1278,7 +1282,18 @@ export component AppWindow inherits Window {
                                             Text { text: n.title; font-size: (13px * Z.f); font-weight: 600; color: Theme.text; overflow: elide; }
                                             Text { text: n.subtitle; font-size: (10px * Z.f); color: Theme.text3; overflow: elide; }
                                         }
-                                        nt := TouchArea { clicked => { root.select-note(n.id); } }
+                                        nt := TouchArea {
+                                            clicked => { root.select-note(n.id); }
+                                            pointer-event(e) => {
+                                                if (e.kind == PointerEventKind.down && e.button == PointerEventButton.right) {
+                                                    root.note-context-id = n.id;
+                                                    root.note-context-title = n.title;
+                                                    root.note-context-x = min(self.absolute-position.x + self.mouse-x, root.width - 246px);
+                                                    root.note-context-y = min(self.absolute-position.y + self.mouse-y, root.height - 220px);
+                                                    root.note-context-open = true;
+                                                }
+                                            }
+                                        }
                                     }
                                   }
                                 }
@@ -1317,23 +1332,56 @@ export component AppWindow inherits Window {
                                                 border-width: 1px;
                                                 border-color: tab.id == root.current-id ? Theme.accent : transparent;
                                                 // Row click selects; the pin/close TouchAreas sit on top of it.
-                                                tabta := TouchArea { mouse-cursor: pointer; clicked => { root.select-note(tab.id); } }
+                                                tabta := TouchArea {
+                                                    mouse-cursor: pointer;
+                                                    clicked => { root.select-note(tab.id); }
+                                                    pointer-event(e) => {
+                                                        if (e.kind == PointerEventKind.down && e.button == PointerEventButton.right) {
+                                                            root.note-context-id = tab.id;
+                                                            root.note-context-title = tab.title;
+                                                            root.note-context-x = min(self.absolute-position.x + self.mouse-x, root.width - 246px);
+                                                            root.note-context-y = min(self.absolute-position.y + self.mouse-y, root.height - 220px);
+                                                            root.note-context-open = true;
+                                                        }
+                                                    }
+                                                }
                                                 HorizontalLayout {
                                                     padding-left: 6px; padding-right: 4px; spacing: 3px;
                                                     pinta := TouchArea {
                                                         width: 14px; mouse-cursor: pointer;
-                                                        Text { text: tab.pinned ? "★" : "☆"; font-size: (11px * Z.f); color: tab.pinned ? Theme.accent : Theme.text3; horizontal-alignment: center; vertical-alignment: center; }
+                                                        Image {
+                                                            source: Icons.star;
+                                                            colorize: tab.pinned ? Theme.accent : Theme.text3;
+                                                            width: 12px * Z.f;
+                                                            height: 12px * Z.f;
+                                                            x: (parent.width - self.width) / 2;
+                                                            y: (parent.height - self.height) / 2;
+                                                        }
                                                         clicked => { root.pin-note(tab.id); }
                                                     }
                                                     Text { text: tab.title; font-size: (12px * Z.f); color: Theme.text; vertical-alignment: center; overflow: elide; max-width: 130px; }
                                                     splitta := TouchArea {
                                                         width: 14px; mouse-cursor: pointer;
-                                                        Text { text: "⊟"; font-size: (11px * Z.f); color: splitta.has-hover ? Theme.accent : Theme.text3; horizontal-alignment: center; vertical-alignment: center; }
+                                                        Image {
+                                                            source: Icons.panel-right;
+                                                            colorize: splitta.has-hover ? Theme.accent : Theme.text3;
+                                                            width: 12px * Z.f;
+                                                            height: 12px * Z.f;
+                                                            x: (parent.width - self.width) / 2;
+                                                            y: (parent.height - self.height) / 2;
+                                                        }
                                                         clicked => { root.open-in-split(tab.id); }
                                                     }
                                                     closeta := TouchArea {
                                                         width: 14px; mouse-cursor: pointer;
-                                                        Text { text: "✕"; font-size: (10px * Z.f); color: closeta.has-hover ? Theme.text : Theme.text3; horizontal-alignment: center; vertical-alignment: center; }
+                                                        Image {
+                                                            source: Icons.x;
+                                                            colorize: closeta.has-hover ? Theme.text : Theme.text3;
+                                                            width: 11px * Z.f;
+                                                            height: 11px * Z.f;
+                                                            x: (parent.width - self.width) / 2;
+                                                            y: (parent.height - self.height) / 2;
+                                                        }
                                                         clicked => { root.close-tab(tab.id); }
                                                     }
                                                 }
@@ -1412,7 +1460,7 @@ export component AppWindow inherits Window {
                                                         Text { text: "PEOPLE"; font-size: (9px * Z.f); letter-spacing: 0.5px; color: Theme.text3; }
                                                         ListView {
                                                             for p in root.people: MenuItem {
-                                                                label: "◷ " + p.name;
+                                                                label: "@ " + p.name;
                                                                 clicked => { editpane.snip("@[[" + p.name + "]]"); perPick.close(); }
                                                             }
                                                         }
@@ -1445,8 +1493,8 @@ export component AppWindow inherits Window {
                                             tagpick := TouchArea { clicked => { tagPick.show(); } }
                                         }
                                         Rectangle { width: 8px; }
-                                        ToolBtn { label: "→ Todo"; clicked => { editpane.copysel(); root.selection-to-todo(); } }
-                                        ToolBtn { label: "→ Note"; clicked => { editpane.copysel(); root.selection-to-note(); } }
+                                        ToolBtn { label: "Todo"; clicked => { editpane.copysel(); root.selection-to-todo(); } }
+                                        ToolBtn { label: "Note"; clicked => { editpane.copysel(); root.selection-to-note(); } }
                                         Rectangle { horizontal-stretch: 1; }
                                     }
                                     // Title + a discreet word/char count on the right (moved off the
@@ -1476,7 +1524,7 @@ export component AppWindow inherits Window {
                                             padding: 4px; spacing: 6px; alignment: start;
                                             Text { text: "In this note:"; font-size: (10px * Z.f); color: Theme.text3; vertical-alignment: center; }
                                             for p in root.current-projects: LinkChip { text: "▸ " + p; tint: #e7f7ec; ink: #1f7a44; clicked => { root.toggle-project(p); } }
-                                            for pe in root.current-people: LinkChip { text: "◷ " + pe; tint: #fdeede; ink: #9a5b1b; clicked => { root.toggle-person(pe); } }
+                                            for pe in root.current-people: LinkChip { text: "@ " + pe; tint: #fdeede; ink: #9a5b1b; clicked => { root.toggle-person(pe); } }
                                             for tg in root.current-tags: LinkChip { text: "# " + tg; tint: #f3ecfb; ink: #5b1b9a; clicked => { root.toggle-tag(tg); } }
                                         }
                                     }
@@ -1492,7 +1540,8 @@ export component AppWindow inherits Window {
                                     if (root.current-related.length > 0 && !root.source-mode): HorizontalLayout {
                                         spacing: 5px;
                                         alignment: start;
-                                        Text { text: "🔗 link a related meeting:"; font-size: (11px * Z.f); color: Theme.text3; vertical-alignment: center; }
+                                        Image { source: Icons.external; colorize: Theme.text3; width: 13px * Z.f; height: 13px * Z.f; vertical-alignment: center; }
+                                        Text { text: "link a related meeting:"; font-size: (11px * Z.f); color: Theme.text3; vertical-alignment: center; }
                                         for r in root.current-related: LinkChip {
                                             text: r.via == "" ? r.title : r.title + "  · via " + r.via;
                                             tint: Theme.sel; ink: Theme.accent;
@@ -1575,22 +1624,19 @@ export component AppWindow inherits Window {
                                     HorizontalLayout {
                                         spacing: 8px;
                                         LineEdit { placeholder-text: "add to a workstream…"; text <=> root.topic-input; horizontal-stretch: 1; accepted => { root.add-link(root.topic-input); } }
-                                        Button { text: "▸ Add"; clicked => { root.add-link(root.topic-input); } }
+                                        ActionButton { icon: Icons.branch; label: "Add"; clicked => { root.add-link(root.topic-input); } }
                                         LineEdit { placeholder-text: "new #label…"; text <=> root.tag-input; horizontal-stretch: 1; accepted => { root.add-tag(root.tag-input); } }
-                                        Button { text: "＃ Label"; clicked => { root.add-tag(root.tag-input); } }
+                                        ActionButton { icon: Icons.labels; label: "Label"; clicked => { root.add-tag(root.tag-input); } }
                                     }
                                     HorizontalLayout {
                                         spacing: 8px;
-                                        Button { text: root.source-mode ? "✦ Rich text" : "</> Source"; clicked => { root.source-mode = !root.source-mode; } }
-                                        Button { text: "＋ Add todo"; clicked => { root.open-add-todo(); } }
-                                        Button { text: "↳ Related note"; clicked => { root.new-related-note(); } }
-                                        Button {
-                                            text: "⬚ " + root.current-kind;  // auto / markdown / typst
-                                            clicked => { root.toggle-kind(); }
-                                        }
+                                        ActionButton { icon: Icons.edit; label: root.source-mode ? "Rich text" : "Source"; clicked => { root.source-mode = !root.source-mode; } }
+                                        ActionButton { icon: Icons.check; label: "Add todo"; clicked => { root.open-add-todo(); } }
+                                        ActionButton { icon: Icons.branch; label: "Related note"; clicked => { root.new-related-note(); } }
+                                        ActionButton { icon: Icons.notes; label: root.current-kind; clicked => { root.toggle-kind(); } }
                                         Rectangle { horizontal-stretch: 1; }
-                                        LineEdit { placeholder-text: "📎 attach path…"; text <=> root.attach-input; horizontal-stretch: 1; accepted => { root.attach-path(root.attach-input); } }
-                                        Button { text: "📎"; clicked => { root.attach-path(root.attach-input); } }
+                                        LineEdit { placeholder-text: "attach path…"; text <=> root.attach-input; horizontal-stretch: 1; accepted => { root.attach-path(root.attach-input); } }
+                                        ActionButton { icon: Icons.paperclip; label: ""; a11y: "Attach path"; clicked => { root.attach-path(root.attach-input); } }
                                     }
                                 }
                             }
@@ -1640,38 +1686,49 @@ export component AppWindow inherits Window {
                     horizontal-stretch: 1;
                     background: Theme.bg;
                     VerticalLayout {
-                        padding: 10px;
-                        spacing: 8px;
+                        padding: 12px;
+                        spacing: 10px;
+                        HorizontalLayout {
+                            spacing: 10px;
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                Text { text: "Board"; font-size: (22px * Z.f); font-weight: 800; color: Theme.text; }
+                                Text { text: "Move active work through a flow, grouped by the way you are planning right now."; font-size: (12px * Z.f); color: Theme.text3; }
+                            }
+                            Rectangle {
+                                width: 190px; height: 30px;
+                                ComboBox {
+                                    width: 100%; height: 100%;
+                                    model: ["status", "kind", "workstream", "person"];
+                                    current-value <=> root.group-by;
+                                    selected(v) => { root.set-group-by(v); }
+                                }
+                            }
+                            ActionButton { icon: Icons.check; label: "Add todo"; primary: true; clicked => { root.open-add-todo(); } }
+                        }
                         HorizontalLayout {
                             spacing: 8px;
-                            Text { text: "Group by"; font-size: (12px * Z.f); color: Theme.text2; vertical-alignment: center; }
-                            ComboBox {
-                                model: ["status", "kind", "workstream", "person"];
-                                current-value <=> root.group-by;
-                                selected(v) => { root.set-group-by(v); }
-                            }
-                            Button { text: "＋ Add todo"; clicked => { root.open-add-todo(); } }
-                            Text {
-                                text: root.active-summary;
-                                font-size: (12px * Z.f); color: Theme.text3; vertical-alignment: center;
-                                horizontal-stretch: 1;
-                            }
-                            Text { text: "drag cards between columns ↔"; font-size: (11px * Z.f); color: Theme.text3; vertical-alignment: center; }
+                            MetricTile { value: "" + root.tasks.length; label: "visible commitments"; accent: Theme.accent; horizontal-stretch: 1; }
+                            MetricTile { value: "" + root.board-columns.length; label: "groups"; accent: #1f7a44; horizontal-stretch: 1; }
+                            MetricTile { value: root.active-summary == "" ? "All" : root.active-summary; label: "current filter"; accent: #9a5b1b; horizontal-stretch: 2; }
                         }
                         Flickable {
-                            viewport-width: max(self.width, root.board-columns.length * 250px);
+                            viewport-width: max(self.width, root.board-columns.length * 286px);
                             HorizontalLayout {
                                 padding: 2px;
-                                spacing: 8px;
+                                spacing: 10px;
                                 for col in root.board-columns: Rectangle {
-                                    width: 242px;
-                                    background: Theme.surface3;
+                                    width: 276px;
+                                    background: Theme.surface;
                                     border-radius: 8px;
+                                    border-width: 1px;
+                                    border-color: Theme.border;
                                     VerticalLayout {
-                                        padding: 8px;
-                                        spacing: 6px;
+                                        padding: 10px;
+                                        spacing: 8px;
                                         HorizontalLayout {
-                                            Text { text: col.title; font-size: (13px * Z.f); font-weight: 700; color: Theme.text2; horizontal-stretch: 1; overflow: elide; }
+                                            Rectangle { width: 3px; height: 18px; border-radius: 2px; background: Theme.accent; }
+                                            Text { text: col.title; font-size: (13px * Z.f); font-weight: 800; color: Theme.text; horizontal-stretch: 1; overflow: elide; }
                                             Chip { text: col.count; tint: #cfd6df; ink: #4a5560; }
                                         }
                                         DropArea {
@@ -1680,30 +1737,31 @@ export component AppWindow inherits Window {
                                             dropped(e) => { root.drop-card(e.data, col.key); }
                                             ListView {
                                                 for c in col.cards: Rectangle {
-                                                    height: 104px;
-                                                    background: Theme.surface;
-                                                    border-radius: 8px;
-                                                    drop-shadow-blur: cardta.has-hover ? 7px : 3px;
-                                                    drop-shadow-color: cardta.has-hover ? #00000026 : #00000012;
-                                                    animate drop-shadow-blur { duration: 120ms; }
+                                                    height: 118px;
+                                                    background: cardta.has-hover ? Theme.surface2 : Theme.surface3;
+                                                    border-radius: 7px;
+                                                    border-width: 1px;
+                                                    border-color: cardta.has-hover ? Theme.accent : transparent;
+                                                    animate background { duration: 120ms; }
                                                     cardta := TouchArea {
                                                     // Double-click the card → open its note at the todo's line.
                                                     double-clicked => { root.open-note(c.id); }
                                                     VerticalLayout {
-                                                        padding: 8px;
-                                                        spacing: 5px;
+                                                        padding: 9px;
+                                                        spacing: 7px;
                                                         DragArea {
                                                             mime-type: "text/plain";
                                                             data: c.id;
                                                             VerticalLayout {
-                                                                spacing: 5px;
+                                                                spacing: 7px;
                                                                 HorizontalLayout {
-                                                                    spacing: 5px;
+                                                                    spacing: 6px;
                                                                     KindDot { kind: c.kind; }
-                                                                    Text { text: c.text; font-size: (12px * Z.f); color: c.done ? Theme.text3 : Theme.text; overflow: elide; horizontal-stretch: 1; }
+                                                                    Text { text: c.text; font-size: (12px * Z.f); font-weight: 650; color: c.done ? Theme.text3 : Theme.text; overflow: elide; horizontal-stretch: 1; }
                                                                 }
                                                                 HorizontalLayout {
                                                                     spacing: 4px;
+                                                                    Chip { text: c.status; tint: #eef2f7; ink: #67727d; }
                                                                     Chip { text: c.project; tint: #e7f7ec; ink: #1f7a44; }
                                                                     Chip { text: c.person; tint: #fdeede; ink: #9a5b1b; }
                                                                     Chip { text: c.due; tint: #fde7ea; ink: #9a1b33; }
@@ -1786,48 +1844,70 @@ export component AppWindow inherits Window {
                     horizontal-stretch: 1;
                     background: Theme.bg;
                     VerticalLayout {
-                        padding: 10px; spacing: 8px;
-                        Text { text: "TODAY"; font-size: (16px * Z.f); font-weight: 800; color: Theme.text; }
-                        Rectangle {
-                            vertical-stretch: 1; background: Theme.surface; border-radius: 8px;
-                            tdsv := ScrollView {
-                                VerticalLayout {
-                                    width: tdsv.visible-width;
-                                    padding: 10px; spacing: 14px;
+                        padding: 12px; spacing: 10px;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                Text { text: "Today"; font-size: (22px * Z.f); font-weight: 800; color: Theme.text; }
+                                Text { text: "Triage what needs attention, then move into notes or agenda."; font-size: (12px * Z.f); color: Theme.text3; }
+                            }
+                            ActionButton { icon: Icons.plus; label: "Capture"; clicked => { root.quick-capture-open = true; } }
+                            ActionButton { icon: Icons.refresh; label: "Refresh"; clicked => { root.reindex(); } }
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            MetricTile { value: "" + root.agenda-overdue.length; label: "overdue"; accent: #c82333; horizontal-stretch: 1; }
+                            MetricTile { value: "" + root.agenda-today.length; label: "due today"; accent: #1f7a44; horizontal-stretch: 1; }
+                            MetricTile { value: "" + root.today-stale.length; label: "stale follow-ups"; accent: #d98324; horizontal-stretch: 1; }
+                            MetricTile { value: "" + root.inbox-notes.length; label: "unfiled inbox"; accent: #5b1b9a; horizontal-stretch: 1; }
+                        }
+                        tdsv := ScrollView {
+                            vertical-stretch: 1;
+                            VerticalLayout {
+                                width: tdsv.visible-width;
+                                spacing: 10px;
+                                Rectangle {
+                                    background: Theme.surface; border-radius: 8px; border-width: 1px; border-color: Theme.border;
                                     VerticalLayout {
-                                        spacing: 2px;
-                                        Text { text: "⚠ OVERDUE (" + root.agenda-overdue.length + ")"; font-size: (11px * Z.f); font-weight: 700; color: #c82333; }
+                                        padding: 10px; spacing: 3px;
+                                        SectionTitle { title: "OVERDUE"; detail: root.agenda-overdue.length + " needs recovery"; accent: #c82333; }
                                         for t in root.agenda-overdue: AgendaRow { t: t; cycle(id) => { root.cycle-todo(id); } edit(id) => { root.edit-todo(id); } open(id) => { root.open-note(id); } }
                                         if (root.agenda-overdue.length == 0): Text { text: "Nothing overdue."; color: Theme.text3; font-size: (12px * Z.f); font-italic: true; }
                                     }
+                                }
+                                Rectangle {
+                                    background: Theme.surface; border-radius: 8px; border-width: 1px; border-color: Theme.border;
                                     VerticalLayout {
-                                        spacing: 2px;
-                                        Text { text: "DUE TODAY (" + root.agenda-today.length + ")"; font-size: (11px * Z.f); font-weight: 700; color: #1f7a44; }
+                                        padding: 10px; spacing: 3px;
+                                        SectionTitle { title: "DUE TODAY"; detail: root.agenda-today.length + " scheduled commitments"; accent: #1f7a44; }
                                         for t in root.agenda-today: AgendaRow { t: t; cycle(id) => { root.cycle-todo(id); } edit(id) => { root.edit-todo(id); } open(id) => { root.open-note(id); } }
-                                        if (root.agenda-today.length == 0): Text { text: "Nothing due today."; color: Theme.text3; font-size: (12px * Z.f); font-italic: true; }
+                                        if (root.agenda-today.length == 0): Text { text: "No due-date pressure today."; color: Theme.text3; font-size: (12px * Z.f); font-italic: true; }
                                     }
-                                    VerticalLayout {
-                                        spacing: 2px;
-                                        Text { text: "STALE FOLLOW-UPS (" + root.today-stale.length + ")"; font-size: (11px * Z.f); font-weight: 700; color: #d98324; }
-                                        for t in root.today-stale: AgendaRow { t: t; cycle(id) => { root.cycle-todo(id); } edit(id) => { root.edit-todo(id); } open(id) => { root.open-note(id); } }
-                                        if (root.today-stale.length == 0): Text { text: "Nothing stale. Nice."; color: Theme.text3; font-size: (12px * Z.f); font-italic: true; }
+                                }
+                                HorizontalLayout {
+                                    spacing: 10px;
+                                    Rectangle {
+                                        horizontal-stretch: 1;
+                                        background: Theme.surface; border-radius: 8px; border-width: 1px; border-color: Theme.border;
+                                        VerticalLayout {
+                                            padding: 10px; spacing: 3px;
+                                            SectionTitle { title: "FOLLOW-UP"; detail: root.today-stale.length + " aging loops"; accent: #d98324; }
+                                            for t in root.today-stale: AgendaRow { t: t; cycle(id) => { root.cycle-todo(id); } edit(id) => { root.edit-todo(id); } open(id) => { root.open-note(id); } }
+                                            if (root.today-stale.length == 0): Text { text: "No stale follow-ups."; color: Theme.text3; font-size: (12px * Z.f); font-italic: true; }
+                                        }
                                     }
-                                    HorizontalLayout {
-                                        Text { text: "INBOX: " + root.inbox-notes.length + " unfiled"; font-size: (11px * Z.f); font-weight: 700; color: #5b1b9a; vertical-alignment: center; horizontal-stretch: 1; }
-                                        Button { text: "Open Inbox"; clicked => { root.set-view("inbox"); } }
-                                    }
-                                    VerticalLayout {
-                                        spacing: 2px;
-                                        Text { text: "RECENTLY EDITED"; font-size: (11px * Z.f); font-weight: 700; color: Theme.text2; }
-                                        for n in root.today-recent: Rectangle {
-                                            height: 38px; border-radius: 5px;
-                                            background: trt.has-hover ? Theme.surface3 : transparent;
-                                            VerticalLayout {
-                                                padding: 5px;
-                                                Text { text: n.title; font-size: (13px * Z.f); font-weight: 600; color: Theme.text; overflow: elide; }
-                                                Text { text: n.subtitle; font-size: (10px * Z.f); color: Theme.text3; overflow: elide; }
+                                    Rectangle {
+                                        width: 300px;
+                                        background: Theme.surface; border-radius: 8px; border-width: 1px; border-color: Theme.border;
+                                        VerticalLayout {
+                                            padding: 10px; spacing: 6px;
+                                            HorizontalLayout {
+                                                SectionTitle { title: "INBOX"; detail: root.inbox-notes.length + " unfiled"; accent: #5b1b9a; horizontal-stretch: 1; }
+                                                Button { text: "Open"; clicked => { root.set-view("inbox"); } }
                                             }
-                                            trt := TouchArea { clicked => { root.select-note(n.id); root.set-view("notes"); } }
+                                            SectionTitle { title: "RECENT"; detail: "edited notes"; accent: Theme.text3; }
+                                            for n in root.today-recent: NoteRow { note: n; open(id) => { root.select-note(id); root.set-view("notes"); } }
                                         }
                                     }
                                 }
@@ -2141,15 +2221,18 @@ export component AppWindow inherits Window {
                     horizontal-stretch: 1;
                     background: Theme.bg;
                     HorizontalLayout {
-                        padding: 10px; spacing: 10px;
+                        padding: 12px; spacing: 12px;
                         Rectangle {
-                            width: 220px; background: Theme.surface; border-radius: 8px;
+                            width: 250px; background: Theme.surface; border-radius: 8px; border-width: 1px; border-color: Theme.border;
                             VerticalLayout {
-                                padding: 8px;
-                                Text { text: "DIRECT REPORTS / PEOPLE"; font-size: (10px * Z.f); letter-spacing: 0.5px; color: Theme.text3; }
+                                padding: 10px; spacing: 6px;
+                                Text { text: "People"; font-size: (20px * Z.f); font-weight: 800; color: Theme.text; }
+                                Text { text: "Pick a person to prep discussion, delegation, and recent context."; font-size: (11px * Z.f); color: Theme.text3; wrap: word-wrap; }
+                                Rectangle { height: 1px; background: Theme.border; }
                                 ListView {
+                                    vertical-stretch: 1;
                                     for p in root.people: FacetRow {
-                                        name: "◷ " + p.name;
+                                        name: "@ " + p.name;
                                         count: p.count;
                                         active: p.name == root.selected-person;
                                         ink: #9a5b1b; hover-bg: #fdf2e6;
@@ -2159,46 +2242,73 @@ export component AppWindow inherits Window {
                             }
                         }
                         Rectangle {
-                            horizontal-stretch: 1; background: Theme.surface; border-radius: 8px;
+                            horizontal-stretch: 1; background: Theme.surface; border-radius: 8px; border-width: 1px; border-color: Theme.border;
                             VerticalLayout {
-                                padding: 12px; spacing: 8px;
-                                Text {
-                                    text: root.selected-person == "" ? "Pick a person to prep your 1:1" : ("1:1 — " + root.selected-person);
-                                    font-size: (18px * Z.f); font-weight: 700; color: Theme.text;
+                                padding: 12px; spacing: 10px;
+                                HorizontalLayout {
+                                    spacing: 10px;
+                                    VerticalLayout {
+                                        horizontal-stretch: 1;
+                                        Text {
+                                            text: root.selected-person == "" ? "1:1 cockpit" : root.selected-person;
+                                            font-size: (22px * Z.f); font-weight: 800; color: Theme.text;
+                                        }
+                                        Text {
+                                            text: root.selected-person == "" ? "Select someone from the left to build a prep brief." : "Prep the next conversation from todos, delegation, and notes.";
+                                            font-size: (12px * Z.f); color: Theme.text3;
+                                        }
+                                    }
+                                    if root.selected-person != "": ActionButton { icon: Icons.meeting; label: "New 1:1 note"; clicked => { root.new-from-template("oneonone"); } }
                                 }
-                                ppsv := ScrollView {
+                                if root.selected-person == "": EmptyState {
+                                    glyph: "@";
+                                    title: "Pick a person";
+                                    hint: "Noet will collect discussion points, delegated work, and recent notes here.";
+                                }
+                                if root.selected-person != "": HorizontalLayout {
+                                    spacing: 8px;
+                                    MetricTile { value: "" + root.person-discuss.length; label: "to discuss"; accent: #9a5b1b; horizontal-stretch: 1; }
+                                    MetricTile { value: "" + root.person-delegated.length; label: "delegated"; accent: #1f7a44; horizontal-stretch: 1; }
+                                    MetricTile { value: "" + root.person-other.length; label: "other todos"; accent: Theme.accent; horizontal-stretch: 1; }
+                                    MetricTile { value: "" + root.person-notes.length; label: "notes"; accent: Theme.text2; horizontal-stretch: 1; }
+                                }
+                                if root.selected-person != "": ppsv := ScrollView {
+                                    vertical-stretch: 1;
                                     VerticalLayout {
                                         width: ppsv.visible-width;
-                                        spacing: 12px;
-                                        VerticalLayout {
-                                            spacing: 2px;
-                                            Text { text: "TO DISCUSS / DELEGATE (" + root.person-discuss.length + ")"; font-size: (11px * Z.f); font-weight: 700; color: #9a5b1b; }
-                                            for t in root.person-discuss: AgendaRow { t: t; cycle(id) => { root.cycle-todo(id); } edit(id) => { root.edit-todo(id); } open(id) => { root.open-note(id); } }
-                                            if (root.selected-person != "" && root.person-discuss.length == 0): Text { text: "Nothing queued to discuss."; color: Theme.text3; font-size: (12px * Z.f); font-italic: true; }
+                                        spacing: 10px;
+                                        Rectangle {
+                                            background: Theme.surface2; border-radius: 7px;
+                                            VerticalLayout {
+                                                padding: 10px; spacing: 3px;
+                                                SectionTitle { title: "DISCUSS"; detail: root.person-discuss.length + " prompts for the next 1:1"; accent: #9a5b1b; }
+                                                for t in root.person-discuss: AgendaRow { t: t; cycle(id) => { root.cycle-todo(id); } edit(id) => { root.edit-todo(id); } open(id) => { root.open-note(id); } }
+                                                if (root.person-discuss.length == 0): Text { text: "Nothing queued to discuss."; color: Theme.text3; font-size: (12px * Z.f); font-italic: true; }
+                                            }
                                         }
-                                        VerticalLayout {
-                                            spacing: 2px;
-                                            Text { text: "DELEGATED — AWAITING (" + root.person-delegated.length + ")"; font-size: (11px * Z.f); font-weight: 700; color: #1f7a44; }
-                                            for t in root.person-delegated: AgendaRow { t: t; cycle(id) => { root.cycle-todo(id); } edit(id) => { root.edit-todo(id); } open(id) => { root.open-note(id); } }
+                                        Rectangle {
+                                            background: Theme.surface2; border-radius: 7px;
+                                            VerticalLayout {
+                                                padding: 10px; spacing: 3px;
+                                                SectionTitle { title: "DELEGATED"; detail: root.person-delegated.length + " items you are waiting on"; accent: #1f7a44; }
+                                                for t in root.person-delegated: AgendaRow { t: t; cycle(id) => { root.cycle-todo(id); } edit(id) => { root.edit-todo(id); } open(id) => { root.open-note(id); } }
+                                                if (root.person-delegated.length == 0): Text { text: "No delegated items waiting."; color: Theme.text3; font-size: (12px * Z.f); font-italic: true; }
+                                            }
                                         }
-                                        VerticalLayout {
-                                            spacing: 2px;
-                                            Text { text: "OTHER TODOS (" + root.person-other.length + ")"; font-size: (11px * Z.f); font-weight: 700; color: Theme.accent; }
-                                            for t in root.person-other: AgendaRow { t: t; cycle(id) => { root.cycle-todo(id); } edit(id) => { root.edit-todo(id); } open(id) => { root.open-note(id); } }
+                                        Rectangle {
+                                            background: Theme.surface2; border-radius: 7px;
+                                            VerticalLayout {
+                                                padding: 10px; spacing: 3px;
+                                                SectionTitle { title: "OTHER TODOS"; detail: root.person-other.length + " related tasks"; accent: Theme.accent; }
+                                                for t in root.person-other: AgendaRow { t: t; cycle(id) => { root.cycle-todo(id); } edit(id) => { root.edit-todo(id); } open(id) => { root.open-note(id); } }
+                                            }
                                         }
-                                        VerticalLayout {
-                                            spacing: 2px;
-                                            Text { text: "MENTIONED IN NOTES (" + root.person-notes.length + ")"; font-size: (11px * Z.f); font-weight: 700; color: Theme.text2; }
-                                            for n in root.person-notes: Rectangle {
-                                                height: 40px; border-radius: 5px;
-                                                background: pnt.has-hover ? Theme.surface3 : transparent;
-                                                animate background { duration: 100ms; }
-                                                VerticalLayout {
-                                                    padding: 5px;
-                                                    Text { text: n.title; font-size: (13px * Z.f); font-weight: 600; color: Theme.text; overflow: elide; }
-                                                    Text { text: n.subtitle; font-size: (10px * Z.f); color: Theme.text3; overflow: elide; }
-                                                }
-                                                pnt := TouchArea { clicked => { root.select-note(n.id); root.set-view("notes"); } }
+                                        Rectangle {
+                                            background: Theme.surface2; border-radius: 7px;
+                                            VerticalLayout {
+                                                padding: 10px; spacing: 3px;
+                                                SectionTitle { title: "RECENT CONTEXT"; detail: root.person-notes.length + " notes mention them"; accent: Theme.text2; }
+                                                for n in root.person-notes: NoteRow { note: n; open(id) => { root.select-note(id); root.set-view("notes"); } }
                                             }
                                         }
                                     }
@@ -2253,41 +2363,64 @@ export component AppWindow inherits Window {
                 if (root.view == "inbox"): Rectangle {
                     horizontal-stretch: 1;
                     background: Theme.bg;
-                    VerticalLayout {
-                        padding: 10px; spacing: 8px;
-                        Text { text: "INBOX — quick captures not yet filed into a workstream"; font-size: (11px * Z.f); letter-spacing: 0.5px; color: Theme.text3; }
-                        HorizontalLayout {
-                            spacing: 6px;
-                            LineEdit {
-                                placeholder-text: "Quick-capture a thought…  (Enter to save)";
-                                text <=> root.capture-input;
-                                horizontal-stretch: 1;
-                                accepted => { root.quick-capture(root.capture-input); }
+                    HorizontalLayout {
+                        padding: 12px; spacing: 12px;
+                        Rectangle {
+                            width: 340px;
+                            background: Theme.surface;
+                            border-radius: 8px;
+                            border-width: 1px;
+                            border-color: Theme.border;
+                            VerticalLayout {
+                                padding: 14px; spacing: 10px;
+                                Text { text: "Inbox"; font-size: (22px * Z.f); font-weight: 800; color: Theme.text; }
+                                Text { text: "Capture loosely. Triage later into notes, workstreams, people, and todos."; font-size: (12px * Z.f); color: Theme.text3; wrap: word-wrap; }
+                                LineEdit {
+                                    placeholder-text: "Capture a thought, promise, or loose note";
+                                    text <=> root.capture-input;
+                                    accepted => { root.quick-capture(root.capture-input); }
+                                }
+                                ActionButton { icon: Icons.plus; label: "Capture to inbox"; primary: true; clicked => { root.quick-capture(root.capture-input); } }
+                                Rectangle { height: 1px; background: Theme.border; }
+                                SectionTitle { title: "TRIAGE FLOW"; detail: "open an item, then file it"; accent: #5b1b9a; }
+                                Text { text: "1. Open the oldest loose note\n2. Add a workstream or person\n3. Convert next actions into todos\n4. Archive or keep as reference"; font-size: (12px * Z.f); color: Theme.text2; wrap: word-wrap; }
                             }
-                            Button { text: "Capture"; primary: true; clicked => { root.quick-capture(root.capture-input); } }
                         }
                         Rectangle {
-                            vertical-stretch: 1; background: Theme.surface; border-radius: 8px;
+                            horizontal-stretch: 1;
+                            background: Theme.surface;
+                            border-radius: 8px;
+                            border-width: 1px;
+                            border-color: Theme.border;
                             VerticalLayout {
-                                padding: 8px;
-                                Text { text: "UNFILED (" + root.inbox-notes.length + ")"; font-size: (10px * Z.f); letter-spacing: 0.5px; color: Theme.text3; }
+                                padding: 10px; spacing: 6px;
+                                HorizontalLayout {
+                                    SectionTitle { title: "UNFILED"; detail: root.inbox-notes.length + " notes need a home"; accent: #5b1b9a; horizontal-stretch: 1; }
+                                    ActionButton { icon: Icons.plus; label: "New note"; clicked => { root.new-note(); } }
+                                }
                                 if root.inbox-notes.length == 0 : EmptyState {
-                                    glyph: "⬇";
+                                    glyph: "Inbox";
                                     title: "Inbox zero";
-                                    hint: "Nothing unfiled. Capture above, or file notes into a workstream with [[…]].";
+                                    hint: "Nothing unfiled. Capture on the left, or add [[workstreams]] to existing notes.";
                                 }
                                 ListView {
+                                    vertical-stretch: 1;
                                     for n in root.inbox-notes: Rectangle {
-                                        height: 46px;
-                                        border-radius: 6px;
+                                        height: 58px;
+                                        border-radius: 7px;
                                         background: ibt.has-hover ? Theme.surface3 : transparent;
                                         animate background { duration: 100ms; }
-                                        VerticalLayout {
-                                            padding: 6px;
-                                            Text { text: n.title; font-size: (13px * Z.f); font-weight: 600; color: Theme.text; overflow: elide; }
-                                            Text { text: n.subtitle; font-size: (10px * Z.f); color: Theme.text3; overflow: elide; }
+                                        HorizontalLayout {
+                                            padding: 8px; spacing: 8px;
+                                            Rectangle { width: 3px; height: 100%; border-radius: 2px; background: #5b1b9a; }
+                                            VerticalLayout {
+                                                horizontal-stretch: 1;
+                                                Text { text: n.title; font-size: (13px * Z.f); font-weight: 700; color: Theme.text; overflow: elide; }
+                                                Text { text: n.subtitle; font-size: (10px * Z.f); color: Theme.text3; overflow: elide; }
+                                            }
+                                            Button { text: "Triage"; clicked => { root.select-note(n.id); root.set-view("notes"); } }
                                         }
-                                        ibt := TouchArea { clicked => { root.select-note(n.id); root.set-view("notes"); } }
+                                        ibt := TouchArea { mouse-cursor: pointer; double-clicked => { root.select-note(n.id); root.set-view("notes"); } }
                                     }
                                 }
                             }
@@ -2295,71 +2428,54 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                // ----- TASKS view (flat list) -----
+                // ----- TASKS view (commitment command center) -----
                 if (root.view == "tasks"): Rectangle {
                     horizontal-stretch: 1;
                     background: Theme.bg;
                     VerticalLayout {
-                        padding: 10px;
-                        spacing: 8px;
+                        padding: 12px;
+                        spacing: 10px;
+                        HorizontalLayout {
+                            spacing: 10px;
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                Text { text: "Tasks"; font-size: (22px * Z.f); font-weight: 800; color: Theme.text; }
+                                Text { text: "Work from a clean commitment list. Complete, edit, or jump back to the source note."; font-size: (12px * Z.f); color: Theme.text3; }
+                            }
+                            ActionButton { icon: Icons.check; label: "Add todo"; primary: true; clicked => { root.open-add-todo(); } }
+                        }
                         HorizontalLayout {
                             spacing: 8px;
-                            Text { text: "TASKS (" + root.tasks.length + ")"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; vertical-alignment: center; horizontal-stretch: 1; }
-                            Button { text: "＋ Add todo"; clicked => { root.open-add-todo(); } }
-                            Text { text: root.active-summary; font-size: (12px * Z.f); color: Theme.text3; vertical-alignment: center; }
+                            MetricTile { value: "" + root.tasks.length; label: "matching tasks"; accent: Theme.accent; horizontal-stretch: 1; }
+                            MetricTile { value: "" + root.agenda-overdue.length; label: "overdue"; accent: #c82333; horizontal-stretch: 1; }
+                            MetricTile { value: "" + root.agenda-today.length; label: "due today"; accent: #1f7a44; horizontal-stretch: 1; }
+                            MetricTile { value: root.active-summary == "" ? "All" : root.active-summary; label: "active filter"; accent: #9a5b1b; horizontal-stretch: 2; }
                         }
                         Rectangle {
                             vertical-stretch: 1;
                             background: Theme.surface;
                             border-radius: 8px;
+                            border-width: 1px;
+                            border-color: Theme.border;
+                            VerticalLayout {
+                                padding: 10px;
+                                spacing: 6px;
+                                SectionTitle { title: "COMMITMENTS"; detail: root.tasks.length + " visible items"; accent: Theme.accent; }
                             if root.tasks.length == 0 : EmptyState {
-                                glyph: "✓";
+                                glyph: "Tasks";
                                 title: "No tasks match";
                                 hint: "Add a todo, or loosen the filters in the rail.";
                             }
                             ListView {
-                                for t in root.tasks: Rectangle {
-                                    height: 56px;
-                                    background: rowta.has-hover ? Theme.hover : transparent;
-                                    animate background { duration: 100ms; }
-                                    rowta := TouchArea {
-                                    // Double-click the row → open its note at the todo's line (matches Board).
-                                    double-clicked => { root.open-note(t.id); }
-                                    HorizontalLayout {
-                                        padding: 8px;
-                                        spacing: 8px;
-                                        Rectangle {
-                                            width: 20px;
-                                            border-radius: 4px;
-                                            border-width: 1.5px;
-                                            border-color: (t.status == "doing" || cbox.has-hover) ? Theme.accent : Theme.text3;
-                                            background: t.status == "done" ? #1f9d57 : (t.status == "doing" ? Theme.sel : transparent);
-                                            Text { text: t.status == "done" ? "✓" : (t.status == "doing" ? "•" : ""); color: t.status == "done" ? white : Theme.accent; font-size: (13px * Z.f); horizontal-alignment: center; vertical-alignment: center; }
-                                            cbox := TouchArea { mouse-cursor: pointer; clicked => { root.cycle-todo(t.id); } }
-                                        }
-                                        KindDot { kind: t.kind; }
-                                        VerticalLayout {
-                                            horizontal-stretch: 1;
-                                            spacing: 3px;
-                                            Text { text: (t.priority != "" ? "[" + t.priority + "] " : "") + t.text; font-size: (13px * Z.f); color: t.done ? Theme.text3 : Theme.text; overflow: elide; }
-                                            HorizontalLayout {
-                                                spacing: 4px;
-                                                Chip { text: t.priority != "" ? "#" + t.priority : ""; tint: #ffe1c4; ink: #9a5b1b; }
-                                                Chip { text: t.status; tint: #eef2f7; ink: #67727d; }
-                                                Chip { text: t.project; tint: #e7f7ec; ink: #1f7a44; }
-                                                Chip { text: t.person; tint: #fdeede; ink: #9a5b1b; }
-                                                Chip { text: t.due; tint: #fde7ea; ink: #9a1b33; }
-                                                ExtChip { text: t.external; clicked => { root.open-external(t.external); } }
-                                            }
-                                        }
-                                        HorizontalLayout {
-                                            spacing: 4px;
-                                            opacity: rowta.has-hover ? 1.0 : 0.0;
-                                            animate opacity { duration: 120ms; }
-                                            MiniBtn { label: "✎"; clicked => { root.edit-todo(t.id); } }
-                                            MiniBtn { label: "↗"; clicked => { root.open-note(t.id); } }
-                                        }
-                                    }
+                                vertical-stretch: 1;
+                                for t in root.tasks: CommitmentRow {
+                                    t: t;
+                                    accent: Theme.accent;
+                                    action-label: "Open note";
+                                    cycle(id) => { root.cycle-todo(id); }
+                                    edit(id) => { root.edit-todo(id); }
+                                    external(id) => { root.open-external(id); }
+                                    open(id) => { root.open-note(id); }
                                     }
                                 }
                             }
@@ -2367,29 +2483,55 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                // ----- WAITING view (delegated items you're waiting on) -----
+                // ----- WAITING view (follow-up queue) -----
                 if (root.view == "waiting"): Rectangle {
                     horizontal-stretch: 1;
                     background: Theme.bg;
                     VerticalLayout {
-                        padding: 10px;
-                        spacing: 8px;
-                        Text { text: "WAITING ON — delegated items, by person, oldest first (" + root.waiting-todos.length + ")"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
+                        padding: 12px;
+                        spacing: 10px;
+                        HorizontalLayout {
+                            spacing: 10px;
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                Text { text: "Waiting"; font-size: (22px * Z.f); font-weight: 800; color: Theme.text; }
+                                Text { text: "Track delegated work and decide who needs a nudge before it goes stale."; font-size: (12px * Z.f); color: Theme.text3; }
+                            }
+                            ActionButton { icon: Icons.meeting; label: "People"; clicked => { root.set-view("people"); } }
+                            ActionButton { icon: Icons.check; label: "Add follow-up"; primary: true; clicked => { root.open-add-todo(); } }
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            MetricTile { value: "" + root.waiting-todos.length; label: "delegated items"; accent: #1f7a44; horizontal-stretch: 1; }
+                            MetricTile { value: "" + root.person-delegated.length; label: "selected person"; accent: #9a5b1b; horizontal-stretch: 1; }
+                            MetricTile { value: root.selected-person == "" ? "All people" : root.selected-person; label: "people filter"; accent: Theme.accent; horizontal-stretch: 2; }
+                        }
                         Rectangle {
                             vertical-stretch: 1;
                             background: Theme.surface;
                             border-radius: 8px;
+                            border-width: 1px;
+                            border-color: Theme.border;
+                            VerticalLayout {
+                                padding: 10px;
+                                spacing: 6px;
+                                SectionTitle { title: "FOLLOW-UP QUEUE"; detail: "oldest delegated items first"; accent: #1f7a44; }
                             if root.waiting-todos.length == 0 : EmptyState {
-                                glyph: "⏳";
+                                glyph: "Waiting";
                                 title: "Nothing delegated";
-                                hint: "Items you hand off — TODO(delegated) … @[[Person]] — show here, oldest first. Open one to nudge it.";
+                                hint: "Delegated todos with a person show here. Use the person filter to prep a focused follow-up.";
                             }
                             ListView {
-                                for t in root.waiting-todos: AgendaRow {
+                                vertical-stretch: 1;
+                                for t in root.waiting-todos: CommitmentRow {
                                     t: t;
+                                    accent: #1f7a44;
+                                    action-label: "Nudge";
                                     cycle(id) => { root.cycle-todo(id); }
                                     edit(id) => { root.edit-todo(id); }
+                                    external(id) => { root.open-external(id); }
                                     open(id) => { root.open-note(id); }
+                                    }
                                 }
                             }
                         }
@@ -2401,24 +2543,36 @@ export component AppWindow inherits Window {
                     horizontal-stretch: 1;
                     background: Theme.bg;
                     VerticalLayout {
-                        padding: 10px;
-                        spacing: 8px;
+                        padding: 12px;
+                        spacing: 10px;
                         HorizontalLayout {
                             spacing: 8px;
-                            Text { text: "▸ " + root.hub-name; font-size: (16px * Z.f); font-weight: 700; color: Theme.accent; vertical-alignment: center; horizontal-stretch: 1; }
-                            Button { text: "Filter notes to this"; clicked => { root.toggle-project(root.hub-name); root.set-view("notes"); } }
-                            Button { text: "✓ Add todo"; clicked => { root.open-add-todo(); } }
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                Text { text: root.hub-name == "" ? "Workstream" : root.hub-name; font-size: (22px * Z.f); font-weight: 800; color: Theme.text; }
+                                Text { text: "Project cockpit: open loops, related notes, and next actions in one place."; font-size: (12px * Z.f); color: Theme.text3; }
+                            }
+                            ActionButton { icon: Icons.filter-x; label: "Filter notes"; clicked => { root.toggle-project(root.hub-name); root.set-view("notes"); } }
+                            ActionButton { icon: Icons.check; label: "Add todo"; primary: true; clicked => { root.open-add-todo(); } }
                         }
                         HorizontalLayout {
-                            spacing: 10px;
+                            spacing: 8px;
+                            MetricTile { value: "" + root.hub-todos.length; label: "open todos"; accent: Theme.accent; horizontal-stretch: 1; }
+                            MetricTile { value: "" + root.hub-notes.length; label: "linked notes"; accent: #1f7a44; horizontal-stretch: 1; }
+                            MetricTile { value: root.selected-person == "" ? "-" : root.selected-person; label: "person filter"; accent: #9a5b1b; horizontal-stretch: 1; }
+                        }
+                        HorizontalLayout {
+                            spacing: 12px;
                             // Left: open todos in this workstream.
                             Rectangle {
                                 horizontal-stretch: 1;
                                 background: Theme.surface;
                                 border-radius: 8px;
+                                border-width: 1px;
+                                border-color: Theme.border;
                                 VerticalLayout {
                                     padding: 10px; spacing: 6px;
-                                    Text { text: "OPEN TODOS (" + root.hub-todos.length + ")"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
+                                    SectionTitle { title: "OPEN LOOPS"; detail: root.hub-todos.length + " active commitments"; accent: Theme.accent; }
                                     if root.hub-todos.length == 0 : Text { text: "No open todos in this workstream."; font-size: (12px * Z.f); color: Theme.text3; }
                                     ListView {
                                         vertical-stretch: 1;
@@ -2433,22 +2587,25 @@ export component AppWindow inherits Window {
                             }
                             // Right: notes that reference this workstream.
                             Rectangle {
-                                width: 320px;
+                                width: 340px;
                                 background: Theme.surface;
                                 border-radius: 8px;
+                                border-width: 1px;
+                                border-color: Theme.border;
                                 VerticalLayout {
                                     padding: 10px; spacing: 6px;
-                                    Text { text: "NOTES (" + root.hub-notes.length + ")"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
+                                    SectionTitle { title: "REFERENCE"; detail: root.hub-notes.length + " linked notes"; accent: #1f7a44; }
                                     if root.hub-notes.length == 0 : Text { text: "No notes link [[" + root.hub-name + "]] yet."; font-size: (12px * Z.f); color: Theme.text3; wrap: word-wrap; }
                                     ListView {
                                         vertical-stretch: 1;
                                         for n in root.hub-notes: Rectangle {
-                                            height: 34px;
-                                            border-radius: 5px;
+                                            height: 42px;
+                                            border-radius: 6px;
                                             background: hnt.has-hover ? Theme.hover : transparent;
-                                            HorizontalLayout {
-                                                padding-left: 8px; padding-right: 8px;
-                                                Text { text: n.title; font-size: (13px * Z.f); color: Theme.text; vertical-alignment: center; overflow: elide; }
+                                            VerticalLayout {
+                                                padding-left: 8px; padding-right: 8px; padding-top: 6px; padding-bottom: 6px;
+                                                Text { text: n.title; font-size: (13px * Z.f); font-weight: 650; color: Theme.text; overflow: elide; }
+                                                Text { text: "Open note"; font-size: (10px * Z.f); color: Theme.text3; }
                                             }
                                             hnt := TouchArea { clicked => { root.select-note(n.id); root.set-view("notes"); } }
                                         }
@@ -2459,49 +2616,89 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                // ----- LABELS view (cloud) -----
+                // ----- LABELS view (taxonomy manager) -----
                 if (root.view == "labels"): Rectangle {
                     horizontal-stretch: 1;
                     background: Theme.bg;
                     VerticalLayout {
-                        padding: 10px;
-                        spacing: 8px;
-                        Text { text: "LABEL CLOUD — size = how often used. Click a label to filter notes."; font-size: (11px * Z.f); color: Theme.text3; }
-                        Rectangle {
-                            vertical-stretch: 1;
-                            background: Theme.surface;
-                            border-radius: 8px;
-                            lsv := ScrollView {
+                        padding: 12px;
+                        spacing: 10px;
+                        HorizontalLayout {
+                            spacing: 10px;
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                Text { text: "Labels"; font-size: (22px * Z.f); font-weight: 800; color: Theme.text; }
+                                Text { text: "Use labels as lightweight facets for retrieval, review, and cleanup."; font-size: (12px * Z.f); color: Theme.text3; }
+                            }
+                            ActionButton { icon: Icons.plus; label: "New note"; clicked => { root.new-note(); } }
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            MetricTile { value: "" + root.tags.length; label: "labels"; accent: #5b1b9a; horizontal-stretch: 1; }
+                            MetricTile { value: "" + root.max-tag-count; label: "top usage"; accent: #1f7a44; horizontal-stretch: 1; }
+                            MetricTile { value: root.active-summary == "" ? "All notes" : root.active-summary; label: "active filter"; accent: Theme.accent; horizontal-stretch: 2; }
+                        }
+                        HorizontalLayout {
+                            spacing: 12px;
+                            Rectangle {
+                                width: 300px;
+                                background: Theme.surface;
+                                border-radius: 8px;
+                                border-width: 1px;
+                                border-color: Theme.border;
                                 VerticalLayout {
-                                    width: lsv.visible-width;
-                                    padding: 14px;
+                                    padding: 12px;
                                     spacing: 8px;
-                                    for t in root.tags: HorizontalLayout {
-                                        alignment: start;
-                                        spacing: 8px;
-                                        Rectangle {
-                                            border-radius: 8px;
-                                            background: lt.has-hover ? #ede3fb : #f3ecfb;
-                                            animate background { duration: 110ms; easing: ease-out; }
-                                            VerticalLayout {
-                                                padding: 5px;
+                                    SectionTitle { title: "LABEL WORKFLOW"; detail: "keep the taxonomy small"; accent: #5b1b9a; }
+                                    Text { text: "Click a label to filter notes. Prefer durable categories over one-off tags, and clean up labels with very low reuse."; font-size: (12px * Z.f); color: Theme.text2; wrap: word-wrap; }
+                                    Rectangle { height: 1px; background: Theme.border; }
+                                    Text { text: "Good labels answer: what context should retrieve this later?"; font-size: (12px * Z.f); color: Theme.text3; wrap: word-wrap; }
+                                }
+                            }
+                            Rectangle {
+                                horizontal-stretch: 1;
+                                background: Theme.surface;
+                                border-radius: 8px;
+                                border-width: 1px;
+                                border-color: Theme.border;
+                                VerticalLayout {
+                                    padding: 10px;
+                                    spacing: 6px;
+                                    SectionTitle { title: "FACETS"; detail: root.tags.length + " labels sorted by use"; accent: #5b1b9a; }
+                                    if (root.tags.length == 0): EmptyState {
+                                        glyph: "Labels";
+                                        title: "No labels yet";
+                                        hint: "Add #labels to notes when a reusable retrieval facet appears.";
+                                    }
+                                    lsv := ScrollView {
+                                        vertical-stretch: 1;
+                                        VerticalLayout {
+                                            width: lsv.visible-width;
+                                            spacing: 6px;
+                                            for t in root.tags: Rectangle {
+                                                height: 42px;
+                                                border-radius: 7px;
+                                                background: lt.has-hover ? #ede3fb : Theme.surface2;
+                                                animate background { duration: 110ms; easing: ease-out; }
                                                 HorizontalLayout {
-                                                    padding-left: 9px;
-                                                    padding-right: 9px;
+                                                    padding-left: 10px; padding-right: 10px;
+                                                    spacing: 8px;
                                                     Text {
                                                         text: "#" + t.name;
                                                         color: #5b1b9a;
-                                                        font-weight: 600;
-                                                        font-size: min(13px + t.count * 17px / max(1, root.max-tag-count), 26px) * Z.f;
+                                                        font-weight: 700;
+                                                        font-size: min(13px + t.count * 8px / max(1, root.max-tag-count), 18px) * Z.f;
                                                         vertical-alignment: center;
+                                                        horizontal-stretch: 1;
+                                                        overflow: elide;
                                                     }
+                                                    Chip { text: t.count; tint: #eef2f7; ink: #4a5560; }
+                                                    Button { text: "Filter"; clicked => { root.toggle-tag(t.name); } }
                                                 }
+                                                lt := TouchArea { mouse-cursor: pointer; double-clicked => { root.toggle-tag(t.name); } }
                                             }
-                                            lt := TouchArea { clicked => { root.toggle-tag(t.name); } }
                                         }
-                                        Text { text: t.count; color: Theme.text3; font-size: (11px * Z.f); vertical-alignment: center; }
                                     }
-                                    if (root.tags.length == 0): Text { text: "No labels yet — add #tags to notes (＃ Add label in a note)."; color: Theme.text3; font-size: (13px * Z.f); }
                                 }
                             }
                         }
@@ -2513,41 +2710,80 @@ export component AppWindow inherits Window {
                     horizontal-stretch: 1;
                     background: Theme.bg;
                     VerticalLayout {
-                        padding: 10px;
-                        spacing: 8px;
-                        Text { text: "TIMELINE — open todos with due dates (start:…→due:…)"; font-size: (11px * Z.f); color: Theme.text3; }
+                        padding: 12px;
+                        spacing: 10px;
+                        HorizontalLayout {
+                            spacing: 10px;
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                Text { text: "Timeline"; font-size: (22px * Z.f); font-weight: 800; color: Theme.text; }
+                                Text { text: "See scheduled commitments as a planning horizon, then open the source note for detail."; font-size: (12px * Z.f); color: Theme.text3; }
+                            }
+                            ActionButton { icon: Icons.check; label: "Add dated todo"; primary: true; clicked => { root.open-add-todo(); } }
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            MetricTile { value: "" + root.gantt-items.length; label: "scheduled items"; accent: Theme.accent; horizontal-stretch: 1; }
+                            MetricTile { value: "" + root.agenda-week.length; label: "next 7 days"; accent: #1f7a44; horizontal-stretch: 1; }
+                            MetricTile { value: "" + root.agenda-later.length; label: "later"; accent: #9a5b1b; horizontal-stretch: 1; }
+                        }
                         Rectangle {
                             vertical-stretch: 1;
                             background: Theme.surface;
                             border-radius: 8px;
-                            ListView {
-                                for g in root.gantt-items: Rectangle {
-                                    height: 34px;
-                                    HorizontalLayout {
-                                        padding-left: 8px; padding-right: 8px; spacing: 8px;
+                            border-width: 1px;
+                            border-color: Theme.border;
+                            VerticalLayout {
+                                padding: 10px;
+                                spacing: 8px;
+                                SectionTitle { title: "PLANNING HORIZON"; detail: "start to due date"; accent: Theme.accent; }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Text { text: "Commitment"; width: 260px; font-size: (10px * Z.f); font-weight: 800; color: Theme.text3; }
+                                    Text { text: "Schedule"; horizontal-stretch: 1; font-size: (10px * Z.f); font-weight: 800; color: Theme.text3; }
+                                }
+                                if root.gantt-items.length == 0 : EmptyState {
+                                    glyph: "Timeline";
+                                    title: "No dated work";
+                                    hint: "Add due dates to todos to plan the horizon here.";
+                                }
+                                ListView {
+                                    vertical-stretch: 1;
+                                    for g in root.gantt-items: Rectangle {
+                                        height: 46px;
+                                        border-radius: 7px;
+                                        background: gta.has-hover ? Theme.surface3 : transparent;
+                                        animate background { duration: 100ms; }
+                                        gta := TouchArea { mouse-cursor: pointer; double-clicked => { root.open-note(g.id); } }
                                         HorizontalLayout {
-                                            width: 230px;
-                                            spacing: 5px;
+                                            padding-left: 8px; padding-right: 8px; spacing: 10px;
+                                            HorizontalLayout {
+                                                width: 260px;
+                                                spacing: 7px;
                                             KindDot { kind: g.kind; }
-                                            Text { text: g.text; font-size: (12px * Z.f); color: Theme.text; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
-                                        }
-                                        Rectangle {
-                                            horizontal-stretch: 1;
-                                            background: Theme.hover;
-                                            border-radius: 5px;
-                                            Rectangle {
-                                                x: parent.width * g.start-frac;
-                                                width: max(8px, parent.width * g.span-frac);
-                                                height: 16px;
-                                                y: (parent.height - self.height) / 2;
-                                                border-radius: 5px;
-                                                background:
-                                                    g.kind == "do" ? Theme.accent :
-                                                    g.kind == "followup" ? #d98324 :
-                                                    g.kind == "delegated" ? #1f9d57 :
-                                                    g.kind == "todelegate" ? #9a5bd6 : #6b7280;
-                                                Text { text: g.date; font-size: (10px * Z.f); font-weight: 600; color: white; horizontal-alignment: center; vertical-alignment: center; }
+                                                Text { text: g.text; font-size: (12px * Z.f); font-weight: 650; color: Theme.text; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
                                             }
+                                            Rectangle {
+                                                horizontal-stretch: 1;
+                                                height: 24px;
+                                                y: 11px;
+                                                border-radius: 5px;
+                                                background: Theme.hover;
+                                                Rectangle {
+                                                    x: parent.width * g.start-frac;
+                                                    width: max(16px, parent.width * g.span-frac);
+                                                    height: 18px;
+                                                    y: (parent.height - self.height) / 2;
+                                                    border-radius: 5px;
+                                                    background:
+                                                        g.kind == "do" ? Theme.accent :
+                                                        g.kind == "followup" ? #d98324 :
+                                                        g.kind == "delegated" ? #1f9d57 :
+                                                        g.kind == "todelegate" ? #9a5bd6 : #6b7280;
+                                                    Text { text: g.date; font-size: (10px * Z.f); font-weight: 700; color: white; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
+                                                }
+                                            }
+                                            Button { text: "Open"; clicked => { root.open-note(g.id); } }
                                         }
                                     }
                                 }
@@ -2564,83 +2800,105 @@ export component AppWindow inherits Window {
             background: #0b1b2c40;
             TouchArea {} // swallow clicks behind the dialog
             Rectangle {
-                width: 430px;
-                height: 540px;
+                width: min(560px, root.width - 28px);
+                height: formbox.preferred-height;
                 background: Theme.surface;
-                border-radius: 12px;
-                drop-shadow-blur: 10px;
-                drop-shadow-color: #0000001f;
-                VerticalLayout {
-                    padding: 18px;
-                    spacing: 10px;
-                    Text {
-                        text: root.form-is-new ? "Add todo" : "Edit todo";
-                        font-size: (17px * Z.f); font-weight: 700; color: Theme.text;
+                border-radius: 10px;
+                drop-shadow-blur: 18px;
+                drop-shadow-color: #0000002c;
+                formbox := VerticalLayout {
+                    padding: 16px;
+                    spacing: 12px;
+                    HorizontalLayout {
+                        spacing: 10px;
+                        Text {
+                            text: root.form-is-new ? "Add todo" : "Edit todo";
+                            font-size: (17px * Z.f); font-weight: 700; color: Theme.text;
+                            horizontal-stretch: 1;
+                            vertical-alignment: center;
+                        }
+                        CloseX { closed => { root.form-visible = false; } }
                     }
                     Field {
-                        label: "What";
-                        LineEdit { placeholder-text: "e.g. draft the kickoff agenda"; text <=> root.form-text; }
+                        label: "Task";
+                        LineEdit { placeholder-text: "What needs to happen?"; text <=> root.form-text; accepted => { root.save-todo(); } }
                     }
                     HorizontalLayout {
                         spacing: 10px;
                         Field {
-                            label: "Kind";
+                            label: "Type";
                             ComboBox {
                                 model: ["do", "followup", "delegated", "todelegate", "someday", "reading"];
                                 current-value <=> root.form-kind;
                             }
                         }
                         Field {
-                            label: "Status";
-                            ComboBox {
-                                model: ["todo", "doing", "done"];
-                                current-value <=> root.form-status;
+                            label: "Due";
+                            LineEdit { placeholder-text: "YYYY-MM-DD"; text <=> root.form-due; }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 10px;
+                        Field {
+                            label: "Person";
+                            LineEdit { placeholder-text: "person name"; text <=> root.form-person; }
+                        }
+                        Field {
+                            label: "Workstream";
+                            LineEdit { placeholder-text: "workstream name"; text <=> root.form-project; }
+                        }
+                    }
+                    Rectangle { height: 1px; background: Theme.border; }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text {
+                            text: "Details";
+                            font-size: (12px * Z.f);
+                            font-weight: 700;
+                            color: Theme.text2;
+                            horizontal-stretch: 1;
+                            vertical-alignment: center;
+                        }
+                        Button { text: root.form-show-details ? "Hide" : "Show"; clicked => { root.form-show-details = !root.form-show-details; } }
+                    }
+                    if (root.form-show-details): VerticalLayout {
+                        spacing: 10px;
+                        HorizontalLayout {
+                            spacing: 10px;
+                            Field {
+                                label: "Status";
+                                ComboBox {
+                                    model: ["todo", "doing", "done"];
+                                    current-value <=> root.form-status;
+                                }
+                            }
+                            Field {
+                                label: "Priority";
+                                ComboBox { model: ["", "A", "B", "C"]; current-value <=> root.form-priority; }
                             }
                         }
-                    }
-                    HorizontalLayout {
-                        spacing: 10px;
-                        Field {
-                            label: "Person  @";
-                            LineEdit { placeholder-text: "Jane"; text <=> root.form-person; }
+                        HorizontalLayout {
+                            spacing: 10px;
+                            Field {
+                                label: "Start";
+                                LineEdit { placeholder-text: "YYYY-MM-DD"; text <=> root.form-start; }
+                            }
+                            Field {
+                                label: "Repeat";
+                                LineEdit { placeholder-text: "for example 1w"; text <=> root.form-repeat; }
+                            }
                         }
                         Field {
-                            label: "Workstream  +";
-                            LineEdit { placeholder-text: "Acme Onboarding"; text <=> root.form-project; }
+                            label: "External reference";
+                            LineEdit { placeholder-text: "jira:ABC-123, gh:owner/repo#1, or URL"; text <=> root.form-external; }
                         }
-                    }
-                    HorizontalLayout {
-                        spacing: 10px;
-                        Field {
-                            label: "Start (YYYY-MM-DD)";
-                            LineEdit { placeholder-text: "2026-06-01"; text <=> root.form-start; }
-                        }
-                        Field {
-                            label: "Due (YYYY-MM-DD)";
-                            LineEdit { placeholder-text: "2026-06-10"; text <=> root.form-due; }
-                        }
-                    }
-                    HorizontalLayout {
-                        spacing: 10px;
-                        Field {
-                            label: "Priority";
-                            ComboBox { model: ["", "A", "B", "C"]; current-value <=> root.form-priority; }
-                        }
-                        Field {
-                            label: "Repeat (1w / 3d / 1m)";
-                            LineEdit { placeholder-text: "1w"; text <=> root.form-repeat; }
-                        }
-                    }
-                    Field {
-                        label: "External link (jira:KEY-1 / src:outlook:… )";
-                        LineEdit { placeholder-text: "jira:PROJ-12"; text <=> root.form-external; }
                     }
                     Rectangle { vertical-stretch: 1; }
                     HorizontalLayout {
                         spacing: 8px;
                         Rectangle { horizontal-stretch: 1; }
                         Button { text: "Cancel"; clicked => { root.form-visible = false; } }
-                        Button { text: "Save todo"; primary: true; clicked => { root.save-todo(); } }
+                        Button { text: root.form-is-new ? "Add todo" : "Save changes"; primary: true; clicked => { root.save-todo(); } }
                     }
                 }
             }
@@ -2733,6 +2991,27 @@ export component AppWindow inherits Window {
             MenuSep {}
             MenuItem { icon: Icons.textsize; label: "Reset zoom"; clicked => { root.open-menu = ""; Z.f = 1.0; } }
             MenuItem { icon: Theme.dark ? Icons.sun : Icons.moon; label: Theme.dark ? "Light theme" : "Dark theme"; clicked => { root.open-menu = ""; Palette.color-scheme = Theme.dark ? ColorScheme.light : ColorScheme.dark; } }
+        }
+
+        // ===== Note context menu (right-click note rows / note tabs) =====
+        if root.note-context-open: TouchArea {
+            x: 0; y: 0; width: root.width; height: root.height;
+            clicked => { root.note-context-open = false; }
+        }
+        if root.note-context-open: MenuPanel {
+            x: max(8px, root.note-context-x);
+            y: max(8px, root.note-context-y);
+            width: 240px;
+            MenuItem { icon: Icons.edit; label: "Open"; clicked => { root.note-context-open = false; root.select-note(root.note-context-id); root.set-view("notes"); } }
+            MenuItem { icon: Icons.panel-right; label: "Open in split"; clicked => { root.note-context-open = false; root.open-in-split(root.note-context-id); } }
+            MenuItem { icon: Icons.star; label: "Pin / unpin"; clicked => { root.note-context-open = false; root.pin-note(root.note-context-id); } }
+            MenuItem { icon: Icons.copy; label: "Copy note link"; clicked => { root.note-context-open = false; root.set-clip("[[" + root.note-context-title + "]]"); } }
+            MenuSep {}
+            MenuItem { icon: Icons.archive; label: "Archive"; clicked => { root.note-context-open = false; root.archive-note-id(root.note-context-id, true); } }
+            MenuItem { icon: Icons.unarchive; label: "Unarchive"; clicked => { root.note-context-open = false; root.archive-note-id(root.note-context-id, false); } }
+            MenuItem { icon: Icons.x; label: "Close tab"; clicked => { root.note-context-open = false; root.close-tab(root.note-context-id); } }
+            MenuSep {}
+            MenuItem { icon: Icons.trash2; label: "Delete note (to trash)"; danger: true; clicked => { root.note-context-open = false; root.delete-note-id(root.note-context-id); } }
         }
 
         // ===== Command palette overlay (Ctrl/⌘+K) =====

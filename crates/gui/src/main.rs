@@ -1,21 +1,22 @@
 // Noet — native, lightweight notes + typed-todos + projects over plain markdown.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+use chrono::NaiveDate;
 use noet_core::backend;
 use noet_core::backend::{Backend, Filter, TodoFields};
-use chrono::NaiveDate;
 use slint::{Model, ModelRc, SharedString, VecModel};
+use sred_core::editor::SearchOpts as SredSearch;
 use sred_core::{
     BlockKind as SredBlock, Command as SredCmd, Editor as SredEditor, Format as SredFormat,
-    MarkSet as SredMark, Motion as SredMotion, Theme as SredTheme,
-    TokenMatch as SredMatch, TokenSpec as SredToken,
+    MarkSet as SredMark, Motion as SredMotion, Theme as SredTheme, TokenMatch as SredMatch,
+    TokenSpec as SredToken,
 };
-use sred_core::editor::SearchOpts as SredSearch;
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
 
 mod chrome;
+mod imports;
 mod ipc;
 mod startup;
 mod tray;
@@ -87,8 +88,12 @@ fn spell_misspellings(dict: &spellbook::Dictionary, text: &str) -> Vec<(usize, u
                     i += 1;
                 }
                 let tok: String = chars[tok_start..i].iter().collect();
-                let skip = tok.starts_with('#') || tok.starts_with('@') || tok.starts_with("[[")
-                    || tok.starts_with('`') || tok.contains("://") || tok.contains("](");
+                let skip = tok.starts_with('#')
+                    || tok.starts_with('@')
+                    || tok.starts_with("[[")
+                    || tok.starts_with('`')
+                    || tok.contains("://")
+                    || tok.contains("](");
                 if !skip {
                     // word runs within the token
                     let t = &chars[tok_start..i];
@@ -157,16 +162,25 @@ fn ac_detect(prefix: &str) -> Option<(&'static str, String)> {
     if let Some(pos) = prefix.rfind("[[") {
         let seg = &prefix[pos + 2..];
         if !seg.contains(']') && !seg.contains('\n') {
-            let kind = if prefix[..pos].ends_with('@') { "person" } else { "project" };
+            let kind = if prefix[..pos].ends_with('@') {
+                "person"
+            } else {
+                "project"
+            };
             return Some((kind, seg.to_string()));
         }
     }
     // A bare `#tag`: last '#' at start-of-line or after whitespace, word chars only.
     if let Some(pos) = prefix.rfind('#') {
-        let before_ok =
-            prefix[..pos].chars().last().map(|c| c.is_whitespace()).unwrap_or(true);
+        let before_ok = prefix[..pos]
+            .chars()
+            .last()
+            .map(|c| c.is_whitespace())
+            .unwrap_or(true);
         let seg = &prefix[pos + 1..];
-        let word_ok = seg.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-');
+        let word_ok = seg
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-');
         if before_ok && word_ok {
             return Some(("tag", seg.to_string()));
         }
@@ -175,7 +189,10 @@ fn ac_detect(prefix: &str) -> Option<(&'static str, String)> {
 }
 
 fn find_opts() -> SredSearch {
-    SredSearch { case_sensitive: false, whole_word: false }
+    SredSearch {
+        case_sensitive: false,
+        whole_word: false,
+    }
 }
 
 /// Push the current find state into the editor (highlights + caret to the active
@@ -245,7 +262,11 @@ fn rich_render(ui: &AppWindow, follow: bool) {
         // `typst-math` feature, sred composites rendered math/figure fragments into
         // this frame itself (set_fragment_overlay, sred #24).
         let out = e.render_view(follow);
-        ui.set_rich_frame(rgba_to_image(&out.frame.rgba, out.frame.width, out.frame.height));
+        ui.set_rich_frame(rgba_to_image(
+            &out.frame.rgba,
+            out.frame.width,
+            out.frame.height,
+        ));
         ui.set_rich_doc_height(out.doc_height as f32);
         ui.set_rich_caret_x(out.caret.x);
         ui.set_rich_caret_y(out.caret.y);
@@ -287,7 +308,11 @@ fn rich_autocomplete_update(ui: &AppWindow, state: &Rc<RefCell<State>>) {
         (e.text(), c.first().copied().unwrap_or(0), c.len())
     });
     let prefix: String = text.chars().take(caret).collect();
-    let trig = if ncarets == 1 { ac_detect(&prefix) } else { None };
+    let trig = if ncarets == 1 {
+        ac_detect(&prefix)
+    } else {
+        None
+    };
     let Some((kind, typed)) = trig else {
         ui.set_rich_ac_open(false);
         AC.with(|a| *a.borrow_mut() = None);
@@ -302,10 +327,13 @@ fn rich_autocomplete_update(ui: &AppWindow, state: &Rc<RefCell<State>>) {
             "person" => b.list_people(),
             _ => b.list_tags(),
         };
-        raw.map(|v| v.into_iter().map(|p| p.name).collect()).unwrap_or_default()
+        raw.map(|v| v.into_iter().map(|p| p.name).collect())
+            .unwrap_or_default()
     };
-    let mut items: Vec<String> =
-        names.into_iter().filter(|n| n.to_lowercase().starts_with(&lower)).collect();
+    let mut items: Vec<String> = names
+        .into_iter()
+        .filter(|n| n.to_lowercase().starts_with(&lower))
+        .collect();
     items.sort();
     items.dedup();
     items.truncate(8);
@@ -325,10 +353,14 @@ fn rich_autocomplete_update(ui: &AppWindow, state: &Rc<RefCell<State>>) {
 /// text after the trigger with the full name (canonical casing), closing `]]` for
 /// wiki-links, and move the caret past the token. No-op if the popup is closed.
 fn rich_autocomplete_accept(ui: &AppWindow) {
-    let Some((kind, typed)) = AC.with(|a| a.borrow().clone()) else { return };
+    let Some((kind, typed)) = AC.with(|a| a.borrow().clone()) else {
+        return;
+    };
     let idx = ui.get_rich_ac_index().max(0) as usize;
     let items = ui.get_rich_ac_items();
-    let Some(name) = items.row_data(idx) else { return };
+    let Some(name) = items.row_data(idx) else {
+        return;
+    };
     let name = name.to_string();
     RICH.with(|r| {
         let mut e = r.borrow_mut();
@@ -370,8 +402,14 @@ fn find_wikilinks(line: &str) -> Vec<SredMatch> {
     let mut i = 0;
     while i + 1 < c.len() {
         if c[i] == '[' && c[i + 1] == '[' {
-            if let Some(close) = (i + 2..c.len().saturating_sub(1)).find(|&k| c[k] == ']' && c[k + 1] == ']') {
-                out.push(SredMatch { start: i, end: close + 2, value: c[i + 2..close].iter().collect() });
+            if let Some(close) =
+                (i + 2..c.len().saturating_sub(1)).find(|&k| c[k] == ']' && c[k + 1] == ']')
+            {
+                out.push(SredMatch {
+                    start: i,
+                    end: close + 2,
+                    value: c[i + 2..close].iter().collect(),
+                });
                 i = close + 2;
                 continue;
             }
@@ -390,8 +428,14 @@ fn find_mentions(line: &str) -> Vec<SredMatch> {
         let boundary = i == 0 || c[i - 1].is_whitespace();
         if boundary && c[i] == '@' {
             if i + 2 < c.len() && c[i + 1] == '[' && c[i + 2] == '[' {
-                if let Some(close) = (i + 3..c.len().saturating_sub(1)).find(|&k| c[k] == ']' && c[k + 1] == ']') {
-                    out.push(SredMatch { start: i, end: close + 2, value: c[i + 3..close].iter().collect() });
+                if let Some(close) =
+                    (i + 3..c.len().saturating_sub(1)).find(|&k| c[k] == ']' && c[k + 1] == ']')
+                {
+                    out.push(SredMatch {
+                        start: i,
+                        end: close + 2,
+                        value: c[i + 3..close].iter().collect(),
+                    });
                     i = close + 2;
                     continue;
                 }
@@ -401,7 +445,11 @@ fn find_mentions(line: &str) -> Vec<SredMatch> {
                 j += 1;
             }
             if j > i + 1 {
-                out.push(SredMatch { start: i, end: j, value: c[i + 1..j].iter().collect() });
+                out.push(SredMatch {
+                    start: i,
+                    end: j,
+                    value: c[i + 1..j].iter().collect(),
+                });
                 i = j;
                 continue;
             }
@@ -423,7 +471,11 @@ fn find_tags(line: &str) -> Vec<SredMatch> {
             while j < c.len() && (c[j].is_alphanumeric() || matches!(c[j], '_' | '-')) {
                 j += 1;
             }
-            out.push(SredMatch { start: i, end: j, value: c[i + 1..j].iter().collect() });
+            out.push(SredMatch {
+                start: i,
+                end: j,
+                value: c[i + 1..j].iter().collect(),
+            });
             i = j;
             continue;
         }
@@ -444,7 +496,11 @@ fn find_urls(line: &str) -> Vec<SredMatch> {
             while j < c.len() && !c[j].is_whitespace() {
                 j += 1;
             }
-            out.push(SredMatch { start: i, end: j, value: c[i..j].iter().collect() });
+            out.push(SredMatch {
+                start: i,
+                end: j,
+                value: c[i..j].iter().collect(),
+            });
             i = j;
             continue;
         }
@@ -573,19 +629,30 @@ fn rich_named(name: &str) -> (bool, bool) {
 }
 
 /// Backend + the live, unified filter shared by every view.
-struct State {
-    backend: Backend,
-    filter: Filter,
-    cal_year: i32,
-    cal_month: u32,
+pub(crate) struct State {
+    pub(crate) backend: Backend,
+    pub(crate) filter: Filter,
+    pub(crate) cal_year: i32,
+    pub(crate) cal_month: u32,
     /// Pinned note ids (bookmarks), persisted in settings.json.
-    pinned: Vec<String>,
+    pub(crate) pinned: Vec<String>,
 }
 
 fn month_name(m: u32) -> &'static str {
     [
-        "", "January", "February", "March", "April", "May", "June", "July",
-        "August", "September", "October", "November", "December",
+        "",
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
     ]
     .get(m as usize)
     .copied()
@@ -596,16 +663,24 @@ fn build_calendar(b: &Backend, f: &Filter, year: i32, month: u32) -> (String, Mo
     use chrono::{Datelike, NaiveDate};
     let first = NaiveDate::from_ymd_opt(year, month, 1).unwrap_or_default();
     let start_pad = first.weekday().num_days_from_monday() as usize;
-    let (ny, nm) = if month == 12 { (year + 1, 1) } else { (year, month + 1) };
+    let (ny, nm) = if month == 12 {
+        (year + 1, 1)
+    } else {
+        (year, month + 1)
+    };
     let days = NaiveDate::from_ymd_opt(ny, nm, 1)
         .unwrap_or_default()
         .signed_duration_since(first)
         .num_days() as usize;
     let prefix = format!("{year}-{month:02}-");
-    let mut by_date: std::collections::HashMap<String, Vec<TodoItem>> = std::collections::HashMap::new();
+    let mut by_date: std::collections::HashMap<String, Vec<TodoItem>> =
+        std::collections::HashMap::new();
     for t in b.query_todos(f).unwrap_or_default().iter() {
         if t.due.starts_with(&prefix) {
-            by_date.entry(t.due.clone()).or_default().push(to_todo_item(t));
+            by_date
+                .entry(t.due.clone())
+                .or_default()
+                .push(to_todo_item(t));
         }
     }
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
@@ -613,7 +688,12 @@ fn build_calendar(b: &Backend, f: &Filter, year: i32, month: u32) -> (String, Mo
     let mut cells: Vec<CalCell> = Vec::with_capacity(42);
     for i in 0..42usize {
         if i < start_pad || i >= start_pad + days {
-            cells.push(CalCell { day: 0, date: "".into(), today: false, items: empty() });
+            cells.push(CalCell {
+                day: 0,
+                date: "".into(),
+                today: false,
+                items: empty(),
+            });
         } else {
             let d = (i - start_pad + 1) as u32;
             let date = format!("{year}-{month:02}-{d:02}");
@@ -626,7 +706,10 @@ fn build_calendar(b: &Backend, f: &Filter, year: i32, month: u32) -> (String, Mo
             });
         }
     }
-    (format!("{} {year}", month_name(month)), ModelRc::new(VecModel::from(cells)))
+    (
+        format!("{} {year}", month_name(month)),
+        ModelRc::new(VecModel::from(cells)),
+    )
 }
 
 /// Resolve the vault location. Precedence: an explicit `$NOET_VAULT` (transient
@@ -644,7 +727,11 @@ fn resolve_vault() -> PathBuf {
     let vault = dirs::document_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("NoetVault");
-    let _ = (backend::Settings { vault: vault.clone(), ..Default::default() }).save();
+    let _ = (backend::Settings {
+        vault: vault.clone(),
+        ..Default::default()
+    })
+    .save();
     vault
 }
 
@@ -735,17 +822,29 @@ fn ensure_sample_note(b: &mut Backend) -> Option<String> {
 // ---- Command palette (Ctrl/⌘+K) ----------------------------------------------
 
 const PALETTE_VIEWS: &[(&str, &str)] = &[
-    ("today", "Today"), ("agenda", "Agenda"), ("calendar", "Calendar"),
-    ("tasks", "Tasks"), ("board", "Board"), ("gantt", "Gantt"),
-    ("waiting", "Waiting on"), ("notes", "Notes"),
-    ("people", "People"), ("labels", "Labels"), ("inbox", "Inbox"),
-    ("review", "Needs review"), ("trash", "Trash"), ("settings", "Settings"),
+    ("today", "Today"),
+    ("agenda", "Agenda"),
+    ("calendar", "Calendar"),
+    ("tasks", "Tasks"),
+    ("board", "Board"),
+    ("gantt", "Gantt"),
+    ("waiting", "Waiting on"),
+    ("notes", "Notes"),
+    ("people", "People"),
+    ("labels", "Labels"),
+    ("inbox", "Inbox"),
+    ("review", "Needs review"),
+    ("trash", "Trash"),
+    ("settings", "Settings"),
     ("about", "About / open-source licenses"),
 ];
 const PALETTE_CMDS: &[(&str, &str)] = &[
-    ("new-note", "New note"), ("new-meeting", "New meeting note"),
-    ("capture", "Quick capture"), ("reindex", "Reindex vault"),
-    ("clear-filters", "Clear all filters"), ("rail", "Toggle filter rail"),
+    ("new-note", "New note"),
+    ("new-meeting", "New meeting note"),
+    ("capture", "Quick capture"),
+    ("reindex", "Reindex vault"),
+    ("clear-filters", "Clear all filters"),
+    ("rail", "Toggle filter rail"),
     ("nav", "Toggle sidebar"),
 ];
 
@@ -756,35 +855,62 @@ fn palette_results(b: &Backend, query: &str) -> Vec<PaletteItem> {
     let q = query.trim().to_lowercase();
     let hit = |s: &str| q.is_empty() || s.to_lowercase().contains(&q);
     let mk = |id: String, label: String, kind: &str, hint: String| PaletteItem {
-        id: id.into(), label: label.into(), kind: kind.into(), hint: hint.into(),
+        id: id.into(),
+        label: label.into(),
+        kind: kind.into(),
+        hint: hint.into(),
     };
     let mut out: Vec<PaletteItem> = Vec::new();
     for (v, l) in PALETTE_VIEWS {
-        if hit(l) { out.push(mk(format!("v:{v}"), (*l).into(), "VIEW", String::new())); }
+        if hit(l) {
+            out.push(mk(format!("v:{v}"), (*l).into(), "VIEW", String::new()));
+        }
     }
     for (c, l) in PALETTE_CMDS {
-        if hit(l) { out.push(mk(format!("c:{c}"), (*l).into(), "COMMAND", String::new())); }
+        if hit(l) {
+            out.push(mk(format!("c:{c}"), (*l).into(), "COMMAND", String::new()));
+        }
     }
     if let Ok(notes) = b.query_notes(&Filter::default()) {
         let limit = if q.is_empty() { 8 } else { 60 };
         for n in notes.iter().filter(|n| hit(&n.title)).take(limit) {
-            out.push(mk(format!("n:{}", n.id), n.title.clone(), "NOTE", n.updated.replace('T', " ")));
+            out.push(mk(
+                format!("n:{}", n.id),
+                n.title.clone(),
+                "NOTE",
+                n.updated.replace('T', " "),
+            ));
         }
     }
     if !q.is_empty() {
         if let Ok(ps) = b.list_projects() {
             for p in ps.iter().filter(|p| hit(&p.name)) {
-                out.push(mk(format!("p:{}", p.name), format!("▸ {}", p.name), "PROJECT", format!("{} notes", p.count)));
+                out.push(mk(
+                    format!("p:{}", p.name),
+                    format!("▸ {}", p.name),
+                    "PROJECT",
+                    format!("{} notes", p.count),
+                ));
             }
         }
         if let Ok(ts) = b.list_tags() {
             for p in ts.iter().filter(|p| hit(&p.name)) {
-                out.push(mk(format!("t:{}", p.name), format!("# {}", p.name), "TAG", String::new()));
+                out.push(mk(
+                    format!("t:{}", p.name),
+                    format!("# {}", p.name),
+                    "TAG",
+                    String::new(),
+                ));
             }
         }
         if let Ok(pe) = b.list_people() {
             for p in pe.iter().filter(|p| hit(&p.name)) {
-                out.push(mk(format!("@:{}", p.name), format!("◷ {}", p.name), "PERSON", String::new()));
+                out.push(mk(
+                    format!("@:{}", p.name),
+                    format!("@ {}", p.name),
+                    "PERSON",
+                    String::new(),
+                ));
             }
         }
     }
@@ -942,7 +1068,7 @@ fn active_summary(f: &Filter) -> String {
         parts.push(format!("#{}", f.tag));
     }
     if !f.person.is_empty() {
-        parts.push(format!("◷{}", f.person));
+        parts.push(format!("@{}", f.person));
     }
     if !f.search.is_empty() {
         parts.push(format!("“{}”", f.search));
@@ -958,7 +1084,7 @@ fn active_summary(f: &Filter) -> String {
 }
 
 /// Rebuild every model from the index + current filter.
-fn refresh(ui: &AppWindow, state: &State) {
+pub(crate) fn refresh(ui: &AppWindow, state: &State) {
     let b = &state.backend;
     let f = &state.filter;
     // Only recompute what the visible view needs. The left-rail facets + filter
@@ -1004,7 +1130,11 @@ fn refresh(ui: &AppWindow, state: &State) {
     // Workstream hub: one workstream's open todos + the notes that reference it.
     if view == "workstream" {
         let hub = ui.get_hub_name().to_string();
-        let f = backend::Filter { project: hub.clone(), status: "open".into(), ..Default::default() };
+        let f = backend::Filter {
+            project: hub.clone(),
+            status: "open".into(),
+            ..Default::default()
+        };
         if let Ok(todos) = b.query_todos(&f) {
             let items: Vec<TodoItem> = todos.iter().map(to_todo_item).collect();
             ui.set_hub_todos(ModelRc::new(VecModel::from(items)));
@@ -1013,7 +1143,10 @@ fn refresh(ui: &AppWindow, state: &State) {
             .backlinks(&hub)
             .unwrap_or_default()
             .into_iter()
-            .map(|n| NoteRef { id: n.id.into(), title: n.title.into() })
+            .map(|n| NoteRef {
+                id: n.id.into(),
+                title: n.title.into(),
+            })
             .collect();
         ui.set_hub_notes(ModelRc::new(VecModel::from(notes)));
     }
@@ -1028,29 +1161,29 @@ fn refresh(ui: &AppWindow, state: &State) {
 
     // agenda buckets by due date relative to today
     if view == "agenda" {
-    if let Ok(items) = b.agenda(f) {
-        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-        let week = (chrono::Local::now() + chrono::Duration::days(7))
-            .format("%Y-%m-%d")
-            .to_string();
-        let (mut overdue, mut td, mut wk, mut later) = (vec![], vec![], vec![], vec![]);
-        for t in &items {
-            let it = to_todo_item(t);
-            if t.due < today {
-                overdue.push(it);
-            } else if t.due == today {
-                td.push(it);
-            } else if t.due <= week {
-                wk.push(it);
-            } else {
-                later.push(it);
+        if let Ok(items) = b.agenda(f) {
+            let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+            let week = (chrono::Local::now() + chrono::Duration::days(7))
+                .format("%Y-%m-%d")
+                .to_string();
+            let (mut overdue, mut td, mut wk, mut later) = (vec![], vec![], vec![], vec![]);
+            for t in &items {
+                let it = to_todo_item(t);
+                if t.due < today {
+                    overdue.push(it);
+                } else if t.due == today {
+                    td.push(it);
+                } else if t.due <= week {
+                    wk.push(it);
+                } else {
+                    later.push(it);
+                }
             }
+            ui.set_agenda_overdue(ModelRc::new(VecModel::from(overdue)));
+            ui.set_agenda_today(ModelRc::new(VecModel::from(td)));
+            ui.set_agenda_week(ModelRc::new(VecModel::from(wk)));
+            ui.set_agenda_later(ModelRc::new(VecModel::from(later)));
         }
-        ui.set_agenda_overdue(ModelRc::new(VecModel::from(overdue)));
-        ui.set_agenda_today(ModelRc::new(VecModel::from(td)));
-        ui.set_agenda_week(ModelRc::new(VecModel::from(wk)));
-        ui.set_agenda_later(ModelRc::new(VecModel::from(later)));
-    }
     }
 
     // inbox: unfiled notes
@@ -1064,7 +1197,9 @@ fn refresh(ui: &AppWindow, state: &State) {
     // today dashboard extras
     if view == "today" {
         if let Ok(stale) = b.stale_todos() {
-            ui.set_today_stale(ModelRc::new(VecModel::from(stale.iter().map(to_todo_item).collect::<Vec<_>>())));
+            ui.set_today_stale(ModelRc::new(VecModel::from(
+                stale.iter().map(to_todo_item).collect::<Vec<_>>(),
+            )));
         }
         if let Ok(recent) = b.query_notes(&Filter::default()) {
             let items: Vec<NoteItem> = recent.iter().take(8).map(to_note_item).collect();
@@ -1075,7 +1210,10 @@ fn refresh(ui: &AppWindow, state: &State) {
         if let Ok(tr) = b.list_trash() {
             let items: Vec<NoteRef> = tr
                 .iter()
-                .map(|(f, t)| NoteRef { id: f.clone().into(), title: t.clone().into() })
+                .map(|(f, t)| NoteRef {
+                    id: f.clone().into(),
+                    title: t.clone().into(),
+                })
                 .collect();
             ui.set_trash_notes(ModelRc::new(VecModel::from(items)));
         }
@@ -1089,26 +1227,43 @@ fn refresh(ui: &AppWindow, state: &State) {
 
     // person 1:1 prep, grouped by todo kind (based on the active person filter)
     if view == "people" {
-    ui.set_selected_person(f.person.clone().into());
-    let pf = Filter { person: f.person.clone(), status: "open".into(), ..Default::default() };
-    let ptodos = if f.person.is_empty() { Vec::new() } else { b.query_todos(&pf).unwrap_or_default() };
-    let pick = |keep: &dyn Fn(&str) -> bool| -> ModelRc<TodoItem> {
-        ModelRc::new(VecModel::from(
-            ptodos.iter().filter(|t| keep(&t.kind)).map(to_todo_item).collect::<Vec<_>>(),
-        ))
-    };
-    ui.set_person_discuss(pick(&|k| k == "todelegate" || k == "followup"));
-    ui.set_person_delegated(pick(&|k| k == "delegated"));
-    ui.set_person_other(pick(&|k| k != "todelegate" && k != "followup" && k != "delegated"));
-    let pnotes = if f.person.is_empty() {
-        Vec::new()
-    } else {
-        b.query_notes(&Filter { person: f.person.clone(), ..Default::default() })
+        ui.set_selected_person(f.person.clone().into());
+        let pf = Filter {
+            person: f.person.clone(),
+            status: "open".into(),
+            ..Default::default()
+        };
+        let ptodos = if f.person.is_empty() {
+            Vec::new()
+        } else {
+            b.query_todos(&pf).unwrap_or_default()
+        };
+        let pick = |keep: &dyn Fn(&str) -> bool| -> ModelRc<TodoItem> {
+            ModelRc::new(VecModel::from(
+                ptodos
+                    .iter()
+                    .filter(|t| keep(&t.kind))
+                    .map(to_todo_item)
+                    .collect::<Vec<_>>(),
+            ))
+        };
+        ui.set_person_discuss(pick(&|k| k == "todelegate" || k == "followup"));
+        ui.set_person_delegated(pick(&|k| k == "delegated"));
+        ui.set_person_other(pick(&|k| {
+            k != "todelegate" && k != "followup" && k != "delegated"
+        }));
+        let pnotes = if f.person.is_empty() {
+            Vec::new()
+        } else {
+            b.query_notes(&Filter {
+                person: f.person.clone(),
+                ..Default::default()
+            })
             .unwrap_or_default()
-    };
-    ui.set_person_notes(ModelRc::new(VecModel::from(
-        pnotes.iter().map(to_note_item).collect::<Vec<_>>(),
-    )));
+        };
+        ui.set_person_notes(ModelRc::new(VecModel::from(
+            pnotes.iter().map(to_note_item).collect::<Vec<_>>(),
+        )));
     }
 
     if view == "board" {
@@ -1140,18 +1295,47 @@ fn refresh(ui: &AppWindow, state: &State) {
 
     // removable active-filter chips + dropdown display values
     let mut chips: Vec<FilterChip> = Vec::new();
-    let mut chip = |label: String, dim: &str| chips.push(FilterChip { label: label.into(), dim: dim.into() });
-    if !f.project.is_empty() { chip(format!("▸ {}", f.project), "project"); }
-    if !f.person.is_empty() { chip(format!("◷ {}", f.person), "person"); }
-    if !f.tag.is_empty() { chip(format!("# {}", f.tag), "tag"); }
-    if !f.kind.is_empty() { chip(format!("kind: {}", f.kind), "kind"); }
-    if !f.priority.is_empty() { chip(format!("priority {}", f.priority), "priority"); }
-    if !f.due_bucket.is_empty() { chip(format!("due: {}", due_display(&f.due_bucket)), "due"); }
-    if !f.status.is_empty() { chip(format!("status: {}", f.status), "status"); }
-    if !f.search.is_empty() { chip(format!("search: {}", f.search), "search"); }
+    let mut chip = |label: String, dim: &str| {
+        chips.push(FilterChip {
+            label: label.into(),
+            dim: dim.into(),
+        })
+    };
+    if !f.project.is_empty() {
+        chip(format!("▸ {}", f.project), "project");
+    }
+    if !f.person.is_empty() {
+        chip(format!("@ {}", f.person), "person");
+    }
+    if !f.tag.is_empty() {
+        chip(format!("# {}", f.tag), "tag");
+    }
+    if !f.kind.is_empty() {
+        chip(format!("kind: {}", f.kind), "kind");
+    }
+    if !f.priority.is_empty() {
+        chip(format!("priority {}", f.priority), "priority");
+    }
+    if !f.due_bucket.is_empty() {
+        chip(format!("due: {}", due_display(&f.due_bucket)), "due");
+    }
+    if !f.status.is_empty() {
+        chip(format!("status: {}", f.status), "status");
+    }
+    if !f.search.is_empty() {
+        chip(format!("search: {}", f.search), "search");
+    }
     ui.set_active_filters(ModelRc::new(VecModel::from(chips)));
-    ui.set_filter_kind(if f.kind.is_empty() { "any".into() } else { f.kind.clone().into() });
-    ui.set_filter_priority(if f.priority.is_empty() { "any".into() } else { f.priority.clone().into() });
+    ui.set_filter_kind(if f.kind.is_empty() {
+        "any".into()
+    } else {
+        f.kind.clone().into()
+    });
+    ui.set_filter_priority(if f.priority.is_empty() {
+        "any".into()
+    } else {
+        f.priority.clone().into()
+    });
     ui.set_filter_due(due_display(&f.due_bucket).into());
     refresh_tabs(ui, state); // keep the open-notes tab strip in sync
 }
@@ -1177,7 +1361,11 @@ fn md_blocks_model(
             _ => 99,
         };
         // keep the todo iterator aligned even for hidden todo blocks
-        let todo = if x.kind == "todo" { ti.next().cloned() } else { None };
+        let todo = if x.kind == "todo" {
+            ti.next().cloned()
+        } else {
+            None
+        };
         let hidden = match hide_level {
             Some(l) if level <= l => {
                 hide_level = None;
@@ -1194,40 +1382,129 @@ fn md_blocks_model(
             if render_typst {
                 if let Some(png) = b.render_typst_src(&x.text) {
                     if let Ok(img) = slint::Image::load_from_path(&png) {
-                        out.push(MdBlock { kind: "typst".into(), text: "".into(), indent: x.indent, img, todo_id: "".into(), done: false, status: "".into(), segments: no_segs(), block_id: bid, folded: false });
+                        out.push(MdBlock {
+                            kind: "typst".into(),
+                            text: "".into(),
+                            indent: x.indent,
+                            img,
+                            todo_id: "".into(),
+                            done: false,
+                            status: "".into(),
+                            segments: no_segs(),
+                            block_id: bid,
+                            folded: false,
+                        });
                         continue;
                     }
                 }
             }
-            out.push(MdBlock { kind: "code".into(), text: x.text.clone().into(), indent: x.indent, img: empty.clone(), todo_id: "".into(), done: false, status: "".into(), segments: no_segs(), block_id: bid, folded: false });
+            out.push(MdBlock {
+                kind: "code".into(),
+                text: x.text.clone().into(),
+                indent: x.indent,
+                img: empty.clone(),
+                todo_id: "".into(),
+                done: false,
+                status: "".into(),
+                segments: no_segs(),
+                block_id: bid,
+                folded: false,
+            });
         } else if x.kind == "todo" {
             let t = todo.as_ref();
             let id = t.map(|t| t.id.clone()).unwrap_or_default();
             let done = t.map(|t| t.done).unwrap_or(false);
             let status = t.map(|t| t.status.clone()).unwrap_or_default();
             let prio = t.map(|t| t.priority.clone()).unwrap_or_default();
-            let label = if prio.is_empty() { x.text.clone() } else { format!("[{prio}] {}", x.text) };
-            out.push(MdBlock { kind: "todo".into(), text: label.into(), indent: x.indent, img: empty.clone(), todo_id: id.into(), done, status: status.into(), segments: no_segs(), block_id: bid, folded: false });
+            let label = if prio.is_empty() {
+                x.text.clone()
+            } else {
+                format!("[{prio}] {}", x.text)
+            };
+            out.push(MdBlock {
+                kind: "todo".into(),
+                text: label.into(),
+                indent: x.indent,
+                img: empty.clone(),
+                todo_id: id.into(),
+                done,
+                status: status.into(),
+                segments: no_segs(),
+                block_id: bid,
+                folded: false,
+            });
         } else if x.kind == "code" || x.kind == "rule" {
-            out.push(MdBlock { kind: x.kind.clone().into(), text: x.text.clone().into(), indent: x.indent, img: empty.clone(), todo_id: "".into(), done: false, status: "".into(), segments: no_segs(), block_id: bid, folded: false });
+            out.push(MdBlock {
+                kind: x.kind.clone().into(),
+                text: x.text.clone().into(),
+                indent: x.indent,
+                img: empty.clone(),
+                todo_id: "".into(),
+                done: false,
+                status: "".into(),
+                segments: no_segs(),
+                block_id: bid,
+                folded: false,
+            });
         } else if level <= 3 {
             let is_folded = folded.contains(&idx);
-            out.push(MdBlock { kind: x.kind.clone().into(), text: backend::clean_inline(&x.text).into(), indent: x.indent, img: empty.clone(), todo_id: "".into(), done: false, status: "".into(), segments: no_segs(), block_id: bid, folded: is_folded });
+            out.push(MdBlock {
+                kind: x.kind.clone().into(),
+                text: backend::clean_inline(&x.text).into(),
+                indent: x.indent,
+                img: empty.clone(),
+                todo_id: "".into(),
+                done: false,
+                status: "".into(),
+                segments: no_segs(),
+                block_id: bid,
+                folded: is_folded,
+            });
             if is_folded {
                 hide_level = Some(level);
             }
         } else {
             let inline = matches!(x.kind.as_str(), "para" | "bullet" | "numbered" | "quote");
-            let segs = if inline { backend::line_segments(&x.text) } else { Vec::new() };
+            let segs = if inline {
+                backend::line_segments(&x.text)
+            } else {
+                Vec::new()
+            };
             let has_link = segs.iter().any(|s| !s.kind.is_empty());
             if has_link && x.text.chars().count() < 160 {
                 let sm: Vec<Segment> = segs
                     .iter()
-                    .map(|s| Segment { text: s.text.clone().into(), kind: s.kind.clone().into(), value: s.value.clone().into() })
+                    .map(|s| Segment {
+                        text: s.text.clone().into(),
+                        kind: s.kind.clone().into(),
+                        value: s.value.clone().into(),
+                    })
                     .collect();
-                out.push(MdBlock { kind: x.kind.clone().into(), text: "".into(), indent: x.indent, img: empty.clone(), todo_id: "".into(), done: false, status: "".into(), segments: ModelRc::new(VecModel::from(sm)), block_id: bid, folded: false });
+                out.push(MdBlock {
+                    kind: x.kind.clone().into(),
+                    text: "".into(),
+                    indent: x.indent,
+                    img: empty.clone(),
+                    todo_id: "".into(),
+                    done: false,
+                    status: "".into(),
+                    segments: ModelRc::new(VecModel::from(sm)),
+                    block_id: bid,
+                    folded: false,
+                });
             } else {
-                out.push(MdBlock { kind: x.kind.clone().into(), text: backend::clean_inline(&x.text).into(), indent: x.indent, img: empty.clone(), todo_id: "".into(), done: false, status: "".into(), segments: no_segs(), block_id: bid, folded: false });
+                out.push(MdBlock {
+                    kind: x.kind.clone().into(),
+                    text: backend::clean_inline(&x.text).into(),
+                    indent: x.indent,
+                    img: empty.clone(),
+                    todo_id: "".into(),
+                    done: false,
+                    status: "".into(),
+                    segments: no_segs(),
+                    block_id: bid,
+                    folded: false,
+                });
             }
         }
     }
@@ -1236,7 +1513,9 @@ fn md_blocks_model(
 
 fn str_model(v: &[String]) -> ModelRc<SharedString> {
     ModelRc::new(VecModel::from(
-        v.iter().map(|s| SharedString::from(s.as_str())).collect::<Vec<_>>(),
+        v.iter()
+            .map(|s| SharedString::from(s.as_str()))
+            .collect::<Vec<_>>(),
     ))
 }
 
@@ -1278,7 +1557,10 @@ fn open_in_editor(ui: &AppWindow, b: &Backend, note_id: &str) {
 /// Char offset of the start of a 0-based `line` in `text` (sred cursor offsets are
 /// char-based). Clamped to the end if `line` is past the last line.
 fn line_char_offset(text: &str, line: usize) -> usize {
-    text.split_inclusive('\n').take(line).map(|l| l.chars().count()).sum()
+    text.split_inclusive('\n')
+        .take(line)
+        .map(|l| l.chars().count())
+        .sum()
 }
 
 /// Render the read-only split/reference pane: full-document raster of `split-note-id`
@@ -1298,7 +1580,11 @@ fn render_split(ui: &AppWindow, b: &Backend) {
         e.set_theme(theme);
         e.set_viewport(w, 100_000.0); // tall viewport → render() lays out the whole doc
         let out = e.render(false); // full-document frame (not viewport-bounded)
-        ui.set_split_image(rgba_to_image(&out.frame.rgba, out.frame.width, out.frame.height));
+        ui.set_split_image(rgba_to_image(
+            &out.frame.rgba,
+            out.frame.width,
+            out.frame.height,
+        ));
         ui.set_split_doc_height(out.frame.height as f32);
     });
     ui.set_split_title(note.title.into());
@@ -1345,7 +1631,10 @@ fn render_read(ui: &AppWindow, b: &Backend, note: &backend::Note) {
         .unwrap_or_default()
         .into_iter()
         .filter(|n| n.id != note.id)
-        .map(|n| NoteRef { id: n.id.into(), title: n.title.into() })
+        .map(|n| NoteRef {
+            id: n.id.into(),
+            title: n.title.into(),
+        })
         .collect();
     ui.set_current_backlinks(ModelRc::new(VecModel::from(backs)));
     // related prior meetings: notes sharing a workstream/person/tag, to one-click link
@@ -1375,14 +1664,6 @@ struct AppCtx {
     import_timer: slint::Timer,
 }
 
-/// A note ready to be created from an external import (Gmail / Google Tasks /
-/// Todoist). `reference` is the `src:…` external ref used to dedup re-imports.
-struct ImportItem {
-    title: String,
-    body: String,
-    reference: String,
-}
-
 /// Most-recently-opened notes kept in the tab strip.
 const RECENTS_CAP: usize = 12;
 
@@ -1392,7 +1673,11 @@ fn refresh_tabs(ui: &AppWindow, s: &State) {
     let mut tabs: Vec<NoteTab> = Vec::new();
     for id in &s.pinned {
         if let Some(t) = s.backend.note_title(id) {
-            tabs.push(NoteTab { id: id.into(), title: t.into(), pinned: true });
+            tabs.push(NoteTab {
+                id: id.into(),
+                title: t.into(),
+                pinned: true,
+            });
         }
     }
     RECENTS.with(|r| {
@@ -1401,7 +1686,11 @@ fn refresh_tabs(ui: &AppWindow, s: &State) {
                 continue;
             }
             if let Some(t) = s.backend.note_title(id) {
-                tabs.push(NoteTab { id: id.into(), title: t.into(), pinned: false });
+                tabs.push(NoteTab {
+                    id: id.into(),
+                    title: t.into(),
+                    pinned: false,
+                });
             }
         }
     });
@@ -1447,7 +1736,9 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
 
     let ui = AppWindow::new()?;
     let now = chrono::Local::now();
-    let pinned = backend::Settings::load().map(|s| s.pinned_notes).unwrap_or_default();
+    let pinned = backend::Settings::load()
+        .map(|s| s.pinned_notes)
+        .unwrap_or_default();
     let state = Rc::new(RefCell::new(State {
         backend,
         filter: Filter::default(),
@@ -1518,7 +1809,9 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
 
     // Reflect the persisted Outlook "sync on startup" opt-in.
     ui.set_outlook_sync_on_open(
-        backend::Settings::load().map(|s| s.outlook_sync_on_open).unwrap_or(false),
+        backend::Settings::load()
+            .map(|s| s.outlook_sync_on_open)
+            .unwrap_or(false),
     );
     // Launch-on-startup: source of truth is the OS (registry on Windows), not
     // settings.json — reflect the actual registered state.
@@ -1531,7 +1824,12 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let now = startup::set_enabled(on);
             ui.set_launch_on_startup(now);
             ui.set_status_text(
-                if now { "Noet will launch at sign-in" } else { "Launch-at-sign-in off" }.into(),
+                if now {
+                    "Noet will launch at sign-in"
+                } else {
+                    "Launch-at-sign-in off"
+                }
+                .into(),
             );
         });
     }
@@ -1573,7 +1871,10 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         let ui_w = ui.as_weak();
         ui.on_link_related(move |title| {
             let ui = ui_w.unwrap();
-            RICH.with(|r| r.borrow_mut().apply(SredCmd::Insert(format!("[[{title}]] "))));
+            RICH.with(|r| {
+                r.borrow_mut()
+                    .apply(SredCmd::Insert(format!("[[{title}]] ")))
+            });
             rich_after_edit(&ui);
             ui.set_status_text(format!("Linked [[{title}]]").into());
         });
@@ -1637,23 +1938,63 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let changed = RICH.with(|r| {
                 let mut e = r.borrow_mut();
                 match name.as_str() {
-                    "backspace" => { e.apply(SredCmd::DeleteBackward); true }
-                    "delete" => { e.apply(SredCmd::DeleteForward); true }
-                    "left" => { e.apply(SredCmd::Move(SredMotion::Left)); false }
-                    "right" => { e.apply(SredCmd::Move(SredMotion::Right)); false }
-                    "home" => { e.apply(SredCmd::Move(SredMotion::LineStart)); false }
-                    "end" => { e.apply(SredCmd::Move(SredMotion::LineEnd)); false }
-                    "select-left" => { e.apply(SredCmd::Select(SredMotion::Left)); false }
-                    "select-right" => { e.apply(SredCmd::Select(SredMotion::Right)); false }
-                    "up" => { e.move_vertical(false); false }
-                    "down" => { e.move_vertical(true); false }
+                    "backspace" => {
+                        e.apply(SredCmd::DeleteBackward);
+                        true
+                    }
+                    "delete" => {
+                        e.apply(SredCmd::DeleteForward);
+                        true
+                    }
+                    "left" => {
+                        e.apply(SredCmd::Move(SredMotion::Left));
+                        false
+                    }
+                    "right" => {
+                        e.apply(SredCmd::Move(SredMotion::Right));
+                        false
+                    }
+                    "home" => {
+                        e.apply(SredCmd::Move(SredMotion::LineStart));
+                        false
+                    }
+                    "end" => {
+                        e.apply(SredCmd::Move(SredMotion::LineEnd));
+                        false
+                    }
+                    "select-left" => {
+                        e.apply(SredCmd::Select(SredMotion::Left));
+                        false
+                    }
+                    "select-right" => {
+                        e.apply(SredCmd::Select(SredMotion::Right));
+                        false
+                    }
+                    "up" => {
+                        e.move_vertical(false);
+                        false
+                    }
+                    "down" => {
+                        e.move_vertical(true);
+                        false
+                    }
                     // Tab / Shift-Tab list indent & outdent (sred v0.7.0, #3).
-                    "indent" => { e.apply(SredCmd::Indent); true }
-                    "outdent" => { e.apply(SredCmd::Outdent); true }
+                    "indent" => {
+                        e.apply(SredCmd::Indent);
+                        true
+                    }
+                    "outdent" => {
+                        e.apply(SredCmd::Outdent);
+                        true
+                    }
                     _ => false,
                 }
             });
-            if changed { rich_after_edit(&ui) } else { rich_render(&ui, true) }
+            if changed {
+                rich_after_edit(&ui)
+            } else {
+                rich_render(&ui, true)
+            }
             // Re-evaluate the autocomplete popup (backspace re-filters; a caret
             // move can open/close it).
             rich_autocomplete_update(&ui, &state);
@@ -1781,7 +2122,12 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 cfg.outlook_sync_on_open = on;
                 match cfg.save() {
                     Ok(()) => ui.set_status_text(
-                        if on { "Outlook will sync on startup." } else { "Outlook startup sync off." }.into(),
+                        if on {
+                            "Outlook will sync on startup."
+                        } else {
+                            "Outlook startup sync off."
+                        }
+                        .into(),
                     ),
                     Err(e) => ui.set_status_text(format!("Couldn't save: {e}").into()),
                 }
@@ -1836,7 +2182,9 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                                 ui.set_gmail_connected(true);
                                 ui.set_status_text("Gmail connected.".into());
                             }
-                            Err(e) => ui.set_status_text(format!("Gmail connect failed: {e}").into()),
+                            Err(e) => {
+                                ui.set_status_text(format!("Gmail connect failed: {e}").into())
+                            }
                         }
                     }
                 });
@@ -1854,7 +2202,9 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         let ui_w = ui.as_weak();
         ui.on_save_todoist(move |token: SharedString| {
             let ui = ui_w.unwrap();
-            let cfg = noet_core::connectors::todoist::TodoistConfig { token: token.trim().to_string() };
+            let cfg = noet_core::connectors::todoist::TodoistConfig {
+                token: token.trim().to_string(),
+            };
             match cfg.save() {
                 Ok(()) => {
                     ui.set_todoist_configured(cfg.is_configured());
@@ -1881,7 +2231,12 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             .collect();
         ui.set_app_version(format!("v{}", env!("CARGO_PKG_VERSION")).into());
         ui.set_license_summary(
-            format!("Noet v{} — bundles {} third-party components:", env!("CARGO_PKG_VERSION"), rows.len()).into(),
+            format!(
+                "Noet v{} — bundles {} third-party components:",
+                env!("CARGO_PKG_VERSION"),
+                rows.len()
+            )
+            .into(),
         );
         ui.set_license_rows(ModelRc::new(VecModel::from(rows)));
     }
@@ -1944,21 +2299,25 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
     // Save Jira credentials to jira.json (OS config dir, never the vault).
     {
         let ui_w = ui.as_weak();
-        ui.on_save_jira(move |base: SharedString, email: SharedString, token: SharedString| {
-            let ui = ui_w.unwrap();
-            let cfg = noet_core::connectors::jira::JiraConfig {
-                base_url: base.trim().to_string(),
-                email: email.trim().to_string(),
-                token: token.trim().to_string(),
-            };
-            match cfg.save() {
-                Ok(()) => {
-                    ui.set_jira_configured(cfg.is_configured());
-                    ui.set_status_text("Jira settings saved.".into());
+        ui.on_save_jira(
+            move |base: SharedString, email: SharedString, token: SharedString| {
+                let ui = ui_w.unwrap();
+                let cfg = noet_core::connectors::jira::JiraConfig {
+                    base_url: base.trim().to_string(),
+                    email: email.trim().to_string(),
+                    token: token.trim().to_string(),
+                };
+                match cfg.save() {
+                    Ok(()) => {
+                        ui.set_jira_configured(cfg.is_configured());
+                        ui.set_status_text("Jira settings saved.".into());
+                    }
+                    Err(e) => {
+                        ui.set_status_text(format!("Couldn't save Jira settings: {e}").into())
+                    }
                 }
-                Err(e) => ui.set_status_text(format!("Couldn't save Jira settings: {e}").into()),
-            }
-        });
+            },
+        );
     }
 
     // Open an external ref (jira:/gh:/URL) in the browser. jira: refs resolve via
@@ -2027,9 +2386,11 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 Ok(mail) => {
                     let (title, body) = noet_core::connectors::outlook::mail_to_note(&mail);
                     let mut s = state.borrow_mut();
-                    match s.backend.new_note().and_then(|n| {
-                        s.backend.save_note(&n.id, &title, &body).map(|_| n.id)
-                    }) {
+                    match s
+                        .backend
+                        .new_note()
+                        .and_then(|n| s.backend.save_note(&n.id, &title, &body).map(|_| n.id))
+                    {
                         Ok(id) => {
                             ui.set_view("notes".into());
                             open_in_editor(&ui, &s.backend, &id);
@@ -2103,9 +2464,11 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                     let _ = s.backend.add_link(&id, &proj);
                 }
                 open_in_editor(&ui, &s.backend, &id);
-                ui.set_status_text(
-                    if proj.is_empty() { "New note".into() } else { format!("New note in {proj}").into() },
-                );
+                ui.set_status_text(if proj.is_empty() {
+                    "New note".into()
+                } else {
+                    format!("New note in {proj}").into()
+                });
                 ui.set_editing(true); // new notes open straight into edit mode
                 ui.set_view("notes".into());
             }
@@ -2125,7 +2488,9 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             // persist in-progress edits to the previously open note before switching
             let cur = ui.get_current_id().to_string();
             if ui.get_editing() && !cur.is_empty() && cur != id.as_str() {
-                let _ = s.backend.save_note(&cur, &ui.get_current_title(), &ui.get_current_body());
+                let _ = s
+                    .backend
+                    .save_note(&cur, &ui.get_current_title(), &ui.get_current_body());
             }
             FOLDS.with(|f| f.borrow_mut().clear()); // fresh folds per note
             open_in_editor(&ui, &s.backend, &id); // records the recent (tab strip)
@@ -2230,15 +2595,17 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
     {
         let ui_w = ui.as_weak();
         let state = state.clone();
-        ui.on_save_note(move |id: SharedString, title: SharedString, body: SharedString| {
-            let ui = ui_w.unwrap();
-            let mut s = state.borrow_mut();
-            match s.backend.save_note(&id, &title, &body) {
-                Ok(()) => ui.set_status_text("Saved".into()),
-                Err(e) => ui.set_status_text(format!("Error: {e}").into()),
-            }
-            refresh(&ui, &s);
-        });
+        ui.on_save_note(
+            move |id: SharedString, title: SharedString, body: SharedString| {
+                let ui = ui_w.unwrap();
+                let mut s = state.borrow_mut();
+                match s.backend.save_note(&id, &title, &body) {
+                    Ok(()) => ui.set_status_text("Saved".into()),
+                    Err(e) => ui.set_status_text(format!("Error: {e}").into()),
+                }
+                refresh(&ui, &s);
+            },
+        );
     }
 
     // quit (File → Exit)
@@ -2514,6 +2881,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             ui.set_form_external("".into());
             ui.set_form_priority("".into());
             ui.set_form_repeat("".into());
+            ui.set_form_show_details(false);
             ui.set_form_visible(true);
             refresh(&ui, &s);
         });
@@ -2539,6 +2907,14 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 ui.set_form_external(t.external.into());
                 ui.set_form_priority(t.priority.into());
                 ui.set_form_repeat(t.repeat.into());
+                ui.set_form_show_details(
+                    !ui.get_form_status().is_empty()
+                        && ui.get_form_status() != SharedString::from("todo")
+                        || !ui.get_form_start().is_empty()
+                        || !ui.get_form_external().is_empty()
+                        || !ui.get_form_priority().is_empty()
+                        || !ui.get_form_repeat().is_empty(),
+                );
                 ui.set_form_visible(true);
             }
         });
@@ -2567,7 +2943,8 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 let note_id = ui.get_current_id().to_string();
                 s.backend.add_todo(&note_id, &fields).map(|_| ())
             } else {
-                s.backend.update_todo(&ui.get_form_id().to_string(), &fields)
+                s.backend
+                    .update_todo(&ui.get_form_id().to_string(), &fields)
             };
             match result {
                 Ok(()) => ui.set_status_text("Todo saved".into()),
@@ -2642,7 +3019,11 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             if n > 0 {
                 FIND_CUR.with(|c| {
                     let cur = c.get();
-                    c.set(if fwd { (cur + 1) % n } else { (cur + n - 1) % n });
+                    c.set(if fwd {
+                        (cur + 1) % n
+                    } else {
+                        (cur + n - 1) % n
+                    });
                 });
             }
             find_apply(&ui);
@@ -2704,7 +3085,13 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                                 let id = ui.get_current_id().to_string();
                                 let s = state.borrow();
                                 FOLDS.with(|f| {
-                                    ui.set_md_blocks(md_blocks_model(&s.backend, &id, &body, false, &f.borrow()));
+                                    ui.set_md_blocks(md_blocks_model(
+                                        &s.backend,
+                                        &id,
+                                        &body,
+                                        false,
+                                        &f.borrow(),
+                                    ));
                                 });
                             }
                         }
@@ -2744,7 +3131,11 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         let state = state.clone();
         ui.on_set_kind_filter(move |v: SharedString| {
             let ui = ui_w.unwrap();
-            state.borrow_mut().filter.kind = if v == "any" { String::new() } else { v.to_string() };
+            state.borrow_mut().filter.kind = if v == "any" {
+                String::new()
+            } else {
+                v.to_string()
+            };
             refresh(&ui, &state.borrow());
         });
     }
@@ -2753,7 +3144,11 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         let state = state.clone();
         ui.on_set_priority_filter(move |v: SharedString| {
             let ui = ui_w.unwrap();
-            state.borrow_mut().filter.priority = if v == "any" { String::new() } else { v.to_string() };
+            state.borrow_mut().filter.priority = if v == "any" {
+                String::new()
+            } else {
+                v.to_string()
+            };
             refresh(&ui, &state.borrow());
         });
     }
@@ -2794,8 +3189,12 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                     _ => {}
                 }
             }
-            if dim == "status" { ui.set_status_filter("".into()); }
-            if dim == "search" { ui.set_search("".into()); }
+            if dim == "status" {
+                ui.set_status_filter("".into());
+            }
+            if dim == "search" {
+                ui.set_search("".into());
+            }
             refresh(&ui, &state.borrow());
         });
     }
@@ -2815,7 +3214,12 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let ui = ui_w.unwrap();
             {
                 let mut s = state.borrow_mut();
-                if s.cal_month == 1 { s.cal_month = 12; s.cal_year -= 1; } else { s.cal_month -= 1; }
+                if s.cal_month == 1 {
+                    s.cal_month = 12;
+                    s.cal_year -= 1;
+                } else {
+                    s.cal_month -= 1;
+                }
             }
             refresh(&ui, &state.borrow());
         });
@@ -2827,7 +3231,12 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let ui = ui_w.unwrap();
             {
                 let mut s = state.borrow_mut();
-                if s.cal_month == 12 { s.cal_month = 1; s.cal_year += 1; } else { s.cal_month += 1; }
+                if s.cal_month == 12 {
+                    s.cal_month = 1;
+                    s.cal_year += 1;
+                } else {
+                    s.cal_month += 1;
+                }
             }
             refresh(&ui, &state.borrow());
         });
@@ -2955,7 +3364,12 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             }
             let mut s = state.borrow_mut();
             let _ = s.backend.delete_note(&id);
-            match s.backend.query_notes(&Filter::default()).ok().and_then(|v| v.into_iter().next()) {
+            match s
+                .backend
+                .query_notes(&Filter::default())
+                .ok()
+                .and_then(|v| v.into_iter().next())
+            {
                 Some(first) => open_in_editor(&ui, &s.backend, &first.id),
                 None => {
                     ui.set_current_id("".into());
@@ -2964,6 +3378,44 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 }
             }
             ui.set_editing(false);
+            ui.set_status_text("Moved to trash".into());
+            refresh(&ui, &s);
+        });
+    }
+    // delete a specific note from a note-list/tab context menu
+    {
+        let ui_w = ui.as_weak();
+        let state = state.clone();
+        ui.on_delete_note_id(move |id: SharedString| {
+            let ui = ui_w.unwrap();
+            let id = id.to_string();
+            if id.is_empty() {
+                return;
+            }
+            let mut s = state.borrow_mut();
+            let _ = s.backend.delete_note(&id);
+            RECENTS.with(|r| r.borrow_mut().retain(|x| *x != id));
+            s.pinned.retain(|x| *x != id);
+            persist_pins(&s);
+            if ui.get_current_id() == SharedString::from(id.as_str()) {
+                match s
+                    .backend
+                    .query_notes(&Filter::default())
+                    .ok()
+                    .and_then(|v| v.into_iter().next())
+                {
+                    Some(first) => open_in_editor(&ui, &s.backend, &first.id),
+                    None => {
+                        ui.set_current_id("".into());
+                        ui.set_current_title("".into());
+                        ui.set_current_body("".into());
+                    }
+                }
+                ui.set_editing(false);
+            }
+            if ui.get_split_note_id() == SharedString::from(id.as_str()) {
+                ui.set_split_note_id("".into());
+            }
             ui.set_status_text("Moved to trash".into());
             refresh(&ui, &s);
         });
@@ -3132,7 +3584,9 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let mut s = state.borrow_mut();
             if let Ok(n) = s.backend.new_note() {
                 let title: String = text.trim().chars().take(60).collect();
-                let _ = s.backend.save_note(&n.id, &title, &format!("{}\n", text.trim()));
+                let _ = s
+                    .backend
+                    .save_note(&n.id, &title, &format!("{}\n", text.trim()));
                 ui.set_status_text("Captured to inbox".into());
             }
             ui.set_capture_input("".into());
@@ -3152,7 +3606,31 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             }
             let mut s = state.borrow_mut();
             let _ = s.backend.archive_note(&id, archive);
-            ui.set_status_text(if archive { "Archived".into() } else { "Unarchived".into() });
+            ui.set_status_text(if archive {
+                "Archived".into()
+            } else {
+                "Unarchived".into()
+            });
+            refresh(&ui, &s);
+        });
+    }
+    // archive / unarchive a specific note from a context menu
+    {
+        let ui_w = ui.as_weak();
+        let state = state.clone();
+        ui.on_archive_note_id(move |id: SharedString, archive: bool| {
+            let ui = ui_w.unwrap();
+            let id = id.to_string();
+            if id.is_empty() {
+                return;
+            }
+            let mut s = state.borrow_mut();
+            let _ = s.backend.archive_note(&id, archive);
+            ui.set_status_text(if archive {
+                "Archived".into()
+            } else {
+                "Unarchived".into()
+            });
             refresh(&ui, &s);
         });
     }
@@ -3186,11 +3664,17 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 "markdown" => "typst",
                 _ => "auto",
             };
-            let _ = s.backend.save_note(&id, &ui.get_current_title(), &ui.get_current_body());
+            let _ = s
+                .backend
+                .save_note(&id, &ui.get_current_title(), &ui.get_current_body());
             let _ = s.backend.set_note_kind(&id, new_kind);
             ui.set_current_kind(new_kind.into());
             let detected = backend::detect_kind(&ui.get_current_body());
-            let shown = if new_kind == "auto" { detected } else { new_kind };
+            let shown = if new_kind == "auto" {
+                detected
+            } else {
+                new_kind
+            };
             ui.set_status_text(format!("Mode: {new_kind} (renders as {shown})").into());
         });
     }
@@ -3204,7 +3688,9 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let mut s = state.borrow_mut();
             let id = ui.get_current_id().to_string();
             if !id.is_empty() {
-                let _ = s.backend.save_note(&id, &ui.get_current_title(), &ui.get_current_body());
+                let _ = s
+                    .backend
+                    .save_note(&id, &ui.get_current_title(), &ui.get_current_body());
                 if let Ok(n) = s.backend.load_note(&id) {
                     render_read(&ui, &s.backend, &n);
                 }
@@ -3215,143 +3701,14 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         });
     }
 
-    // Connector imports (Gmail / Google Tasks / Todoist) share one pipeline: the
-    // slow fetch + mapping runs on a worker thread and sends ready-to-create
-    // ImportItems over a channel; a UI-thread timer turns them into notes
-    // (new_note touches the Backend, so that must stay on this thread).
-    let (import_tx, import_rx) = std::sync::mpsc::channel::<Result<Vec<ImportItem>, String>>();
-    {
-        use noet_core::connectors::gmail;
-        let ui_w = ui.as_weak();
-        let tx = import_tx.clone();
-        ui.on_import_gmail(move || {
-            let ui = ui_w.unwrap();
-            let cfg = gmail::GmailConfig::load().unwrap_or_default();
-            if !cfg.is_connected() {
-                ui.set_status_text("Connect Google in Settings first.".into());
-                return;
-            }
-            ui.set_status_text("Importing from Gmail…".into());
-            let tx = tx.clone();
-            std::thread::spawn(move || {
-                let res = gmail::list_recent(&cfg, "is:starred", 25)
-                    .map(|msgs| {
-                        msgs.iter()
-                            .map(|m| {
-                                let (title, body) = gmail::message_to_note(m);
-                                ImportItem { title, body, reference: format!("{}{}", gmail::GMAIL_REF_PREFIX, m.id) }
-                            })
-                            .collect()
-                    })
-                    .map_err(|e| e.to_string());
-                let _ = tx.send(res);
-            });
-        });
-    }
-    {
-        use noet_core::connectors::{gmail, gtasks};
-        let ui_w = ui.as_weak();
-        let tx = import_tx.clone();
-        ui.on_import_gtasks(move || {
-            let ui = ui_w.unwrap();
-            let cfg = gmail::GmailConfig::load().unwrap_or_default();
-            if !cfg.is_connected() {
-                ui.set_status_text("Connect Google in Settings first.".into());
-                return;
-            }
-            ui.set_status_text("Importing from Google Tasks…".into());
-            let tx = tx.clone();
-            std::thread::spawn(move || {
-                let res = gtasks::list_tasks(&cfg, 100)
-                    .map(|tasks| {
-                        tasks.iter()
-                            .map(|t| {
-                                let (title, body) = gtasks::task_to_note(t);
-                                ImportItem { title, body, reference: format!("{}{}", gtasks::GTASK_REF_PREFIX, t.id) }
-                            })
-                            .collect()
-                    })
-                    .map_err(|e| e.to_string());
-                let _ = tx.send(res);
-            });
-        });
-    }
-    {
-        use noet_core::connectors::todoist;
-        let ui_w = ui.as_weak();
-        let tx = import_tx.clone();
-        ui.on_import_todoist(move || {
-            let ui = ui_w.unwrap();
-            let cfg = todoist::TodoistConfig::load().unwrap_or_default();
-            if !cfg.is_configured() {
-                ui.set_status_text("Add your Todoist token in Settings first.".into());
-                return;
-            }
-            ui.set_status_text("Importing from Todoist…".into());
-            let tx = tx.clone();
-            std::thread::spawn(move || {
-                let res = todoist::list_tasks(&cfg, "")
-                    .map(|tasks| {
-                        tasks.iter()
-                            .map(|t| {
-                                let (title, body) = todoist::task_to_note(t);
-                                ImportItem { title, body, reference: format!("{}{}", todoist::TODOIST_REF_PREFIX, t.id) }
-                            })
-                            .collect()
-                    })
-                    .map_err(|e| e.to_string());
-                let _ = tx.send(res);
-            });
-        });
-    }
-    let import_timer = slint::Timer::default();
-    {
-        let ui_w = ui.as_weak();
-        let state = state.clone();
-        import_timer.start(
-            slint::TimerMode::Repeated,
-            std::time::Duration::from_millis(400),
-            move || {
-                let Ok(result) = import_rx.try_recv() else { return };
-                let Some(ui) = ui_w.upgrade() else { return };
-                let items = match result {
-                    Ok(v) => v,
-                    Err(e) => {
-                        ui.set_status_text(format!("Import failed: {e}").into());
-                        return;
-                    }
-                };
-                let mut s = state.borrow_mut();
-                // dedup against everything already linked from an external source
-                let seen: std::collections::HashSet<String> = s
-                    .backend
-                    .todos_by_external_prefix("src:")
-                    .unwrap_or_default()
-                    .iter()
-                    .map(|t| t.external.trim().to_string())
-                    .collect();
-                let mut n = 0;
-                for it in &items {
-                    if seen.contains(&it.reference) {
-                        continue;
-                    }
-                    if let Ok(note) = s.backend.new_note() {
-                        if s.backend.save_note(&note.id, &it.title, &it.body).is_ok() {
-                            n += 1;
-                        }
-                    }
-                }
-                ui.set_status_text(format!("Imported {n} new item(s)").into());
-                refresh(&ui, &s);
-            },
-        );
-    }
+    let import_timer = imports::register(&ui, state.clone());
 
     // Restore remembered window + layout state.
     {
         let cfg = backend::Settings::load().unwrap_or_default();
         if cfg.window_w > 200.0 && cfg.window_h > 150.0 {
-            ui.window().set_size(slint::LogicalSize::new(cfg.window_w, cfg.window_h));
+            ui.window()
+                .set_size(slint::LogicalSize::new(cfg.window_w, cfg.window_h));
         }
         if cfg.rail_width > 0.0 {
             ui.set_rail_width(cfg.rail_width);
@@ -3386,7 +3743,14 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         });
     }
 
-    Ok(AppCtx { ui, state, spawn_reindex, indexing, dirty, import_timer })
+    Ok(AppCtx {
+        ui,
+        state,
+        spawn_reindex,
+        indexing,
+        dirty,
+        import_timer,
+    })
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -3406,15 +3770,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let vault = resolve_vault();
-    let AppCtx { ui, state, spawn_reindex, indexing, dirty, import_timer: _import_timer } =
-        setup_app(vault.clone())?;
+    let AppCtx {
+        ui,
+        state,
+        spawn_reindex,
+        indexing,
+        dirty,
+        import_timer: _import_timer,
+    } = setup_app(vault.clone())?;
 
     // Opt-in: sync flagged Outlook mail once at startup (Windows only). The slow
     // COM call runs on a worker thread; a timer drains the result on the UI thread
     // and applies it (sync_into touches the Backend, so it must stay on this
     // thread). Held in `_outlook_timer` so it lives for the session.
     let _outlook_timer = if noet_core::connectors::outlook::is_supported()
-        && backend::Settings::load().map(|s| s.outlook_sync_on_open).unwrap_or(false)
+        && backend::Settings::load()
+            .map(|s| s.outlook_sync_on_open)
+            .unwrap_or(false)
     {
         let (otx, orx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
@@ -3431,7 +3803,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let Some(ui) = ui_w.upgrade() else { return };
                 if let Ok(mails) = result {
                     let mut s = state.borrow_mut();
-                    if let Ok(sum) = noet_core::connectors::outlook::sync_into(&mut s.backend, &mails) {
+                    if let Ok(sum) =
+                        noet_core::connectors::outlook::sync_into(&mut s.backend, &mails)
+                    {
                         ui.set_status_text(
                             format!(
                                 "Outlook sync: {} new, {} resolved, {} reopened, {} pushed back",

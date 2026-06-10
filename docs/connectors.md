@@ -26,7 +26,8 @@ that's deeply specced.
 ## Core architecture (already in place)
 
 - `noet-core/connectors/<service>.rs` — each connector is: a **config** struct
-  persisted in the **OS config dir** (never the vault, never the repo), **pure,
+  persisted outside the vault/repo (macOS Keychain for secrets on macOS, private
+  OS config files for non-secret fields and fallback platforms), **pure,
   testable logic** (parse / map / reconcile), and **thin IO**.
 - **Two IO mechanisms:**
   - **Cloud REST** over HTTPS (`ureq`) — Jira today; Gmail/Todoist/Monday/Graph
@@ -148,8 +149,9 @@ admin; corporate Entra you don't).
 
 ## Security / policy guardrails
 
-- Credentials and tokens live in the **OS config dir**, never the vault, never the
-  repo. (`Settings`, `JiraConfig` already follow this; Gmail tokens will too.)
+- Credentials and tokens live outside the vault/repo. On macOS they use macOS
+  Keychain; fallback JSON config files are kept owner-only where Unix permissions
+  are available.
 - **Automating an app you're licensed to use** (Outlook COM / Outlook-for-Mac
   AppleScript) is defensible. **Extracting another app's tokens or replaying
   browser cookies is not** — avoid even when technically possible.

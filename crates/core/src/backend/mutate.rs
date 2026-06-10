@@ -44,7 +44,11 @@ impl Backend {
             body += &format!("(continues [[{}]])\n", src.title);
         }
         if !links.is_empty() {
-            body += &links.iter().map(|l| format!("[[{l}]]")).collect::<Vec<_>>().join(" ");
+            body += &links
+                .iter()
+                .map(|l| format!("[[{l}]]"))
+                .collect::<Vec<_>>()
+                .join(" ");
             body.push('\n');
         }
         body.push('\n');
@@ -121,7 +125,9 @@ impl Backend {
 
     pub fn set_todo_kind(&mut self, todo_id: &str, kind: &str) -> Result<()> {
         let kind = kind.to_string();
-        self.rewrite_line(todo_id, move |line| set_marker_kind(line, None, Some(&kind)))
+        self.rewrite_line(todo_id, move |line| {
+            set_marker_kind(line, None, Some(&kind))
+        })
     }
 
     /// Append a new todo (built from form fields) to a note. Returns its id.
@@ -194,7 +200,10 @@ impl Backend {
     }
 
     pub fn get_smart_list(&self, name: &str) -> Option<Filter> {
-        self.load_smartlists().into_iter().find(|n| n.name == name).map(|n| n.filter)
+        self.load_smartlists()
+            .into_iter()
+            .find(|n| n.name == name)
+            .map(|n| n.filter)
     }
 
     pub fn save_smart_list(&self, name: &str, f: &Filter) -> Result<()> {
@@ -204,7 +213,10 @@ impl Backend {
         }
         let mut v = self.load_smartlists();
         v.retain(|n| n.name != name);
-        v.push(NamedFilter { name: name.to_string(), filter: f.clone() });
+        v.push(NamedFilter {
+            name: name.to_string(),
+            filter: f.clone(),
+        });
         v.sort_by(|a, b| a.name.cmp(&b.name));
         std::fs::write(self.smartlists_path(), serde_json::to_string_pretty(&v)?)?;
         Ok(())
@@ -316,12 +328,19 @@ impl Backend {
 
     /// File a note into a topic/project by appending a `[[Topic]]` link.
     pub fn add_link(&mut self, note_id: &str, topic: &str) -> Result<()> {
-        let topic = topic.trim().trim_start_matches("[[").trim_end_matches("]]").trim();
+        let topic = topic
+            .trim()
+            .trim_start_matches("[[")
+            .trim_end_matches("]]")
+            .trim();
         if topic.is_empty() {
             return Ok(());
         }
         let mut note = self.load_note(note_id)?;
-        if parse_links(&note.body).iter().any(|t| t.eq_ignore_ascii_case(topic)) {
+        if parse_links(&note.body)
+            .iter()
+            .any(|t| t.eq_ignore_ascii_case(topic))
+        {
             return Ok(());
         }
         if !note.body.is_empty() && !note.body.ends_with('\n') {
@@ -361,7 +380,11 @@ impl Backend {
     /// column's value (status/kind/project/person), rewriting the line.
     pub fn drop_card(&mut self, todo_id: &str, group_by: &str, target_key: &str) -> Result<()> {
         let mut fields = TodoFields::from_todo(&self.get_todo(todo_id)?);
-        let val = if target_key == "(none)" { "" } else { target_key };
+        let val = if target_key == "(none)" {
+            ""
+        } else {
+            target_key
+        };
         match group_by {
             "status" => fields.status = val.to_string(),
             "kind" => fields.kind = val.to_string(),
@@ -390,7 +413,11 @@ impl Backend {
             _ => return Ok(()), // project/person columns aren't ordinal — no move
         };
         let todo = self.get_todo(todo_id)?;
-        let cur = if group_by == "status" { &todo.status } else { &todo.kind };
+        let cur = if group_by == "status" {
+            &todo.status
+        } else {
+            &todo.kind
+        };
         let idx = order.iter().position(|x| x == cur).unwrap_or(0) as i32;
         let ni = (idx + dir).clamp(0, order.len() as i32 - 1) as usize;
         let target = order[ni];

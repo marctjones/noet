@@ -69,9 +69,9 @@ impl Backend {
     }
 
     pub fn list_projects(&self) -> Result<Vec<Project>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT target, COUNT(*) FROM links GROUP BY target ORDER BY target ASC",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT target, COUNT(*) FROM links GROUP BY target ORDER BY target ASC")?;
         let rows = stmt.query_map([], |r| {
             Ok(Project {
                 name: r.get(0)?,
@@ -116,7 +116,9 @@ impl Backend {
         let mut where_: Vec<String> = Vec::new();
         let mut binds: Vec<String> = Vec::new();
         if !f.tag.is_empty() {
-            sql.push_str(" JOIN tags tg ON tg.note_id = t.note_id AND (tg.tag = ? OR tg.tag LIKE ?)");
+            sql.push_str(
+                " JOIN tags tg ON tg.note_id = t.note_id AND (tg.tag = ? OR tg.tag LIKE ?)",
+            );
             binds.push(f.tag.clone());
             binds.push(format!("{}/%", f.tag));
         }
@@ -181,7 +183,9 @@ impl Backend {
 
     /// Notes view query: search title/body, filter by project/tag/person.
     pub fn query_notes(&self, f: &Filter) -> Result<Vec<Note>> {
-        let mut sql = String::from("SELECT DISTINCT n.id,n.title,n.path,n.created,n.updated,n.kind FROM notes n");
+        let mut sql = String::from(
+            "SELECT DISTINCT n.id,n.title,n.path,n.created,n.updated,n.kind FROM notes n",
+        );
         let mut where_: Vec<String> = Vec::new();
         let mut binds: Vec<String> = Vec::new();
         if !f.project.is_empty() {
@@ -314,11 +318,21 @@ impl Backend {
         let f = if filter == "all" {
             Filter::default()
         } else if let Some(p) = filter.strip_prefix("person:") {
-            Filter { person: p.into(), status: "open".into(), ..Default::default() }
+            Filter {
+                person: p.into(),
+                status: "open".into(),
+                ..Default::default()
+            }
         } else if let Some(p) = filter.strip_prefix("project:") {
-            Filter { project: p.into(), ..Default::default() }
+            Filter {
+                project: p.into(),
+                ..Default::default()
+            }
         } else {
-            Filter { kind: filter.into(), ..Default::default() }
+            Filter {
+                kind: filter.into(),
+                ..Default::default()
+            }
         };
         self.query_todos(&f)
     }
@@ -363,7 +377,9 @@ impl Backend {
     /// The title of a note by id (cheap lookup for the open-notes tab strip).
     pub fn note_title(&self, id: &str) -> Option<String> {
         self.conn
-            .query_row("SELECT title FROM notes WHERE id=?", [id], |r| r.get::<_, String>(0))
+            .query_row("SELECT title FROM notes WHERE id=?", [id], |r| {
+                r.get::<_, String>(0)
+            })
             .ok()
     }
 
@@ -386,8 +402,9 @@ impl Backend {
         use std::collections::{BTreeSet, HashMap};
         // This note's own entity values, per source table.
         let column_values = |table: &str, col: &str| -> Result<Vec<String>> {
-            let mut stmt =
-                self.conn.prepare(&format!("SELECT {col} FROM {table} WHERE note_id=?"))?;
+            let mut stmt = self
+                .conn
+                .prepare(&format!("SELECT {col} FROM {table} WHERE note_id=?"))?;
             let rows = stmt.query_map([note_id], |r| r.get::<_, String>(0))?;
             Ok(rows.filter_map(|r| r.ok()).collect())
         };
@@ -403,7 +420,8 @@ impl Backend {
                 let mut stmt = self.conn.prepare(&format!(
                     "SELECT DISTINCT note_id FROM {table} WHERE {col}=? AND note_id!=?"
                 ))?;
-                let rows = stmt.query_map(rusqlite::params![v, note_id], |r| r.get::<_, String>(0))?;
+                let rows =
+                    stmt.query_map(rusqlite::params![v, note_id], |r| r.get::<_, String>(0))?;
                 for nid in rows.filter_map(|r| r.ok()) {
                     hits.entry(nid).or_default().insert(v.clone());
                 }
@@ -414,24 +432,41 @@ impl Backend {
             let row = self.conn.query_row(
                 "SELECT title, updated, archived FROM notes WHERE id=?",
                 [&nid],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?)),
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, i64>(2)?,
+                    ))
+                },
             );
             if let Ok((title, updated, archived)) = row {
                 if archived == 0 {
-                    out.push(RelatedNote { id: nid, title, updated, shared: shared.into_iter().collect() });
+                    out.push(RelatedNote {
+                        id: nid,
+                        title,
+                        updated,
+                        shared: shared.into_iter().collect(),
+                    });
                 }
             }
         }
         // Most-shared first, then most-recently-updated.
         out.sort_by(|a, b| {
-            b.shared.len().cmp(&a.shared.len()).then(b.updated.cmp(&a.updated))
+            b.shared
+                .len()
+                .cmp(&a.shared.len())
+                .then(b.updated.cmp(&a.updated))
         });
         out.truncate(limit);
         Ok(out)
     }
 
     pub fn get_todo(&self, id: &str) -> Result<Todo> {
-        let sql = format!("SELECT {} FROM todos t WHERE t.id = ?", Self::todo_cols("t."));
+        let sql = format!(
+            "SELECT {} FROM todos t WHERE t.id = ?",
+            Self::todo_cols("t.")
+        );
         Ok(self.conn.query_row(&sql, [id], Self::row_to_todo)?)
     }
 
@@ -451,7 +486,9 @@ impl Backend {
     pub fn note_archived(&self, note_id: &str) -> Result<bool> {
         let archived: i64 = self
             .conn
-            .query_row("SELECT archived FROM notes WHERE id=?", [note_id], |r| r.get(0))
+            .query_row("SELECT archived FROM notes WHERE id=?", [note_id], |r| {
+                r.get(0)
+            })
             .unwrap_or(0);
         Ok(archived != 0)
     }
