@@ -1108,13 +1108,20 @@ fn task_waiting_board_and_label_reviews_group_indexed_facts() {
          - [x] Done item #mine #project/acme\n",
     )
     .unwrap();
+    std::fs::write(
+        notes_dir.join("stale.md"),
+        "---\nupdated: 2000-01-01T09:00:00\nkind: markdown\n---\n\
+         # Stale\n\n- [ ] Nudge old follow-up @[[Old Contact]] #followup\n",
+    )
+    .unwrap();
 
     let b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();
     let review = b.task_review().unwrap();
-    assert_eq!(review.open.len(), 5);
+    assert_eq!(review.open.len(), 6);
     assert_eq!(review.overdue.len(), 1);
+    assert_eq!(review.stale.len(), 1);
     assert_eq!(review.mine.len(), 1);
-    assert_eq!(review.followups.len(), 1);
+    assert_eq!(review.followups.len(), 2);
     assert_eq!(review.delegated.len(), 1);
     assert_eq!(review.waiting.len(), 1);
     assert_eq!(review.someday.len(), 1);
@@ -1139,7 +1146,7 @@ fn task_waiting_board_and_label_reviews_group_indexed_facts() {
     assert!(board
         .columns
         .iter()
-        .any(|column| column.key == "followup" && column.tasks.len() == 1));
+        .any(|column| column.key == "followup" && column.tasks.len() == 2));
     assert!(board
         .columns
         .iter()

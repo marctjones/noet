@@ -176,6 +176,7 @@ pub struct TaskReview {
     pub open: Vec<TaskFact>,
     pub overdue: Vec<TaskFact>,
     pub due: Vec<TaskFact>,
+    pub stale: Vec<TaskFact>,
     pub mine: Vec<TaskFact>,
     pub followups: Vec<TaskFact>,
     pub delegated: Vec<TaskFact>,
@@ -313,6 +314,7 @@ impl Backend {
                 .cloned()
                 .collect()
         };
+        let stale = self.task_facts_for_todos(self.stale_todos()?)?;
         Ok(TaskReview {
             overdue: open
                 .iter()
@@ -324,6 +326,7 @@ impl Backend {
                 .filter(|task| !task.due.is_empty())
                 .cloned()
                 .collect(),
+            stale,
             mine: workflow(TaskWorkflow::Mine),
             followups: workflow(TaskWorkflow::Followup),
             delegated: workflow(TaskWorkflow::Delegated),

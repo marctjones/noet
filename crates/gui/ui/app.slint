@@ -619,6 +619,7 @@ export component AppWindow inherits Window {
     in property <[TodoItem]> waiting-todos; // open delegated items for the Waiting view
     in property <[TodoItem]> review-overdue;
     in property <[TodoItem]> review-due;
+    in property <[TodoItem]> review-stale;
     in property <[TodoItem]> review-followups;
     in property <[TodoItem]> review-waiting;
     in property <[TodoItem]> review-someday;
@@ -1288,6 +1289,20 @@ export component AppWindow inherits Window {
                                                             accent: Theme.accent;
                                                             if root.review-due.length == 0: EmptyState { glyph: "[]"; title: "No due tasks"; hint: "Dated work will appear here."; }
                                                             for t in root.review-due: AgendaRow {
+                                                                t: t;
+                                                                cycle(id) => { root.cycle-todo(id); }
+                                                                edit(id) => { root.edit-todo(id); }
+                                                                open(id) => { root.open-note(id); }
+                                                                promote(id) => { root.promote-task(id); }
+                                                            }
+                                                        }
+                                                        PaneSection {
+                                                            width: 300px;
+                                                            title: "Stale";
+                                                            detail: root.review-stale.length + " untouched";
+                                                            accent: #9a5b1b;
+                                                            if root.review-stale.length == 0: EmptyState { glyph: "✓"; title: "No stale follow-ups"; hint: "Old follow-ups and delegated tasks will appear here."; }
+                                                            for t in root.review-stale: AgendaRow {
                                                                 t: t;
                                                                 cycle(id) => { root.cycle-todo(id); }
                                                                 edit(id) => { root.edit-todo(id); }

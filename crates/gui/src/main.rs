@@ -1499,6 +1499,13 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
                     .collect::<Vec<_>>(),
             )));
             ui.set_review_due(ModelRc::new(VecModel::from(due)));
+            ui.set_review_stale(ModelRc::new(VecModel::from(
+                review
+                    .stale
+                    .iter()
+                    .map(to_todo_item_from_fact)
+                    .collect::<Vec<_>>(),
+            )));
             ui.set_review_followups(ModelRc::new(VecModel::from(
                 review
                     .followups

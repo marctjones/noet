@@ -151,9 +151,10 @@ anchor.
 
 ### Review
 
-Overdue work, scheduled work, people follow-ups, waiting/delegated items,
-someday items, inbox notes, labels, and workstreams should be reviewable through
-workspace layouts over the same indexed Markdown facts.
+Overdue work, scheduled work, stale follow-ups, people follow-ups,
+waiting/delegated items, someday items, inbox notes, labels, and workstreams
+should be reviewable through workspace layouts over the same indexed Markdown
+facts.
 
 ## Architecture
 
