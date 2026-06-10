@@ -8,7 +8,7 @@ migrated out and removed.
 The purpose is to keep the vault useful as plain files while giving Noet enough
 structure to replace manual OneNote-style organization. Meeting notes, tasks,
 people, labels, and follow-up context should live in normal Markdown and be
-reorganized dynamically by the app.
+reorganized dynamically by workspace surfaces in the app.
 
 ## Principles
 
@@ -53,8 +53,8 @@ Nested labels create hierarchy. Filtering `#meeting` includes
 
 Labels are the main dynamic organization layer. A note does not need to live in a
 preselected notebook or section to be useful. The same note can appear in
-meeting, person, project, waiting, and timeline views because it contains
-readable labels and entities.
+meeting, person, project, waiting, timeline, and review surfaces because it
+contains readable labels and entities.
 
 ### People
 
@@ -88,8 +88,8 @@ Workstreams and note links use wiki links:
 [[Acme Onboarding]]
 ```
 
-Noet should not need both `[[...]]` and `+[[...]]` long term. Use one canonical
-link form.
+`+[[...]]` is legacy syntax. Generated Noet Markdown should use one canonical
+link form: `[[...]]`.
 
 ### Tasks
 
@@ -197,9 +197,10 @@ A 1:1 note is just a meeting note with a nested meeting label and participant:
 - [ ] Ask Sam about NDA @[[Sam]] #delegated
 ```
 
-The People view should surface open tasks involving a person even if those tasks
-came from old meeting notes. The user does not need to copy every follow-up into
-the next 1:1 note; Noet should collect and present them automatically.
+The 1:1 Focus workspace should surface open tasks involving a person even if
+those tasks came from old meeting notes. The user does not need to copy every
+follow-up into the next 1:1 note; Noet should collect and present them
+automatically.
 
 This is the central workflow:
 
@@ -263,6 +264,23 @@ typed model. Avoid adding unrelated regex scans for each new feature.
 
 The parser should be platform-neutral core logic. macOS, Windows, and GNOME
 builds should all index the same vault the same way.
+
+## Relationship To The UX Model
+
+Noet Markdown does not know about panes, workspaces, or Slint. It produces facts.
+
+Workspace surfaces consume those facts:
+
+- PersonBrowser reads indexed people.
+- OneOnOne reads notes with `#meeting/one-on-one` plus a person mention.
+- TaskList reads task facts.
+- Board groups task facts.
+- History reads notes related to a selected person or note.
+- Backlinks reads link facts.
+- LabelBrowser reads label facts.
+
+This separation is important. Markdown is the durable source. The app model
+decides which surfaces are open. The GUI renders those surfaces inside panes.
 
 ## Migration
 

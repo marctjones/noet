@@ -1,113 +1,199 @@
 # Implementation Roadmap
 
-This roadmap tracks the path from the current redesign work to the next stable
-commit and local release. It deliberately favors a clean Noet Markdown model over
-backward compatibility with earlier Noet syntax.
+This roadmap translates [Product Architecture](product-architecture.md) into an
+implementation sequence. It intentionally does not preserve the old page-based
+GUI shell.
 
-## Product Direction
+## Target Layering
 
-Noet is a local-first, open-source personal command center for notes, tasks,
-meetings, people, and follow-up. It is meant for users who want something in the
-Things/OmniFocus direction, but with Markdown-native capture, a strong 1:1
-workflow, and plain-file ownership.
+```text
+noet-gui -> noet-app -> noet-core
+```
 
-Noet is not trying to replace shared team systems. Jira, Outlook, Webex,
-SharePoint, OneDrive, and similar tools can remain the systems used by the team.
-For this phase, Noet is deliberately local-only: the user's private operating
-layer for remembering what matters, preparing for conversations, and acting on
-commitments without account integrations.
+The major missing piece is `noet-app`: a testable application model between the
+backend and Slint. Workspaces, panes, surfaces, selection state, and commands
+belong there.
 
-## Platform Direction
+## Phase 1 - Stabilize The Core Contract
 
-Noet should stay cross-platform without becoming an Electron app.
+The core contract is mostly independent of the GUI rewrite.
 
-- Windows 11: first-class work platform.
-- macOS: first-class personal platform with `.app` and `.dmg` packaging.
-- GNOME/Linux: supported, with desktop-environment limits documented.
+- [x] Markdown vault remains the source of truth.
+- [x] SQLite index remains rebuildable.
+- [x] GFM-style tasks are the canonical task syntax.
+- [x] Labels, people, workstreams, properties, URLs, and external refs are
+  visible Markdown facts.
+- [x] Runtime should not emit old `TODO(kind)`, `DOING(kind)`, `DONE(kind)`, or
+  `+[[Workstream]]` syntax.
 
-The core should remain Rust, the vault should remain Markdown files, and the
-index should remain rebuildable SQLite. Platform-specific code should be limited
-to packaging and desktop integration.
+Remaining core work:
 
-## Current Checkpoint Goal
+- [ ] Define a typed parsed-note model that all queries, mutations, rendering,
+  autocomplete, and indexing consume.
+- [ ] Ensure task source spans are stable enough for write-back and promotion.
+- [ ] Promote inline task to task note while preserving source context.
 
-The next commit should stabilize the foundation for the redesign:
+## Phase 2 - Add The App Model
 
-- Noet Markdown syntax is documented.
-- Core parsing understands GFM-style task lists, nested labels, people mentions,
-  wiki links, properties, and H1-derived note titles.
-- Old syntax is no longer emitted by templates, tests, or sample data.
-- GUI compiles against the new title/task behavior.
-- People/1:1 view has the minimum useful workflow: current note, previous notes,
-  person-related active tasks, and delegated/waiting items.
+Create a testable application layer.
 
-This checkpoint should not attempt to finish every visual redesign.
+Objects:
 
-## Work Sequence
+- `AppModel`
+- `SelectionState`
+- `NavigationState`
+- `WorkspaceRegistry`
+- `Workspace`
+- `Pane`
+- `Surface`
+- `Command`
 
-### 1. Finish Grammar Replacement
+Minimum commands:
 
-- Replace all `TODO(kind)`, `DOING(kind)`, and `DONE(kind)` emissions with
-  `- [ ]`, `- [/]`, and `- [x]`.
-- Replace `+[[Workstream]]` emissions with normal `[[Workstream]]` links.
-- Ensure workflow behavior comes from labels such as `#followup`, `#delegated`,
-  `#mine`, `#waiting`, and `#someday`.
-- Ensure planning metadata uses `key:value` properties.
+- select person
+- open note
+- open task
+- switch workspace
+- open pane
+- close pane
+- resize pane
+- focus pane
+- set primary surface
+- resolve task
+- carry over follow-up
+- promote task
 
-### 2. Stabilize Parser and Index
+Tests:
 
-- Keep task metadata separate from note metadata in the index.
-- Index task labels, task people, task links, and task properties by task source.
-- Make query filters use task-scoped metadata for task views.
-- Keep source note id and source line for write-back.
+- selecting a person does not change pane layout by accident
+- selecting a person can open/update a 1:1 surface
+- closing a navigation pane does not close the primary work pane
+- pane resize clamps to min/max
+- workspace presets contain expected panes and surfaces
 
-### 3. Update Mutation Paths
+## Phase 3 - Workflow Read Models
 
-- Toggle task status by rewriting the checkbox marker.
-- Move workflow state by rewriting workflow labels, while preserving unrelated
-  labels.
-- Derive displayed note title from the first Markdown H1.
-- Remove runtime dependence on frontmatter `id` and `title`.
+Move workflow assembly out of Slint-facing code.
 
-### 4. Update UI and Templates
+Read models:
 
-- Update the 1:1 template to use `#meeting/one-on-one`, `@[[Person]]`, and
-  GFM-style task items.
-- Update sample vault content to the new syntax.
-- Add the GUI handler that edits the first H1 when the visible title changes.
-- Keep the make-todo flow focused on common decisions rather than exposing every
-  field at once.
+- `OneOnOneContext`
+- `TaskReview`
+- `WaitingReview`
+- `BoardModel`
+- `LabelReview`
+- `NoteContext`
 
-### 5. Fix Tests
+`OneOnOneContext` should include:
 
-- Rewrite tests around the new grammar instead of preserving old behavior.
-- Keep tests for parsing, formatting, indexing, filtering, task mutation, and GUI
-  smoke behavior.
-- Run `cargo test -p noet-core`, then GUI smoke tests, then workspace tests.
+- person
+- current 1:1 note
+- prior 1:1 notes
+- unresolved follow-ups
+- delegated/waiting tasks
+- related notes
+- source context for promoted or inline tasks
 
-### 6. Package Local macOS Build
+Tests:
 
-- Build `Noet.app`.
-- Ad-hoc sign it.
-- Create `.dmg` and `.tar.gz` artifacts.
-- Document install steps and the unsigned-app Gatekeeper workaround.
+- previous 1:1 notes sort correctly
+- unresolved prior follow-ups continue to appear
+- carried-over items preserve source context
+- delegated/waiting items group by person
+- board groups derive from Markdown-backed task facts
+
+## Phase 4 - Surface Adapters
+
+Surface adapters convert core/app read models into GUI-ready models.
+
+Initial adapters:
+
+- `PersonBrowserAdapter`
+- `NoteBrowserAdapter`
+- `NoteEditorAdapter`
+- `OneOnOneAdapter`
+- `TaskListAdapter`
+- `BoardAdapter`
+- `HistoryAdapter`
+- `BacklinksAdapter`
+- `FollowupQueueAdapter`
+
+Rules:
+
+- adapters should not query Slint state
+- adapters should not mutate Markdown directly
+- adapters should return deterministic models from app/core state
+
+## Phase 5 - Slint Renderer
+
+The GUI should render app state and send commands.
+
+Renderer responsibilities:
+
+- render workspace picker
+- render pane layout
+- render pane chrome
+- render each surface
+- forward commands
+- host `SredEditorAdapter`
+- expose accessibility labels for pane controls
+
+The GUI should not own product decisions such as what counts as a 1:1 note or
+which follow-ups belong to a person.
+
+Tests:
+
+- app boots into a workspace
+- navigation pane can close independently
+- context pane can close independently
+- queue pane can close independently
+- selecting a person updates the 1:1 surface
+- critical controls are present in the accessibility tree
+
+## Phase 6 - Workflow Quality
+
+After the architecture is real, restore and improve daily workflows.
+
+Order:
+
+1. 1:1 Focus
+2. Notes
+3. Tasks
+4. Review
+5. Board
+6. Labels/workstreams
+7. Settings
+
+Each workflow should have:
+
+- an app-model test
+- a surface-adapter test
+- a GUI smoke test
+- a short manual review checklist
 
 ## Release Gate
 
-Create the next commit only when:
+Do not cut a release just because the app compiles.
 
-- `cargo fmt` passes.
-- `cargo test -p noet-core` passes.
-- GUI compile or smoke test passes.
-- macOS package script succeeds.
-- The worktree contains only intentional changes.
+Release only when:
 
-Create the next local release artifact only after that commit.
+- `cargo fmt` passes
+- `cargo test --workspace` passes
+- GUI smoke tests cover the new workspace contract
+- the 1:1 Focus workflow is usable without keeping People or Filters open
+- the Notes workspace can open and edit a Markdown note
+- task state changes write back to Markdown
+- local macOS packaging succeeds, if releasing a macOS artifact
 
-## Deferred Work
+Installers are optional during active UX architecture work. Running the local
+debug app is enough for visual review checkpoints.
 
-- Full visual redesign of Board, Timeline, Labels, and secondary task surfaces.
-- Inline task promotion UI, unless the core implementation is already stable.
-- Windows `.msi` or `.exe` installer.
-- Linux Flatpak/AppImage packaging.
-- Account connectors and remote imports.
+## Deferred
+
+- account connectors
+- cloud sync
+- Windows installer
+- Linux installer
+- full docking system
+- plugin system
+- team collaboration features

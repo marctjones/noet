@@ -38,7 +38,7 @@ fn kind_color(kind: &str) -> &'static str {
         "do" => "2c6e68",
         "followup" => "b8742e",
         "delegated" => "3a8c63",
-        "todelegate" => "7a5b9a",
+        "waiting" => "7a5b9a",
         "someday" => "6b7280",
         "reading" => "a3548a",
         _ => "888888",

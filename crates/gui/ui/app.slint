@@ -50,6 +50,7 @@ export struct FacetItem {
 
 export struct TodoItem {
     id: string,
+    note_id: string,
     kind: string,
     status: string,
     text: string,
@@ -153,23 +154,6 @@ component ExtChip inherits Rectangle {
     ec := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
 
-// A clickable entity chip (project / person / tag) shown under a note in read view.
-component LinkChip inherits Rectangle {
-    in property <string> text;
-    in property <color> tint;
-    in property <color> ink;
-    callback clicked;
-    height: 20px;
-    border-radius: 5px;
-    background: lc.has-hover ? ink : tint;
-    animate background { duration: 100ms; easing: ease-out; }
-    HorizontalLayout {
-        padding-left: 7px; padding-right: 7px;
-        Text { text: root.text; color: lc.has-hover ? white : ink; font-size: (11px * Z.f); font-weight: 500; vertical-alignment: center; }
-    }
-    lc := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
-}
-
 // A left-nav entry (icon + label) for the NavigationView.
 component NavItem inherits Rectangle {
     in property <image> icon;
@@ -243,6 +227,9 @@ component FacetRow inherits Rectangle {
     border-radius: 6px;
     background: active ? Theme.sel : (t.has-hover ? hover-bg : transparent);
     animate background { duration: 120ms; easing: ease-out; }
+    accessible-role: button;
+    accessible-label: root.name;
+    accessible-action-default => { root.clicked(); }
     HorizontalLayout {
         padding-left: 8px + root.depth * 14px; padding-right: 4px;
         Text {
@@ -266,7 +253,7 @@ component KindDot inherits Rectangle {
         kind == "do" ? Theme.accent :
         kind == "followup" ? #b8742e :
         kind == "delegated" ? #3a8c63 :
-        kind == "todelegate" ? #7a5b9a :
+        kind == "waiting" ? #7a5b9a :
         kind == "someday" ? #6b7280 :
         kind == "reading" ? #a3548a : #888;
     width: 15px; height: 15px;
@@ -277,7 +264,7 @@ component KindDot inherits Rectangle {
             kind == "do" ? Icons.kind-do :
             kind == "followup" ? Icons.kind-followup :
             kind == "delegated" ? Icons.kind-delegated :
-            kind == "todelegate" ? Icons.kind-todelegate :
+            kind == "waiting" ? Icons.kind-todelegate :
             kind == "someday" ? Icons.kind-someday :
             kind == "reading" ? Icons.kind-reading : Icons.kind-do;
     }
@@ -336,8 +323,12 @@ component ActionButton inherits Rectangle {
 // (x: parent.width - self.width - 4px; y: 4px) inside the pane and wire `closed`.
 component CloseX inherits Rectangle {
     callback closed();
+    in property <string> a11y: "Close";
     width: 18px; height: 18px; border-radius: 4px;
     background: cx.has-hover ? #f8d7da : transparent;
+    accessible-role: button;
+    accessible-label: a11y;
+    accessible-action-default => { root.closed(); }
     Image {
         source: Icons.x;
         colorize: cx.has-hover ? #c82333 : Theme.text3;
@@ -370,19 +361,32 @@ component SectionTitle inherits HorizontalLayout {
     Text { text: root.detail; font-size: (11px * Z.f); color: Theme.text3; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
 }
 
-component MetricTile inherits Rectangle {
-    in property <string> value;
-    in property <string> label;
+// A reusable workspace pane shell with a header, collapse control, and body.
+component PaneSection inherits Rectangle {
+    in property <string> title;
+    in property <string> detail;
     in property <color> accent: Theme.accent;
-    height: 58px;
+    in property <string> close-a11y: "Close pane";
+    in-out property <bool> open: true;
+    callback closed();
+    callback opened();
+    background: Theme.surface2;
     border-radius: 7px;
-    background: Theme.surface;
     border-width: 1px;
     border-color: Theme.border;
     VerticalLayout {
-        padding-left: 10px; padding-right: 10px; padding-top: 7px; padding-bottom: 7px;
-        Text { text: root.value; font-size: (19px * Z.f); font-weight: 800; color: root.accent; }
-        Text { text: root.label; font-size: (10px * Z.f); color: Theme.text3; overflow: elide; }
+        padding: 10px;
+        spacing: 6px;
+        HorizontalLayout {
+            SectionTitle { title: root.title; detail: root.detail; accent: root.accent; horizontal-stretch: 1; }
+            if root.open: CloseX { a11y: root.close-a11y; closed => { root.open = false; root.closed(); } }
+            if !root.open: Button { text: "Show"; clicked => { root.open = true; root.opened(); } }
+        }
+        body := VerticalLayout {
+            visible: root.open;
+            spacing: 6px;
+            @children
+        }
     }
 }
 
@@ -453,23 +457,6 @@ component CommitmentRow inherits Rectangle {
         Button { text: root.action-label; clicked => { root.open(t.id); } }
         Button { text: "Edit"; clicked => { root.edit(t.id); } }
     }
-}
-
-// Compact, content-sized toolbar button for the editor formatting bar.
-component ToolBtn inherits Rectangle {
-    in property <string> label;
-    in property <bool> on;
-    callback clicked;
-    height: 24px;
-    min-width: 26px;
-    border-radius: 4px;
-    background: on ? Theme.sel : (tb.has-hover ? #d9dfe7 : Theme.hover);
-    animate background { duration: 100ms; easing: ease-out; }
-    HorizontalLayout {
-        padding-left: 7px; padding-right: 7px;
-        Text { text: label; font-size: (11px * Z.f); font-weight: 600; color: root.on ? Theme.accent : #4a5560; vertical-alignment: center; horizontal-alignment: center; }
-    }
-    tb := TouchArea { clicked => { root.clicked(); } }
 }
 
 // A compact todo row used by the Agenda view.
@@ -566,35 +553,6 @@ component MenuPanel inherits Rectangle {
     }
 }
 
-// A clickable menu-bar title that opens its dropdown; auto-sizes to its label.
-// A menu-bar title. Click toggles its dropdown; once ANY menu is open, hovering
-// a different title switches to it instantly (classic menu-bar behavior). State
-// lives in the shared `open-menu` string (two-way bound from the window).
-component MenuTitle inherits Rectangle {
-    in property <string> label;
-    in property <string> menu-id;
-    in-out property <string> open-menu;
-    width: txt.preferred-width + 24px;
-    height: 24px;
-    border-radius: 5px;
-    background: (open-menu == menu-id) ? Theme.sel : (mta.has-hover ? Theme.hover : transparent);
-    txt := Text {
-        text: root.label; font-size: (12.5px * Z.f);
-        color: (open-menu == menu-id) ? Theme.accent : Theme.text2;
-        horizontal-alignment: center; vertical-alignment: center;
-    }
-    mta := TouchArea {
-        mouse-cursor: pointer;
-        clicked => { open-menu = (open-menu == menu-id) ? "" : menu-id; }
-        // hover-to-switch: if some menu is already open, hovering opens this one
-        changed has-hover => {
-            if (self.has-hover && open-menu != "" && open-menu != menu-id) {
-                open-menu = menu-id;
-            }
-        }
-    }
-}
-
 // A labelled field used in the todo editor form.
 component Field inherits VerticalLayout {
     in property <string> label;
@@ -647,6 +605,7 @@ export component AppWindow inherits Window {
     in-out property <bool> quick-capture-open: false; // summonable capture overlay
     in-out property <bool> show-archived: false;
     in-out property <string> selected-person;
+    in-out property <string> active-person-filter;
     in property <[FilterChip]> active-filters;
     in property <[string]> smart-lists;
     in-out property <string> smartlist-input;
@@ -657,11 +616,24 @@ export component AppWindow inherits Window {
     in property <[TodoItem]> person-discuss;
     in property <[TodoItem]> person-delegated;
     in property <[TodoItem]> person-delegated-history;
+    in property <[TodoItem]> person-last-followups;
     in property <[TodoItem]> person-other;
     in property <[NoteItem]> person-notes;
     in property <[NoteItem]> person-oneonone-notes;
     in property <string> person-current-oneonone-id;
     in property <string> person-current-oneonone-title;
+    in property <string> person-last-oneonone-title;
+    in property <string> person-prev-oneonone-id;
+    in property <string> person-next-oneonone-id;
+    in property <int> person-oneonone-index;
+    in property <int> person-oneonone-count;
+    in-out property <bool> person-list-open: true;
+    in-out property <bool> person-current-open: true;
+    in-out property <length> person-top-height: 360px;
+    in-out property <length> person-history-width: 320px;
+    in-out property <bool> person-history-open: true;
+    in-out property <bool> person-followups-open: true;
+    in-out property <bool> person-todo-open: true;
     in-out property <string> topic-input;
 
     // Resizable panes (drag the dividers)
@@ -689,8 +661,8 @@ export component AppWindow inherits Window {
     in-out property <string> resize-target;
 
     // View + filter state
-    in-out property <string> view: "notes";
-    in-out property <string> prev-view: "notes"; // the view to return to when closing a panel
+    in-out property <string> view: "workspace";
+    in-out property <string> prev-view: "workspace"; // the view to return to when closing a panel
     in-out property <string> note-return-view; // list to return to after a todo→note jump ("" = none)
     in-out property <bool> content-pane-open: true; // the note editor/viewer pane (reopened on select)
     // Read-only split/reference pane: a second note shown beside the editor.
@@ -727,6 +699,16 @@ export component AppWindow inherits Window {
     // Transient toast (mirrors status-text changes; auto-clears).
     in-out property <string> toast-text;
     in-out property <bool> editing: false;
+    // Workspace prototype: a constrained pane tree that separates navigation
+    // drawers from durable work surfaces.
+    in-out property <string> workspace-primary: "oneonone";
+    in-out property <string> workspace-nav-surface: "people";
+    in-out property <bool> workspace-left-open: true;
+    in-out property <bool> workspace-right-open: true;
+    in-out property <bool> workspace-bottom-open: true;
+    in-out property <length> workspace-left-width: 260px;
+    in-out property <length> workspace-right-width: 340px;
+    in-out property <length> workspace-bottom-height: 190px;
     // Plaintext/source mode: show the raw markdown in a TextEdit instead of the
     // WYSIWYG sred surface.
     in-out property <bool> source-mode: false;
@@ -859,6 +841,8 @@ export component AppWindow inherits Window {
     callback new-related-note();
     callback add-link(string);
     callback open-url(string);
+    callback resolve-followup(string);
+    callback carry-followup(string);
     callback toggle-fold(int);
     callback set-kind-filter(string);
     callback set-priority-filter(string);
@@ -898,1796 +882,508 @@ export component AppWindow inherits Window {
     }
 
     Rectangle {
+        // ===== New workspace shell =====
         VerticalLayout {
-            // ===== Menu bar =====
             Rectangle {
-                height: root.focus-mode ? 0px : 30px;
+                height: root.focus-mode ? 0px : 48px;
                 visible: !root.focus-mode;
-                background: Theme.surface2;
-                Rectangle { y: parent.height - 1px; height: 1px; background: Theme.border; }
-                HorizontalLayout {
-                    alignment: start;
-                    padding-left: 6px;
-                    padding-top: 3px;
-                    spacing: 2px;
-
-                    fileTitle := MenuTitle { label: "File"; menu-id: "file"; open-menu <=> root.open-menu; }
-                    editTitle := MenuTitle { label: "Edit"; menu-id: "edit"; open-menu <=> root.open-menu; }
-                    noteTitle := MenuTitle { label: "Note"; menu-id: "note"; open-menu <=> root.open-menu; }
-                    viewTitle := MenuTitle { label: "View"; menu-id: "view"; open-menu <=> root.open-menu; }
-                    helpTitle := MenuTitle { label: "Help"; menu-id: "help"; open-menu <=> root.open-menu; }
-                }
-            }
-
-            // ===== Top bar =====
-            Rectangle {
-                height: 52px;
                 background: Theme.surface;
+                Rectangle { y: parent.height - 1px; height: 1px; width: 100%; background: Theme.border; }
                 HorizontalLayout {
-                    padding: 9px;
-                    spacing: 9px;
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    padding-top: 8px;
+                    padding-bottom: 8px;
+                    spacing: 8px;
                     Image { source: Icons.noet-mark; colorize: Theme.accent; width: 22px * Z.f; height: 22px * Z.f; vertical-alignment: center; }
-                    Text { text: "Noet"; font-size: (19px * Z.f); font-weight: 700; color: Theme.text; vertical-alignment: center; }
+                    Text { text: "Noet"; font-size: (18px * Z.f); font-weight: 800; color: Theme.text; vertical-alignment: center; }
                     LineEdit {
-                        placeholder-text: "Search notes & todos…";
+                        placeholder-text: "Search notes, tasks, people, labels";
                         text <=> root.search;
                         horizontal-stretch: 1;
                         edited(t) => { root.set-search(t); }
                     }
-                    ActionButton { icon: Icons.keyboard; label: "Go to…"; a11y: "Command palette"; clicked => { root.palette-query = ""; root.palette-search(""); root.palette-open = true; } }
-                    ActionButton { icon: Icons.focus; label: root.focus-mode ? "Exit focus" : "Focus"; clicked => { root.focus-mode = !root.focus-mode; } }
-                    ActionButton { icon: Icons.plus; label: "New note"; primary: true; clicked => { root.new-note(); } }
+                    ActionButton { icon: Icons.keyboard; label: "Go to"; a11y: "Command palette"; clicked => { root.palette-query = ""; root.palette-search(""); root.palette-open = true; } }
+                    ActionButton { icon: Icons.plus; label: "New note"; primary: true; clicked => { root.new-note(); root.workspace-primary = "notes"; } }
                     ActionButton { icon: Icons.refresh; label: ""; a11y: "Reindex"; clicked => { root.reindex(); } }
-                    Button { text: "A−"; clicked => { Z.f = max(Z.f - 0.1, 0.6); } }
-                    Button { text: "A＋"; clicked => { Z.f = min(Z.f + 0.1, 2.5); } }
-                    // Shows the current text zoom; click to reset to 100%.
-                    Button { text: Math.round(Z.f * 100) + "%"; clicked => { Z.f = 1.0; } }
+                    ActionButton { icon: Icons.focus; label: root.focus-mode ? "Exit" : "Focus"; clicked => { root.focus-mode = !root.focus-mode; } }
                     ActionButton {
                         icon: Theme.dark ? Icons.sun : Icons.moon;
                         label: "";
                         a11y: Theme.dark ? "Light theme" : "Dark theme";
-                        clicked => {
-                            Palette.color-scheme = Theme.dark ? ColorScheme.light : ColorScheme.dark;
-                        }
+                        clicked => { Palette.color-scheme = Theme.dark ? ColorScheme.light : ColorScheme.dark; }
                     }
                 }
             }
 
-            // ===== Context toolbar (per-view actions) =====
-            if (!root.focus-mode && (root.view == "today" || root.view == "notes" || root.view == "tasks"
-                || root.view == "agenda" || root.view == "gantt" || root.view == "inbox"
-                || root.view == "board" || root.view == "calendar"
-                || root.view == "labels" || root.view == "people")): Rectangle {
-                height: 40px;
-                background: Theme.surface2;
-                Rectangle { y: parent.height - 1px; height: 1px; width: 100%; background: Theme.border; }
+            Rectangle {
+                horizontal-stretch: 1;
+                vertical-stretch: 1;
+                background: Theme.bg;
                 HorizontalLayout {
-                    padding-left: 10px; padding-right: 10px; padding-top: 5px; padding-bottom: 5px; spacing: 6px;
-                    alignment: start;
-                    if (root.view == "today"): ActionButton { icon: Icons.plus; label: "Capture"; clicked => { root.set-view("inbox"); } }
-                    if (root.view == "today"): ActionButton { icon: Icons.refresh; label: "Refresh"; clicked => { root.reindex(); } }
-                    // After jumping to a note from a todo, offer a one-click return
-                    // to the list (Tasks/Board/Today/…) you came from.
-                    if (root.view == "notes" && root.note-return-view != ""): Button {
-                        text: "← Back to " + (
-                            root.note-return-view == "tasks" ? "Tasks" :
-                            root.note-return-view == "board" ? "Board" :
-                            root.note-return-view == "today" ? "Today" :
-                            root.note-return-view == "agenda" ? "Agenda" :
-                            root.note-return-view == "people" ? "People" :
-                            root.note-return-view == "gantt" ? "Gantt" :
-                            root.note-return-view == "calendar" ? "Calendar" : "list");
-                        clicked => { root.set-view(root.note-return-view); }
-                    }
-                    if (root.view == "notes"): ActionButton { icon: Icons.branch; label: "Related note"; clicked => { root.new-related-note(); } }
-                    if (root.view == "notes"): ActionButton { icon: Icons.check; label: "Add todo"; clicked => { root.open-add-todo(); } }
-                    if (root.view == "notes"): ActionButton { icon: Icons.download; label: "Export PDF"; clicked => { root.export-note("pdf"); } }
-                    if (root.view == "tasks" || root.view == "agenda" || root.view == "gantt"): ActionButton { icon: Icons.check; label: "Add todo"; clicked => { root.open-add-todo(); } }
-                    if (root.view == "inbox"): ActionButton { icon: Icons.plus; label: "New note"; primary: true; clicked => { root.new-note(); } }
-                    Rectangle { horizontal-stretch: 1; }
-                    if (root.active-summary != ""): Text { text: root.active-summary; font-size: (11px * Z.f); color: Theme.text3; vertical-alignment: center; }
-                    // Close this view (back to the previously open view).
-                    CloseX { closed => { root.set-view(root.prev-view); } }
-                }
-            }
+                    padding: 10px;
+                    spacing: 0px;
 
-            // ===== Body =====
-            HorizontalLayout {
-                // ----- Navigation rail (Win11 NavigationView) -----
-                Rectangle {
-                    width: root.focus-mode ? 0px : (root.nav-eff-collapsed ? 52px : 168px);
-                    visible: !root.focus-mode;
-                    animate width { duration: 140ms; easing: ease-out; }
-                    background: Theme.surface;
+                    // App navigation is a workspace picker, not a page owner.
                     Rectangle {
-                        x: parent.width - 1px; width: 1px; height: 100%;
-                        background: Theme.border;
-                    }
-                    VerticalLayout {
-                        padding: 8px;
-                        spacing: 1px;
-                        // Collapse / expand toggle
-                        NavItem {
-                            icon: Icons.collapse; label: "Collapse"; view: "__toggle"; current: "";
-                            clicked => { root.nav-collapsed = !root.nav-collapsed; }
-                        }
-                        if !root.nav-eff-collapsed : Text { text: "PLAN"; font-size: (9px * Z.f); letter-spacing: 1px; color: Theme.text3; }
-                        Rectangle { height: root.nav-eff-collapsed ? 4px : 0px; }
-                        NavItem { icon: Icons.today; label: "Today"; view: "today"; current: root.view; clicked => { root.set-view("today"); } }
-                        NavItem { icon: Icons.agenda; label: "Agenda"; view: "agenda"; current: root.view; clicked => { root.set-view("agenda"); } }
-                        NavItem { icon: Icons.calendar; label: "Calendar"; view: "calendar"; current: root.view; clicked => { root.set-view("calendar"); } }
-                        if !root.nav-eff-collapsed : Text { text: "WORK"; font-size: (9px * Z.f); letter-spacing: 1px; color: Theme.text3; }
-                        Rectangle { height: root.nav-eff-collapsed ? 4px : 0px; }
-                        NavItem { icon: Icons.tasks; label: "Tasks"; view: "tasks"; current: root.view; clicked => { root.set-view("tasks"); } }
-                        NavItem { icon: Icons.board; label: "Board"; view: "board"; current: root.view; clicked => { root.set-view("board"); } }
-                        NavItem { icon: Icons.gantt; label: "Gantt"; view: "gantt"; current: root.view; clicked => { root.set-view("gantt"); } }
-                        NavItem { icon: Icons.kind-delegated; label: "Waiting"; view: "waiting"; current: root.view; clicked => { root.set-view("waiting"); } }
-                        if !root.nav-eff-collapsed : Text { text: "NOTES"; font-size: (9px * Z.f); letter-spacing: 1px; color: Theme.text3; }
-                        Rectangle { height: root.nav-eff-collapsed ? 4px : 0px; }
-                        NavItem { icon: Icons.notes; label: "Notes"; view: "notes"; current: root.view; clicked => { root.set-view("notes"); } }
-                        NavItem { icon: Icons.inbox; label: "Inbox"; view: "inbox"; current: root.view; clicked => { root.set-view("inbox"); } }
-                        if !root.nav-eff-collapsed : Text { text: "ORGANIZE"; font-size: (9px * Z.f); letter-spacing: 1px; color: Theme.text3; }
-                        Rectangle { height: root.nav-eff-collapsed ? 4px : 0px; }
-                        NavItem { icon: Icons.people; label: "People"; view: "people"; current: root.view; clicked => { root.set-view("people"); } }
-                        NavItem { icon: Icons.labels; label: "Labels"; view: "labels"; current: root.view; clicked => { root.set-view("labels"); } }
-                        Rectangle { vertical-stretch: 1; }
-                        // App-level settings, pinned to the bottom (Win11 pattern).
-                        NavItem { icon: Icons.settings; label: "Settings"; view: "settings"; current: root.view; clicked => { root.set-view("settings"); } }
-                    }
-                }
-                // ----- Filter rail -----
-                Rectangle {
-                    visible: !root.rail-eff-hidden;
-                    // preferred width (resizable) but min 0 so it compresses on a
-                    // narrow window instead of forcing a large minimum window size.
-                    preferred-width: root.rail-eff-hidden ? 0px : root.rail-width;
-                    min-width: 0px;
-                    max-width: root.rail-eff-hidden ? 0px : root.rail-width;
-                    clip: true;
-                    background: Theme.surface2;
-                    Rectangle {
-                        x: parent.width - 4px; width: 7px; height: 100%;
-                        background: (rh.has-hover || rh.pressed) ? #c8d0d9 : transparent;
-                        rh := TouchArea {
-                            mouse-cursor: ew-resize;
-                            property <length> sw;
-                            property <length> sx;
-                            pointer-event(e) => {
-                                if (e.kind == PointerEventKind.down) { self.sw = root.rail-width; self.sx = self.absolute-position.x + self.mouse-x; }
-                            }
-                            moved => { root.rail-width = clamp(self.sw + (self.absolute-position.x + self.mouse-x - self.sx), 150px, 480px); }
-                        }
-                    }
-                    VerticalLayout {
-                        padding: 12px;
-                        spacing: 8px;
-
-                        HorizontalLayout {
-                            Text { text: "FILTERS"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; vertical-alignment: center; horizontal-stretch: 1; }
-                            CloseX { closed => { root.rail-hidden = true; } } // reopen via View ▸ Show filter rail
-                        }
-                        Text { text: "STATUS"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
-                        HorizontalLayout {
-                            spacing: 4px;
-                            SegBtn { label: "All"; active: root.status-filter == ""; clicked => { root.set-status-filter(""); } }
-                            SegBtn { label: "Open"; active: root.status-filter == "open"; clicked => { root.set-status-filter("open"); } }
-                        }
-                        HorizontalLayout {
-                            spacing: 4px;
-                            SegBtn { label: "To Do"; active: root.status-filter == "todo"; clicked => { root.set-status-filter("todo"); } }
-                            SegBtn { label: "Doing"; active: root.status-filter == "doing"; clicked => { root.set-status-filter("doing"); } }
-                            SegBtn { label: "Done"; active: root.status-filter == "done"; clicked => { root.set-status-filter("done"); } }
-                        }
-
-                        HorizontalLayout {
-                            spacing: 6px;
-                            VerticalLayout {
-                                spacing: 2px;
-                                Text { text: "KIND"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
-                                ComboBox {
-                                    model: ["any", "do", "followup", "delegated", "todelegate", "someday", "reading"];
-                                    current-value <=> root.filter-kind;
-                                    selected(v) => { root.set-kind-filter(v); }
-                                }
-                            }
-                        }
-                        HorizontalLayout {
-                            spacing: 6px;
-                            VerticalLayout {
-                                spacing: 2px;
-                                Text { text: "PRIORITY"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
-                                ComboBox { model: ["any", "A", "B", "C"]; current-value <=> root.filter-priority; selected(v) => { root.set-priority-filter(v); } }
-                            }
-                            VerticalLayout {
-                                spacing: 2px;
-                                Text { text: "DUE"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
-                                ComboBox { model: ["any", "overdue", "this week", "has date", "no date"]; current-value <=> root.filter-due; selected(v) => { root.set-due-filter(v); } }
-                            }
-                        }
-
-                        if (root.active-filters.length > 0): VerticalLayout {
+                        width: root.focus-mode ? 0px : (root.nav-eff-collapsed ? 54px : 164px);
+                        visible: !root.focus-mode;
+                        background: Theme.surface;
+                        border-radius: 8px;
+                        border-width: 1px;
+                        border-color: Theme.border;
+                        clip: true;
+                        VerticalLayout {
+                            padding: 8px;
                             spacing: 3px;
-                            Text { text: "ACTIVE FILTERS"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
-                            for fc in root.active-filters: Rectangle {
-                                height: 22px; border-radius: 5px;
-                                background: afc.has-hover ? #fde7ea : #eef2f7;
-                                animate background { duration: 100ms; }
-                                HorizontalLayout {
-                                    padding-left: 7px; padding-right: 6px; spacing: 4px;
-                                    Text { text: fc.label; font-size: (11px * Z.f); color: #4a5560; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-                                    Text { text: "✕"; font-size: (11px * Z.f); color: afc.has-hover ? #c82333 : Theme.text3; vertical-alignment: center; }
-                                }
-                                afc := TouchArea { mouse-cursor: pointer; clicked => { root.clear-filter(fc.dim); } }
-                            }
-                        }
-
-                        if (root.smart-lists.length > 0): VerticalLayout {
-                            spacing: 2px;
-                            Text { text: "SMART LISTS"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
-                            for sl in root.smart-lists: Rectangle {
-                                height: 26px; border-radius: 5px;
-                                background: slt.has-hover ? Theme.sel : transparent;
-                                animate background { duration: 100ms; }
-                                slt := TouchArea { clicked => { root.apply-smart-list(sl); } }
-                                HorizontalLayout {
-                                    padding-left: 6px; padding-right: 4px; spacing: 4px;
-                                    Text { text: "★ " + sl; font-size: (12px * Z.f); color: Theme.accent; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-                                    Rectangle {
-                                        width: 18px;
-                                        Text { text: "✕"; font-size: (11px * Z.f); color: slx.has-hover ? #c82333 : Theme.text3; horizontal-alignment: center; vertical-alignment: center; }
-                                        slx := TouchArea { clicked => { root.delete-smart-list(sl); } }
-                                    }
-                                }
-                            }
-                        }
-
-                        Text { text: "WORKSTREAMS"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
-                        Rectangle {
-                            vertical-stretch: 1;
-                            ListView {
-                                for p in root.projects: FacetRow {
-                                    name: "▸ " + p.label;
-                                    depth: p.depth;
-                                    count: p.count;
-                                    active: p.active;
-                                    ink: #2a7a4a;
-                                    hover-bg: #eef7f0;
-                                    clicked => { root.toggle-project(p.name); }
-                                }
-                            }
-                        }
-
-                        Text { text: "TAGS"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
-                        Rectangle {
-                            height: 100px;
-                            ListView {
-                                for t in root.tags: FacetRow {
-                                    name: "# " + t.label;
-                                    depth: t.depth;
-                                    count: t.count;
-                                    active: t.active;
-                                    ink: #5b1b9a;
-                                    hover-bg: #f3ecfb;
-                                    clicked => { root.toggle-tag(t.name); }
-                                }
-                            }
-                        }
-
-                        Text { text: "PEOPLE"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
-                        Rectangle {
-                            height: 100px;
-                            ListView {
-                                for p in root.people: FacetRow {
-                                    name: "@ " + p.name;
-                                    count: p.count;
-                                    active: p.active;
-                                    ink: #9a5b1b;
-                                    hover-bg: #fdf2e6;
-                                    clicked => { root.toggle-person(p.name); }
-                                }
-                            }
-                        }
-
-                        HorizontalLayout {
-                            spacing: 4px;
-                            LineEdit { placeholder-text: "save filter as…"; text <=> root.smartlist-input; horizontal-stretch: 1; accepted => { root.save-smart-list(root.smartlist-input); } }
-                            ActionButton { icon: Icons.save; label: ""; a11y: "Save filter"; clicked => { root.save-smart-list(root.smartlist-input); } }
-                        }
-                        ActionButton { icon: Icons.filter-x; label: "Clear filters"; clicked => { root.clear-filters(); } }
-                    }
-                }
-
-                // ----- NOTES view -----
-                if (root.view == "notes"): Rectangle {
-                    horizontal-stretch: 1;
-                    background: Theme.bg;
-                    HorizontalLayout {
-                        padding: 10px;
-                        spacing: 10px;
-                        listpane := Rectangle {
-                            property <bool> open: true;
-                            // preferred width (resizable) but min 0 so it compresses
-                            // when the window is narrow instead of blocking the resize.
-                            preferred-width: listpane.open ? root.notes-width : 30px;
-                            min-width: listpane.open ? 0px : 30px;
-                            max-width: listpane.open ? root.notes-width : 30px;
-                            background: Theme.surface2;
-                            border-radius: 8px;
-                            clip: true;
-                            // Collapsed: a thin strip; click to reopen.
-                            if (!listpane.open): TouchArea {
-                                mouse-cursor: pointer;
-                                clicked => { listpane.open = true; }
-                                Text { text: "▸"; font-size: (14px * Z.f); color: Theme.text3; horizontal-alignment: center; vertical-alignment: center; }
-                            }
-                            if (listpane.open): Rectangle {
-                                x: parent.width - 3px; width: 7px; height: 100%;
-                                background: (nh.has-hover || nh.pressed) ? #c8d0d9 : transparent;
-                                nh := TouchArea {
-                                    mouse-cursor: ew-resize;
-                                    property <length> sw;
-                                    property <length> sx;
-                                    pointer-event(e) => {
-                                        if (e.kind == PointerEventKind.down) { self.sw = root.notes-width; self.sx = self.absolute-position.x + self.mouse-x; }
-                                    }
-                                    moved => { root.notes-width = clamp(self.sw + (self.absolute-position.x + self.mouse-x - self.sx), 180px, 680px); }
-                                }
-                            }
-                            if (listpane.open): VerticalLayout {
-                                padding: 8px;
-                                HorizontalLayout {
-                                    Text { text: "NOTES (" + root.notes.length + ")"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; vertical-alignment: center; horizontal-stretch: 1; }
-                                    CloseX { closed => { listpane.open = false; } }
-                                }
-                                Rectangle {
-                                  vertical-stretch: 1;
-                                  if root.notes.length == 0 : EmptyState {
-                                      glyph: "▢";
-                                      title: "No notes here";
-                                      hint: "Press ＋ New note above, or clear filters to see everything.";
-                                  }
-                                  ListView {
-                                    for n in root.notes: Rectangle {
-                                        height: 48px;
-                                        border-radius: 6px;
-                                        background: n.id == root.current-id ? Theme.sel : (nt.has-hover ? Theme.hover : transparent);
-                                        animate background { duration: 120ms; easing: ease-out; }
-                                        Rectangle { x: 0; width: 3px; border-radius: 2px; background: Theme.accent; visible: n.id == root.current-id; }
-                                        VerticalLayout {
-                                            padding: 6px;
-                                            Text { text: n.title; font-size: (13px * Z.f); font-weight: 600; color: Theme.text; overflow: elide; }
-                                            Text { text: n.subtitle; font-size: (10px * Z.f); color: Theme.text3; overflow: elide; }
-                                        }
-                                        nt := TouchArea {
-                                            clicked => { root.select-note(n.id); }
-                                            pointer-event(e) => {
-                                                if (e.kind == PointerEventKind.down && e.button == PointerEventButton.right) {
-                                                    root.note-context-id = n.id;
-                                                    root.note-context-title = n.title;
-                                                    root.note-context-x = min(self.absolute-position.x + self.mouse-x, root.width - 246px);
-                                                    root.note-context-y = min(self.absolute-position.y + self.mouse-y, root.height - 220px);
-                                                    root.note-context-open = true;
-                                                }
-                                            }
-                                        }
-                                    }
-                                  }
-                                }
-                            }
-                        }
-                        contentpane := Rectangle {
-                            horizontal-stretch: root.content-pane-open ? 1 : 0;
-                            min-width: root.content-pane-open ? 0px : 30px;
-                            max-width: root.content-pane-open ? 100000px : 30px;
-                            background: Theme.surface;
-                            border-radius: 8px;
-                            clip: true;
-                            // Collapsed: a thin strip; click to reopen.
-                            if (!root.content-pane-open): TouchArea {
-                                mouse-cursor: pointer;
-                                clicked => { root.content-pane-open = true; }
-                                Text { text: "◂"; font-size: (14px * Z.f); color: Theme.text3; horizontal-alignment: center; vertical-alignment: center; }
-                            }
-                            if (root.content-pane-open): VerticalLayout {
-                                padding: 12px;
-                                spacing: 8px;
-
-                                // Open-notes tab strip (pinned bookmarks + recents) + pane close.
-                                HorizontalLayout {
-                                    spacing: 4px;
-                                    Flickable {
-                                        horizontal-stretch: 1;
-                                        height: 26px;
-                                        viewport-width: tabrow.preferred-width;
-                                        tabrow := HorizontalLayout {
-                                            spacing: 4px;
-                                            for tab in root.note-tabs: Rectangle {
-                                                height: 24px;
-                                                border-radius: 5px;
-                                                background: tab.id == root.current-id ? Theme.sel : (tabta.has-hover ? Theme.hover : Theme.surface2);
-                                                border-width: 1px;
-                                                border-color: tab.id == root.current-id ? Theme.accent : transparent;
-                                                // Row click selects; the pin/close TouchAreas sit on top of it.
-                                                tabta := TouchArea {
-                                                    mouse-cursor: pointer;
-                                                    clicked => { root.select-note(tab.id); }
-                                                    pointer-event(e) => {
-                                                        if (e.kind == PointerEventKind.down && e.button == PointerEventButton.right) {
-                                                            root.note-context-id = tab.id;
-                                                            root.note-context-title = tab.title;
-                                                            root.note-context-x = min(self.absolute-position.x + self.mouse-x, root.width - 246px);
-                                                            root.note-context-y = min(self.absolute-position.y + self.mouse-y, root.height - 220px);
-                                                            root.note-context-open = true;
-                                                        }
-                                                    }
-                                                }
-                                                HorizontalLayout {
-                                                    padding-left: 6px; padding-right: 4px; spacing: 3px;
-                                                    pinta := TouchArea {
-                                                        width: 14px; mouse-cursor: pointer;
-                                                        Image {
-                                                            source: Icons.star;
-                                                            colorize: tab.pinned ? Theme.accent : Theme.text3;
-                                                            width: 12px * Z.f;
-                                                            height: 12px * Z.f;
-                                                            x: (parent.width - self.width) / 2;
-                                                            y: (parent.height - self.height) / 2;
-                                                        }
-                                                        clicked => { root.pin-note(tab.id); }
-                                                    }
-                                                    Text { text: tab.title; font-size: (12px * Z.f); color: Theme.text; vertical-alignment: center; overflow: elide; max-width: 130px; }
-                                                    splitta := TouchArea {
-                                                        width: 14px; mouse-cursor: pointer;
-                                                        Image {
-                                                            source: Icons.panel-right;
-                                                            colorize: splitta.has-hover ? Theme.accent : Theme.text3;
-                                                            width: 12px * Z.f;
-                                                            height: 12px * Z.f;
-                                                            x: (parent.width - self.width) / 2;
-                                                            y: (parent.height - self.height) / 2;
-                                                        }
-                                                        clicked => { root.open-in-split(tab.id); }
-                                                    }
-                                                    closeta := TouchArea {
-                                                        width: 14px; mouse-cursor: pointer;
-                                                        Image {
-                                                            source: Icons.x;
-                                                            colorize: closeta.has-hover ? Theme.text : Theme.text3;
-                                                            width: 11px * Z.f;
-                                                            height: 11px * Z.f;
-                                                            x: (parent.width - self.width) / 2;
-                                                            y: (parent.height - self.height) / 2;
-                                                        }
-                                                        clicked => { root.close-tab(tab.id); }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    CloseX { closed => { root.content-pane-open = false; } }
-                                }
-
-                                // ---- The note editor (always shown — single surface) ----
-                                editpane := VerticalLayout {
-                                    spacing: 8px;
-                                    // Insert a snippet / copy the selection through the sred editor.
-                                    function snip(s: string) { root.rich-insert(s); }
-                                    function copysel() { root.rich-copy(); }
-                                    // Edit-menu actions (Ctrl+X/C/V/A) routed into the sred editor.
-                                    property <string> ea: root.edit-action;
-                                    changed ea => {
-                                        if (self.ea == "cut") { root.rich-chord("x"); }
-                                        if (self.ea == "copy") { root.rich-chord("c"); }
-                                        if (self.ea == "paste") { root.rich-chord("v"); }
-                                        if (self.ea == "selectall") { root.rich-chord("a"); }
-                                        if (self.ea != "") { root.edit-action = ""; }
-                                    }
-                                    // formatting + selection toolbar (WYSIWYG only — its buttons
-                                    // act on the sred buffer; min-width 0 so the wide row doesn't
-                                    // floor the pane width; overflow clips in the content pane)
-                                    if (!root.source-mode): HorizontalLayout {
-                                        spacing: 4px;
-                                        min-width: 0px;
-                                        ToolBtn { label: "B"; clicked => { editpane.snip("**bold**"); } }
-                                        ToolBtn { label: "I"; clicked => { editpane.snip("*italic*"); } }
-                                        ToolBtn { label: "H1"; clicked => { editpane.snip("\n# Heading\n"); } }
-                                        ToolBtn { label: "H2"; clicked => { editpane.snip("\n## Heading\n"); } }
-                                        ToolBtn { label: "•"; clicked => { editpane.snip("\n- item"); } }
-                                        ToolBtn { label: "1."; clicked => { editpane.snip("\n1. item"); } }
-                                        ToolBtn { label: "</>"; clicked => { editpane.snip("`code`"); } }
-                                        ToolBtn { label: "“ ”"; clicked => { editpane.snip("\n> quote"); } }
-                                        ToolBtn { label: "{typ}"; clicked => { editpane.snip("\n```typst\n\n```\n"); } }
-                                        Rectangle { width: 8px; }
-                                        // entity pickers — insert an existing workstream / person / label
-                                        Rectangle {
-                                            width: 34px; height: 24px; border-radius: 4px;
-                                            background: wspick.has-hover ? #d9dfe7 : Theme.hover;
-                                            Text { text: "[[ ]]"; font-size: (11px * Z.f); font-weight: 600; color: #1f7a44; horizontal-alignment: center; vertical-alignment: center; }
-                                            wsPick := PopupWindow {
-                                                x: 0; y: 26px; width: 210px; height: 250px;
-                                                Rectangle {
-                                                    background: Theme.surface; border-radius: 8px;
-                                                    drop-shadow-blur: 10px; drop-shadow-color: #0000001f;
-                                                    VerticalLayout {
-                                                        padding: 4px;
-                                                        Text { text: "WORKSTREAMS"; font-size: (9px * Z.f); letter-spacing: 0.5px; color: Theme.text3; }
-                                                        ListView {
-                                                            for p in root.projects: MenuItem {
-                                                                label: "▸ " + p.name;
-                                                                clicked => { editpane.snip("[[" + p.name + "]]"); wsPick.close(); }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            wspick := TouchArea { clicked => { wsPick.show(); } }
-                                        }
-                                        Rectangle {
-                                            width: 26px; height: 24px; border-radius: 4px;
-                                            background: perpick.has-hover ? #d9dfe7 : Theme.hover;
-                                            Text { text: "@"; font-size: (12px * Z.f); font-weight: 600; color: #9a5b1b; horizontal-alignment: center; vertical-alignment: center; }
-                                            perPick := PopupWindow {
-                                                x: 0; y: 26px; width: 210px; height: 250px;
-                                                Rectangle {
-                                                    background: Theme.surface; border-radius: 8px;
-                                                    drop-shadow-blur: 10px; drop-shadow-color: #0000001f;
-                                                    VerticalLayout {
-                                                        padding: 4px;
-                                                        Text { text: "PEOPLE"; font-size: (9px * Z.f); letter-spacing: 0.5px; color: Theme.text3; }
-                                                        ListView {
-                                                            for p in root.people: MenuItem {
-                                                                label: "@ " + p.name;
-                                                                clicked => { editpane.snip("@[[" + p.name + "]]"); perPick.close(); }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            perpick := TouchArea { clicked => { perPick.show(); } }
-                                        }
-                                        Rectangle {
-                                            width: 26px; height: 24px; border-radius: 4px;
-                                            background: tagpick.has-hover ? #d9dfe7 : Theme.hover;
-                                            Text { text: "#"; font-size: (12px * Z.f); font-weight: 600; color: #5b1b9a; horizontal-alignment: center; vertical-alignment: center; }
-                                            tagPick := PopupWindow {
-                                                x: 0; y: 26px; width: 210px; height: 250px;
-                                                Rectangle {
-                                                    background: Theme.surface; border-radius: 8px;
-                                                    drop-shadow-blur: 10px; drop-shadow-color: #0000001f;
-                                                    VerticalLayout {
-                                                        padding: 4px;
-                                                        Text { text: "LABELS"; font-size: (9px * Z.f); letter-spacing: 0.5px; color: Theme.text3; }
-                                                        ListView {
-                                                            for p in root.tags: MenuItem {
-                                                                label: "# " + p.name;
-                                                                clicked => { editpane.snip("#" + p.name + " "); tagPick.close(); }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            tagpick := TouchArea { clicked => { tagPick.show(); } }
-                                        }
-                                        Rectangle { width: 8px; }
-                                        ToolBtn { label: "Todo"; clicked => { editpane.copysel(); root.selection-to-todo(); } }
-                                        ToolBtn { label: "Note"; clicked => { editpane.copysel(); root.selection-to-note(); } }
-                                        Rectangle { horizontal-stretch: 1; }
-                                    }
-                                    // Title + a discreet word/char count on the right (moved off the
-                                    // formatting toolbar, which overflows at narrow editor widths).
-                                    HorizontalLayout {
-                                        spacing: 10px;
-                                        LineEdit {
-                                            placeholder-text: "Note title…";
-                                            text <=> root.current-title;
-                                            font-size: (17px * Z.f);
-                                            horizontal-stretch: 1;
-                                            edited(t) => { root.note-title-edited(t); }
-                                        }
-                                        Text {
-                                            text: root.current-word-count + " words · " + root.current-char-count + " chars";
-                                            font-size: (11px * Z.f); color: Theme.text3; vertical-alignment: center;
-                                        }
-                                    }
-                                    // Labels / people / tags in this note — highlighted + clickable, kept
-                                    // live as you type. (The raw editor can't colour tokens inline — Slint
-                                    // TextEdit is single-style — so this strip surfaces them instead.)
-                                    if (root.current-projects.length + root.current-people.length + root.current-tags.length > 0): Rectangle {
-                                        height: ent.preferred-height + 8px;
-                                        background: Theme.surface2;
-                                        border-radius: 6px;
-                                        ent := HorizontalLayout {
-                                            padding: 4px; spacing: 6px; alignment: start;
-                                            Text { text: "In this note:"; font-size: (10px * Z.f); color: Theme.text3; vertical-alignment: center; }
-                                            for p in root.current-projects: LinkChip { text: "▸ " + p; tint: #e7f7ec; ink: #1f7a44; clicked => { root.toggle-project(p); } }
-                                            for pe in root.current-people: LinkChip { text: "@ " + pe; tint: #fdeede; ink: #9a5b1b; clicked => { root.toggle-person(pe); } }
-                                            for tg in root.current-tags: LinkChip { text: "# " + tg; tint: #f3ecfb; ink: #5b1b9a; clicked => { root.toggle-tag(tg); } }
-                                        }
-                                    }
-                                    // backlinks — other notes that reference this one
-                                    if (root.current-backlinks.length > 0): HorizontalLayout {
-                                        spacing: 5px;
-                                        alignment: start;
-                                        Text { text: "↩ referenced by:"; font-size: (11px * Z.f); color: Theme.text3; vertical-alignment: center; }
-                                        for r in root.current-backlinks: LinkChip { text: r.title; tint: #eef2f7; ink: #4a5560; clicked => { root.select-note(r.id); } }
-                                    }
-                                    // related prior meetings (shared workstream/people/tags) — click to
-                                    // insert a [[link]] into this note; → opens it instead.
-                                    if (root.current-related.length > 0 && !root.source-mode): HorizontalLayout {
-                                        spacing: 5px;
-                                        alignment: start;
-                                        Image { source: Icons.external; colorize: Theme.text3; width: 13px * Z.f; height: 13px * Z.f; vertical-alignment: center; }
-                                        Text { text: "link a related meeting:"; font-size: (11px * Z.f); color: Theme.text3; vertical-alignment: center; }
-                                        for r in root.current-related: LinkChip {
-                                            text: r.via == "" ? r.title : r.title + "  · via " + r.via;
-                                            tint: Theme.sel; ink: Theme.accent;
-                                            clicked => { root.link-related(r.title); }
-                                        }
-                                    }
-                                    // Find / replace bar (Ctrl/⌘+F) — operates on the sred editor.
-                                    if (root.find-open && !root.source-mode): Rectangle {
-                                        height: fbar.preferred-height + 10px;
-                                        background: Theme.surface2;
-                                        border-radius: 6px;
-                                        border-width: 1px;
-                                        border-color: Theme.border;
-                                        fbar := HorizontalLayout {
-                                            padding: 5px; spacing: 6px;
-                                            findinput := LineEdit {
-                                                placeholder-text: "Find…";
-                                                text <=> root.find-query;
-                                                horizontal-stretch: 1;
-                                                edited(t) => { root.find-search(t); }
-                                                accepted => { root.find-step(true); }
-                                            }
-                                            Text { text: root.find-count > 0 ? (root.find-current + "/" + root.find-count) : "0/0"; font-size: (11px * Z.f); color: Theme.text3; vertical-alignment: center; }
-                                            Button { text: "↑"; clicked => { root.find-step(false); } }
-                                            Button { text: "↓"; clicked => { root.find-step(true); } }
-                                            LineEdit {
-                                                placeholder-text: "Replace…";
-                                                text <=> root.find-replace;
-                                                horizontal-stretch: 1;
-                                            }
-                                            Button { text: "Replace all"; clicked => { root.find-replace-all(); } }
-                                            CloseX { closed => { root.find-close(); } }
-                                        }
-                                    }
-                                    // WYSIWYG sred surface (default) — markers hidden off-caret,
-                                    // headings/bullets/code rendered in place, colored entity chips.
-                                    if (!root.source-mode): rich := RichTextEditor {
-                                        vertical-stretch: 1;
-                                        horizontal-stretch: 1;
-                                        bg: Theme.surface;
-                                        border-col: Theme.border;
-                                        focus-col: Theme.accent;
-                                        caret-col: Theme.text;
-                                        frame: root.rich-frame;
-                                        doc-height: root.rich-doc-height;
-                                        caret-x: root.rich-caret-x;
-                                        caret-y: root.rich-caret-y;
-                                        caret-h: root.rich-caret-h;
-                                        scroll-y <=> root.rich-scroll-y;
-                                        a11y-value: root.rich-a11y;
-                                        ac-items: root.rich-ac-items;
-                                        ac-index: root.rich-ac-index;
-                                        ac-open: root.rich-ac-open;
-                                        ac-bg: Theme.surface;
-                                        ac-border: Theme.border;
-                                        ac-text: Theme.text;
-                                        ac-sel: Theme.sel;
-                                        insert-text(s) => { root.rich-insert-text(s); }
-                                        chord(k) => { return root.rich-chord(k); }
-                                        special(n) => { root.rich-special(n); }
-                                        ac-key(k) => { root.rich-ac-key(k); }
-                                        ac-pick(i) => { root.rich-ac-pick(i); }
-                                        pointer-down(px, py) => { root.rich-pointer-down(px, py); }
-                                        pointer-drag(px, py) => { root.rich-pointer-drag(px, py); }
-                                        pointer-double(px, py) => { root.rich-pointer-double(px, py); }
-                                        resized(w, h) => { root.rich-resized(w, h); }
-                                        scrolled(y) => { root.rich-scrolled(y); }
-                                    }
-                                    // Plaintext / source mode — raw markdown in a TextEdit.
-                                    if (root.source-mode): TextEdit {
-                                        vertical-stretch: 1;
-                                        horizontal-stretch: 1;
-                                        text <=> root.current-body;
-                                        wrap: word-wrap;
-                                        font-family: "IBM Plex Mono";
-                                        placeholder-text: "Raw markdown / Typst source…";
-                                        edited => { root.note-edited(); }
-                                    }
-                                    // quick-add a (possibly new) workstream or label to this note
-                                    HorizontalLayout {
-                                        spacing: 8px;
-                                        LineEdit { placeholder-text: "add to a workstream…"; text <=> root.topic-input; horizontal-stretch: 1; accepted => { root.add-link(root.topic-input); } }
-                                        ActionButton { icon: Icons.branch; label: "Add"; clicked => { root.add-link(root.topic-input); } }
-                                        LineEdit { placeholder-text: "new #label…"; text <=> root.tag-input; horizontal-stretch: 1; accepted => { root.add-tag(root.tag-input); } }
-                                        ActionButton { icon: Icons.labels; label: "Label"; clicked => { root.add-tag(root.tag-input); } }
-                                    }
-                                    HorizontalLayout {
-                                        spacing: 8px;
-                                        ActionButton { icon: Icons.edit; label: root.source-mode ? "Rich text" : "Source"; clicked => { root.source-mode = !root.source-mode; } }
-                                        ActionButton { icon: Icons.check; label: "Add todo"; clicked => { root.open-add-todo(); } }
-                                        ActionButton { icon: Icons.branch; label: "Related note"; clicked => { root.new-related-note(); } }
-                                        ActionButton { icon: Icons.notes; label: root.current-kind; clicked => { root.toggle-kind(); } }
-                                        Rectangle { horizontal-stretch: 1; }
-                                        LineEdit { placeholder-text: "attach path…"; text <=> root.attach-input; horizontal-stretch: 1; accepted => { root.attach-path(root.attach-input); } }
-                                        ActionButton { icon: Icons.paperclip; label: ""; a11y: "Attach path"; clicked => { root.attach-path(root.attach-input); } }
-                                    }
-                                }
-                            }
-                            // Read-only split/reference pane — a 2nd note beside the editor.
-                            if (root.split-note-id != ""): Rectangle {
-                                width: 7px;
-                                background: (dh.has-hover || dh.pressed) ? Theme.accent : Theme.border;
-                                dh := TouchArea {
-                                    mouse-cursor: ew-resize;
-                                    property <length> sw;
-                                    property <length> sx;
-                                    pointer-event(e) => {
-                                        if (e.kind == PointerEventKind.down) { self.sw = root.split-width; self.sx = self.absolute-position.x + self.mouse-x; }
-                                        if (e.kind == PointerEventKind.up) { root.split-resized(); }
-                                    }
-                                    moved => { root.split-width = clamp(self.sw - (self.absolute-position.x + self.mouse-x - self.sx), 280px, 760px); }
-                                }
-                            }
-                            if (root.split-note-id != ""): Rectangle {
-                                width: root.split-width;
-                                background: Theme.surface;
-                                border-radius: 8px;
-                                clip: true;
-                                VerticalLayout {
-                                    padding: 10px;
-                                    spacing: 6px;
-                                    HorizontalLayout {
-                                        spacing: 6px;
-                                        Text { text: "📄 " + root.split-title; font-size: (13px * Z.f); font-weight: 700; color: Theme.text; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
-                                        Button { text: "✎ Edit"; clicked => { root.edit-split(); } }
-                                        CloseX { closed => { root.close-split(); } }
-                                    }
-                                    ScrollView {
-                                        vertical-stretch: 1;
-                                        VerticalLayout {
-                                            Image { source: root.split-image; width: 100%; height: root.split-doc-height; image-fit: ImageFit.fill; }
-                                        }
-                                    }
-                                }
-                            }
+                            NavItem { icon: Icons.collapse; label: "Collapse"; view: "__toggle"; current: ""; clicked => { root.nav-collapsed = !root.nav-collapsed; } }
+                            if !root.nav-eff-collapsed: Text { text: "WORKSPACES"; font-size: (9px * Z.f); letter-spacing: 1px; color: Theme.text3; }
+                            NavItem { icon: Icons.meeting; label: "1:1 Focus"; view: "oneonone"; current: root.workspace-primary; clicked => { root.workspace-primary = "oneonone"; root.workspace-nav-surface = "people"; root.workspace-left-open = true; root.set-view("workspace"); } }
+                            NavItem { icon: Icons.notes; label: "Notes"; view: "notes"; current: root.workspace-primary; clicked => { root.workspace-primary = "notes"; root.workspace-nav-surface = "notes"; root.workspace-left-open = true; root.set-view("workspace"); } }
+                            NavItem { icon: Icons.tasks; label: "Tasks"; view: "tasks"; current: root.workspace-primary; clicked => { root.workspace-primary = "tasks"; root.workspace-nav-surface = "filters"; root.workspace-left-open = true; root.set-view("workspace"); } }
+                            NavItem { icon: Icons.board; label: "Board"; view: "board"; current: root.workspace-primary; clicked => { root.workspace-primary = "board"; root.workspace-nav-surface = "filters"; root.workspace-left-open = true; root.set-view("workspace"); } }
+                            NavItem { icon: Icons.kind-delegated; label: "Review"; view: "review"; current: root.workspace-primary; clicked => { root.workspace-primary = "review"; root.workspace-nav-surface = "filters"; root.workspace-left-open = true; root.workspace-bottom-open = true; root.set-view("workspace"); } }
+                            Rectangle { height: 8px; }
+                            if !root.nav-eff-collapsed: Text { text: "DRAWERS"; font-size: (9px * Z.f); letter-spacing: 1px; color: Theme.text3; }
+                            NavItem { icon: Icons.people; label: "People"; view: "people"; current: root.workspace-nav-surface; clicked => { root.workspace-nav-surface = "people"; root.workspace-left-open = true; } }
+                            NavItem { icon: Icons.notes; label: "Browse"; view: "notes"; current: root.workspace-nav-surface; clicked => { root.workspace-nav-surface = "notes"; root.workspace-left-open = true; } }
+                            NavItem { icon: Icons.labels; label: "Labels"; view: "labels"; current: root.workspace-nav-surface; clicked => { root.workspace-nav-surface = "labels"; root.workspace-left-open = true; } }
+                            NavItem { icon: Icons.filter-x; label: "Filters"; view: "filters"; current: root.workspace-nav-surface; clicked => { root.workspace-nav-surface = "filters"; root.workspace-left-open = true; } }
+                            Rectangle { vertical-stretch: 1; }
+                            NavItem { icon: Icons.settings; label: "Settings"; view: "settings"; current: root.workspace-primary; clicked => { root.workspace-primary = "settings"; root.workspace-right-open = false; root.workspace-bottom-open = false; root.set-view("workspace"); } }
                         }
                     }
-                }
 
-                // ----- BOARD (Kanban) view -----
-                if (root.view == "board"): Rectangle {
-                    horizontal-stretch: 1;
-                    background: Theme.bg;
-                    VerticalLayout {
-                        padding: 12px;
-                        spacing: 10px;
-                        HorizontalLayout {
-                            spacing: 10px;
-                            VerticalLayout {
-                                horizontal-stretch: 1;
-                                Text { text: "Board"; font-size: (22px * Z.f); font-weight: 800; color: Theme.text; }
-                                Text { text: "Move active work through a flow, grouped by the way you are planning right now."; font-size: (12px * Z.f); color: Theme.text3; }
-                            }
-                            Rectangle {
-                                width: 190px; height: 30px;
-                                ComboBox {
-                                    width: 100%; height: 100%;
-                                    model: ["status", "kind", "workstream", "person"];
-                                    current-value <=> root.group-by;
-                                    selected(v) => { root.set-group-by(v); }
-                                }
-                            }
-                            ActionButton { icon: Icons.check; label: "Add todo"; primary: true; clicked => { root.open-add-todo(); } }
-                        }
-                        HorizontalLayout {
+                    if !root.focus-mode: Rectangle { width: 10px; }
+
+                    if root.workspace-left-open && !root.focus-mode: Rectangle {
+                        preferred-width: root.workspace-left-width;
+                        min-width: 190px;
+                        max-width: root.workspace-left-width;
+                        background: Theme.surface2;
+                        border-radius: 8px;
+                        border-width: 1px;
+                        border-color: Theme.border;
+                        clip: true;
+                        VerticalLayout {
+                            padding: 10px;
                             spacing: 8px;
-                            MetricTile { value: "" + root.tasks.length; label: "visible commitments"; accent: Theme.accent; horizontal-stretch: 1; }
-                            MetricTile { value: "" + root.board-columns.length; label: "groups"; accent: #1f7a44; horizontal-stretch: 1; }
-                            MetricTile { value: root.active-summary == "" ? "All" : root.active-summary; label: "current filter"; accent: #9a5b1b; horizontal-stretch: 2; }
-                        }
-                        Flickable {
-                            viewport-width: max(self.width, root.board-columns.length * 286px);
                             HorizontalLayout {
-                                padding: 2px;
-                                spacing: 10px;
-                                for col in root.board-columns: Rectangle {
-                                    width: 276px;
-                                    background: Theme.surface;
-                                    border-radius: 8px;
-                                    border-width: 1px;
-                                    border-color: Theme.border;
-                                    VerticalLayout {
-                                        padding: 10px;
-                                        spacing: 8px;
-                                        HorizontalLayout {
-                                            Rectangle { width: 3px; height: 18px; border-radius: 2px; background: Theme.accent; }
-                                            Text { text: col.title; font-size: (13px * Z.f); font-weight: 800; color: Theme.text; horizontal-stretch: 1; overflow: elide; }
-                                            Chip { text: col.count; tint: #cfd6df; ink: #4a5560; }
-                                        }
-                                        DropArea {
-                                            vertical-stretch: 1;
-                                            can-drop(e) => { return true; }
-                                            dropped(e) => { root.drop-card(e.data, col.key); }
-                                            ListView {
-                                                for c in col.cards: Rectangle {
-                                                    height: 118px;
-                                                    background: cardta.has-hover ? Theme.surface2 : Theme.surface3;
-                                                    border-radius: 7px;
-                                                    border-width: 1px;
-                                                    border-color: cardta.has-hover ? Theme.accent : transparent;
-                                                    animate background { duration: 120ms; }
-                                                    cardta := TouchArea {
-                                                    // Double-click the card → open its note at the todo's line.
-                                                    double-clicked => { root.open-note(c.id); }
-                                                    VerticalLayout {
-                                                        padding: 9px;
-                                                        spacing: 7px;
-                                                        DragArea {
-                                                            mime-type: "text/plain";
-                                                            data: c.id;
-                                                            VerticalLayout {
-                                                                spacing: 7px;
-                                                                HorizontalLayout {
-                                                                    spacing: 6px;
-                                                                    KindDot { kind: c.kind; }
-                                                                    Text { text: c.text; font-size: (12px * Z.f); font-weight: 650; color: c.done ? Theme.text3 : Theme.text; overflow: elide; horizontal-stretch: 1; }
-                                                                }
-                                                                HorizontalLayout {
-                                                                    spacing: 4px;
-                                                                    Chip { text: c.status; tint: #eef2f7; ink: #67727d; }
-                                                                    Chip { text: c.project; tint: #e7f7ec; ink: #1f7a44; }
-                                                                    Chip { text: c.person; tint: #fdeede; ink: #9a5b1b; }
-                                                                    Chip { text: c.due; tint: #fde7ea; ink: #9a1b33; }
-                                                                    ExtChip { text: c.external; clicked => { root.open-external(c.external); } }
-                                                                }
-                                                            }
-                                                        }
-                                                        HorizontalLayout {
-                                                            spacing: 4px;
-                                                            opacity: cardta.has-hover ? 1.0 : 0.0;
-                                                            animate opacity { duration: 120ms; }
-                                                            MiniBtn { label: "◀"; clicked => { root.board-move(c.id, -1); } }
-                                                            MiniBtn { label: "▶"; clicked => { root.board-move(c.id, 1); } }
-                                                            MiniBtn { label: "✎"; clicked => { root.edit-todo(c.id); } }
-                                                            Rectangle { horizontal-stretch: 1; }
-                                                            MiniBtn { label: "↗"; clicked => { root.open-note(c.id); } }
-                                                        }
-                                                    }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                                SectionTitle { title: "NAVIGATION"; detail: root.workspace-nav-surface; accent: Theme.accent; horizontal-stretch: 1; }
+                                CloseX { a11y: "Close navigation drawer"; closed => { root.workspace-left-open = false; } }
                             }
-                        }
-                    }
-                }
-
-                // ----- CALENDAR view -----
-                if (root.view == "calendar"): Rectangle {
-                    horizontal-stretch: 1;
-                    background: Theme.bg;
-                    VerticalLayout {
-                        padding: 10px; spacing: 8px;
-                        HorizontalLayout {
-                            spacing: 8px;
-                            Button { text: "◀"; clicked => { root.cal-prev(); } }
-                            Text { text: root.cal-label; font-size: 16px * Z.f; font-weight: 800; color: Theme.text; vertical-alignment: center; horizontal-alignment: center; horizontal-stretch: 1; }
-                            Button { text: "Today"; clicked => { root.cal-today(); } }
-                            Button { text: "▶"; clicked => { root.cal-next(); } }
-                        }
-                        HorizontalLayout {
-                            spacing: 4px;
-                            for wd in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]: Text { text: wd; font-size: 10px * Z.f; letter-spacing: 0.5px; color: Theme.text3; horizontal-stretch: 1; horizontal-alignment: center; }
-                        }
-                        for r in [0, 1, 2, 3, 4, 5]: HorizontalLayout {
-                            spacing: 4px;
-                            for c in [0, 1, 2, 3, 4, 5, 6]: Rectangle {
-                                property <CalCell> cell: root.cal-cells[r * 7 + c];
-                                horizontal-stretch: 1;
-                                clip: true;
-                                background: cell.day == 0 ? transparent : (cell.today ? Theme.sel : white);
-                                border-radius: 5px;
-                                border-width: cell.today ? 1.5px : 0px;
-                                border-color: Theme.accent;
-                                VerticalLayout {
-                                    padding: 3px;
-                                    spacing: 1px;
-                                    Text { text: cell.day == 0 ? "" : cell.day; font-size: 11px * Z.f; font-weight: cell.today ? 800 : 500; color: cell.today ? Theme.accent : Theme.text2; }
-                                    for it in cell.items: Rectangle {
-                                        height: 15px;
-                                        border-radius: 3px;
-                                        background: cit.has-hover ? #e7f7ec : Theme.surface3;
-                                        HorizontalLayout {
-                                            padding-left: 3px; padding-right: 2px; spacing: 2px;
-                                            KindDot { kind: it.kind; }
-                                            Text { text: it.text; font-size: 9px * Z.f; color: it.done ? Theme.text3 : Theme.text; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
-                                        }
-                                        cit := TouchArea { mouse-cursor: pointer; clicked => { root.open-note(it.id); } }
-                                    }
-                                }
+                            HorizontalLayout {
+                                spacing: 4px;
+                                SegBtn { label: "People"; active: root.workspace-nav-surface == "people"; clicked => { root.workspace-nav-surface = "people"; } }
+                                SegBtn { label: "Notes"; active: root.workspace-nav-surface == "notes"; clicked => { root.workspace-nav-surface = "notes"; } }
                             }
-                        }
-                    }
-                }
-
-                // ----- TODAY dashboard -----
-                if (root.view == "today"): Rectangle {
-                    horizontal-stretch: 1;
-                    background: Theme.bg;
-                    VerticalLayout {
-                        padding: 12px; spacing: 10px;
-                        HorizontalLayout {
-                            spacing: 8px;
-                            VerticalLayout {
-                                horizontal-stretch: 1;
-                                Text { text: "Today"; font-size: (22px * Z.f); font-weight: 800; color: Theme.text; }
-                                Text { text: "Triage what needs attention, then move into notes or agenda."; font-size: (12px * Z.f); color: Theme.text3; }
+                            HorizontalLayout {
+                                spacing: 4px;
+                                SegBtn { label: "Labels"; active: root.workspace-nav-surface == "labels"; clicked => { root.workspace-nav-surface = "labels"; } }
+                                SegBtn { label: "Filters"; active: root.workspace-nav-surface == "filters"; clicked => { root.workspace-nav-surface = "filters"; } }
                             }
-                            ActionButton { icon: Icons.plus; label: "Capture"; clicked => { root.quick-capture-open = true; } }
-                            ActionButton { icon: Icons.refresh; label: "Refresh"; clicked => { root.reindex(); } }
-                        }
-                        HorizontalLayout {
-                            spacing: 8px;
-                            MetricTile { value: "" + root.agenda-overdue.length; label: "overdue"; accent: #c82333; horizontal-stretch: 1; }
-                            MetricTile { value: "" + root.agenda-today.length; label: "due today"; accent: #1f7a44; horizontal-stretch: 1; }
-                            MetricTile { value: "" + root.today-stale.length; label: "stale follow-ups"; accent: #d98324; horizontal-stretch: 1; }
-                            MetricTile { value: "" + root.inbox-notes.length; label: "unfiled inbox"; accent: #5b1b9a; horizontal-stretch: 1; }
-                        }
-                        tdsv := ScrollView {
-                            vertical-stretch: 1;
-                            VerticalLayout {
-                                width: tdsv.visible-width;
-                                spacing: 10px;
-                                Rectangle {
-                                    background: Theme.surface; border-radius: 8px; border-width: 1px; border-color: Theme.border;
-                                    VerticalLayout {
-                                        padding: 10px; spacing: 3px;
-                                        SectionTitle { title: "OVERDUE"; detail: root.agenda-overdue.length + " needs recovery"; accent: #c82333; }
-                                        for t in root.agenda-overdue: AgendaRow { t: t; cycle(id) => { root.cycle-todo(id); } edit(id) => { root.edit-todo(id); } open(id) => { root.open-note(id); } }
-                                        if (root.agenda-overdue.length == 0): Text { text: "Nothing overdue."; color: Theme.text3; font-size: (12px * Z.f); font-italic: true; }
-                                    }
-                                }
-                                Rectangle {
-                                    background: Theme.surface; border-radius: 8px; border-width: 1px; border-color: Theme.border;
-                                    VerticalLayout {
-                                        padding: 10px; spacing: 3px;
-                                        SectionTitle { title: "DUE TODAY"; detail: root.agenda-today.length + " scheduled commitments"; accent: #1f7a44; }
-                                        for t in root.agenda-today: AgendaRow { t: t; cycle(id) => { root.cycle-todo(id); } edit(id) => { root.edit-todo(id); } open(id) => { root.open-note(id); } }
-                                        if (root.agenda-today.length == 0): Text { text: "No due-date pressure today."; color: Theme.text3; font-size: (12px * Z.f); font-italic: true; }
-                                    }
-                                }
-                                HorizontalLayout {
-                                    spacing: 10px;
-                                    Rectangle {
-                                        horizontal-stretch: 1;
-                                        background: Theme.surface; border-radius: 8px; border-width: 1px; border-color: Theme.border;
-                                        VerticalLayout {
-                                            padding: 10px; spacing: 3px;
-                                            SectionTitle { title: "FOLLOW-UP"; detail: root.today-stale.length + " aging loops"; accent: #d98324; }
-                                            for t in root.today-stale: AgendaRow { t: t; cycle(id) => { root.cycle-todo(id); } edit(id) => { root.edit-todo(id); } open(id) => { root.open-note(id); } }
-                                            if (root.today-stale.length == 0): Text { text: "No stale follow-ups."; color: Theme.text3; font-size: (12px * Z.f); font-italic: true; }
-                                        }
-                                    }
-                                    Rectangle {
-                                        width: 300px;
-                                        background: Theme.surface; border-radius: 8px; border-width: 1px; border-color: Theme.border;
-                                        VerticalLayout {
-                                            padding: 10px; spacing: 6px;
-                                            HorizontalLayout {
-                                                SectionTitle { title: "INBOX"; detail: root.inbox-notes.length + " unfiled"; accent: #5b1b9a; horizontal-stretch: 1; }
-                                                Button { text: "Open"; clicked => { root.set-view("inbox"); } }
-                                            }
-                                            SectionTitle { title: "RECENT"; detail: "edited notes"; accent: Theme.text3; }
-                                            for n in root.today-recent: NoteRow { note: n; open(id) => { root.select-note(id); root.set-view("notes"); } }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                            Rectangle { height: 1px; background: Theme.border; }
 
-                // ----- TRASH view -----
-                if (root.view == "trash"): Rectangle {
-                    horizontal-stretch: 1;
-                    background: Theme.bg;
-                    VerticalLayout {
-                        padding: 10px; spacing: 8px;
-                        HorizontalLayout {
-                            Text { text: "TRASH — deleted notes (restore to bring them back)"; font-size: (11px * Z.f); letter-spacing: 0.5px; color: Theme.text3; vertical-alignment: center; horizontal-stretch: 1; }
-                            CloseX { closed => { root.set-view(root.prev-view); } }
-                        }
-                        Rectangle {
-                            vertical-stretch: 1; background: Theme.surface; border-radius: 8px;
-                            ListView {
-                                for r in root.trash-notes: Rectangle {
-                                    height: 40px;
-                                    HorizontalLayout {
-                                        padding: 6px; spacing: 8px;
-                                        Text { text: r.title; font-size: (13px * Z.f); color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-                                        Button { text: "Restore"; clicked => { root.restore-note(r.id); } }
-                                    }
-                                }
-                            }
-                            if (root.trash-notes.length == 0): Text { x: 12px; y: 12px; text: "Trash is empty."; color: Theme.text3; font-size: (13px * Z.f); font-italic: true; }
-                        }
-                    }
-                }
-
-                // ----- SETTINGS view -----
-                if (root.view == "settings"): Rectangle {
-                    horizontal-stretch: 1;
-                    background: Theme.bg;
-                    setsv := ScrollView {
-                    VerticalLayout {
-                        width: setsv.visible-width;
-                        padding: 16px; spacing: 14px; alignment: start;
-
-                        HorizontalLayout {
-                            Text { text: "Settings"; font-size: (20px * Z.f); font-weight: 700; color: Theme.text; horizontal-stretch: 1; vertical-alignment: center; }
-                            CloseX { closed => { root.set-view(root.prev-view); } }
-                        }
-
-                        // --- Vault location (editable) ---
-                        Rectangle {
-                            background: Theme.surface; border-radius: 8px; border-width: 1px; border-color: Theme.border;
-                            VerticalLayout {
-                                padding: 14px; spacing: 8px;
-                                Text { text: "Vault folder"; font-size: (13px * Z.f); font-weight: 700; color: Theme.text; }
-                                Text {
-                                    text: "Where your plain-markdown notes live. The index is kept elsewhere (below) so it never syncs.";
-                                    font-size: (11px * Z.f); color: Theme.text3; wrap: word-wrap;
-                                }
-                                HorizontalLayout {
-                                    spacing: 8px;
-                                    vault-field := LineEdit {
-                                        text <=> root.vault-input;
-                                        placeholder-text: "/path/to/your/vault";
-                                        horizontal-stretch: 1;
-                                    }
-                                    Button {
-                                        text: "Save";
-                                        primary: true;
-                                        clicked => { root.save-settings(vault-field.text); }
-                                    }
-                                }
-                                Text {
-                                    text: "Switching vaults takes effect after you restart Noet. The $NOET_VAULT environment variable, if set, overrides this.";
-                                    font-size: (10px * Z.f); font-italic: true; color: Theme.text3; wrap: word-wrap;
-                                }
-                            }
-                        }
-
-                        // --- Storage locations (read-only) ---
-                        Rectangle {
-                            background: Theme.surface; border-radius: 8px; border-width: 1px; border-color: Theme.border;
-                            VerticalLayout {
-                                padding: 14px; spacing: 10px;
-                                Text { text: "Storage"; font-size: (13px * Z.f); font-weight: 700; color: Theme.text; }
-                                VerticalLayout {
-                                    spacing: 2px;
-                                    Text { text: "Index cache (rebuildable; safe to delete)"; font-size: (11px * Z.f); color: Theme.text3; }
-                                    Text { text: root.index-path; font-size: (12px * Z.f); color: Theme.text; wrap: word-wrap; }
-                                }
-                                VerticalLayout {
-                                    spacing: 2px;
-                                    Text { text: "Settings file"; font-size: (11px * Z.f); color: Theme.text3; }
-                                    Text { text: root.settings-path; font-size: (12px * Z.f); color: Theme.text; wrap: word-wrap; }
-                                }
-                            }
-                        }
-
-                        // --- Startup (Windows) ---
-                        if (root.launch-on-startup-supported): Rectangle {
-                            background: Theme.surface; border-radius: 8px; border-width: 1px; border-color: Theme.border;
-                            VerticalLayout {
-                                padding: 14px; spacing: 8px;
-                                Text { text: "Startup"; font-size: (13px * Z.f); font-weight: 700; color: Theme.text; }
-                                CheckBox {
-                                    text: "Launch Noet when I sign in";
-                                    checked <=> root.launch-on-startup;
-                                    toggled => { root.set-launch-on-startup(self.checked); }
-                                }
-                                Text {
-                                    text: "Per-user, no admin needed. Noet stays out of your way and is one click (or hotkey) away when a meeting starts.";
-                                    font-size: (10px * Z.f); color: Theme.text3; wrap: word-wrap;
-                                }
-                            }
-                        }
-
-                        // --- About / licenses ---
-                        Rectangle {
-                            background: Theme.surface; border-radius: 8px; border-width: 1px; border-color: Theme.border;
-                            VerticalLayout {
-                                padding: 14px; spacing: 8px;
-                                Text { text: "About"; font-size: (13px * Z.f); font-weight: 700; color: Theme.text; }
-                                Text { text: "Noet — native (Rust + Slint) notes, todos & projects over plain markdown."; font-size: (11px * Z.f); color: Theme.text3; wrap: word-wrap; }
-                                HorizontalLayout {
-                                    Rectangle { horizontal-stretch: 1; }
-                                    Button { text: "Open-source licenses →"; clicked => { root.set-view("about"); } }
-                                }
-                            }
-                        }
-                    }
-                    }
-                }
-
-                // ----- ABOUT / OPEN-SOURCE LICENSES view -----
-                if (root.view == "about"): Rectangle {
-                    horizontal-stretch: 1;
-                    background: Theme.bg;
-                    VerticalLayout {
-                        padding: 16px; spacing: 12px;
-                        HorizontalLayout {
-                            spacing: 8px;
-                            Text { text: "Open-source licenses"; font-size: (20px * Z.f); font-weight: 700; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; }
-                            Button { text: "Open full notices"; primary: true; clicked => { root.open-licenses(); } }
-                            CloseX { closed => { root.set-view(root.prev-view); } }
-                        }
-                        Text {
-                            text: "Noet's UI is built with Slint (tri-licensed: GPL-3.0, commercial, or Slint Royalty-free/Software). " + root.license-summary;
-                            font-size: (11px * Z.f); color: Theme.text3; wrap: word-wrap;
-                        }
-                        // Per-component list (virtualized). "Open full notices" shows the
-                        // complete license texts for every component.
-                        Rectangle {
-                            vertical-stretch: 1; background: Theme.surface; border-radius: 8px;
-                            border-width: 1px; border-color: Theme.border;
-                            ListView {
-                                for r[i] in root.license-rows: Rectangle {
-                                    height: 30px;
-                                    background: Math.mod(i, 2) == 0 ? transparent : Theme.surface2;
-                                    HorizontalLayout {
-                                        padding-left: 10px; padding-right: 10px; spacing: 8px;
-                                        Text { text: r.crate-name; font-size: (12px * Z.f); color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-                                        Text { text: r.version; font-size: (11px * Z.f); color: Theme.text3; vertical-alignment: center; width: 80px; }
-                                        Text { text: r.license; font-size: (11px * Z.f); color: Theme.text2; vertical-alignment: center; width: 280px; overflow: elide; }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ----- PEOPLE view (1:1 prep) -----
-                if (root.view == "people"): Rectangle {
-                    horizontal-stretch: 1;
-                    background: Theme.bg;
-                    HorizontalLayout {
-                        padding: 12px; spacing: 12px;
-                        Rectangle {
-                            width: 250px; background: Theme.surface; border-radius: 8px; border-width: 1px; border-color: Theme.border;
-                            VerticalLayout {
-                                padding: 10px; spacing: 6px;
-                                Text { text: "People"; font-size: (20px * Z.f); font-weight: 800; color: Theme.text; }
-                                Text { text: "Pick a person to prep discussion, delegation, and recent context."; font-size: (11px * Z.f); color: Theme.text3; wrap: word-wrap; }
-                                Rectangle { height: 1px; background: Theme.border; }
+                            if root.workspace-nav-surface == "people": Rectangle {
+                                vertical-stretch: 1;
+                                if root.people.length == 0: EmptyState { glyph: "@"; title: "No people"; hint: "People appear from @[[Person]] mentions."; }
                                 ListView {
-                                    vertical-stretch: 1;
                                     for p in root.people: FacetRow {
                                         name: "@ " + p.name;
                                         count: p.count;
                                         active: p.name == root.selected-person;
-                                        ink: #9a5b1b; hover-bg: #fdf2e6;
+                                        ink: #9a5b1b;
+                                        hover-bg: #fdf2e6;
                                         clicked => { root.pick-person(p.name); }
                                     }
                                 }
                             }
-                        }
-                        Rectangle {
-                            horizontal-stretch: 1; background: Theme.surface; border-radius: 8px; border-width: 1px; border-color: Theme.border;
-                            VerticalLayout {
-                                padding: 12px; spacing: 10px;
-                                HorizontalLayout {
-                                    spacing: 10px;
+                            if root.workspace-nav-surface == "notes": Rectangle {
+                                vertical-stretch: 1;
+                                if root.notes.length == 0: EmptyState { glyph: "[]"; title: "No notes"; hint: "Create a note or clear filters."; }
+                                ListView {
+                                    for n in root.notes: NoteRow {
+                                        note: n;
+                                        open(id) => { root.workspace-primary = "notes"; root.select-note(id); }
+                                    }
+                                }
+                            }
+                            if root.workspace-nav-surface == "labels": Rectangle {
+                                vertical-stretch: 1;
+                                ScrollView {
                                     VerticalLayout {
-                                        horizontal-stretch: 1;
-                                        Text {
-                                            text: root.selected-person == "" ? "1:1 cockpit" : root.selected-person;
-                                            font-size: (22px * Z.f); font-weight: 800; color: Theme.text;
+                                        spacing: 6px;
+                                        Text { text: "WORKSTREAMS"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
+                                        for p in root.projects: FacetRow {
+                                            name: "[[" + p.label + "]]";
+                                            depth: p.depth;
+                                            count: p.count;
+                                            active: p.active;
+                                            ink: #2a7a4a;
+                                            hover-bg: #eef7f0;
+                                            clicked => { root.toggle-project(p.name); }
                                         }
-                                        Text {
-                                            text: root.selected-person == "" ? "Select someone from the left to build a prep brief." : "Write the current 1:1 while reviewing prior notes and delegated follow-ups.";
-                                            font-size: (12px * Z.f); color: Theme.text3;
+                                        Text { text: "LABELS"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
+                                        for t in root.tags: FacetRow {
+                                            name: "#" + t.label;
+                                            depth: t.depth;
+                                            count: t.count;
+                                            active: t.active;
+                                            ink: #5b1b9a;
+                                            hover-bg: #f3ecfb;
+                                            clicked => { root.toggle-tag(t.name); }
                                         }
                                     }
-                                    if root.selected-person != "": ActionButton { icon: Icons.meeting; label: "New 1:1 note"; clicked => { root.new-from-template("oneonone"); } }
                                 }
-                                if root.selected-person == "": EmptyState {
-                                    glyph: "@";
-                                    title: "Pick a person";
-                                    hint: "Noet will collect discussion points, delegated work, and recent notes here.";
+                            }
+                            if root.workspace-nav-surface == "filters": VerticalLayout {
+                                vertical-stretch: 1;
+                                spacing: 8px;
+                                Text { text: "STATUS"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
+                                HorizontalLayout {
+                                    spacing: 4px;
+                                    SegBtn { label: "All"; active: root.status-filter == ""; clicked => { root.set-status-filter(""); } }
+                                    SegBtn { label: "Open"; active: root.status-filter == "open"; clicked => { root.set-status-filter("open"); } }
                                 }
-                                if root.selected-person != "": HorizontalLayout {
+                                HorizontalLayout {
+                                    spacing: 4px;
+                                    SegBtn { label: "Todo"; active: root.status-filter == "todo"; clicked => { root.set-status-filter("todo"); } }
+                                    SegBtn { label: "Doing"; active: root.status-filter == "doing"; clicked => { root.set-status-filter("doing"); } }
+                                    SegBtn { label: "Done"; active: root.status-filter == "done"; clicked => { root.set-status-filter("done"); } }
+                                }
+                                Text { text: "WORKFLOW"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
+                                ComboBox {
+                                    model: ["any", "do", "mine", "followup", "delegated", "waiting", "someday", "reading"];
+                                    current-value <=> root.filter-kind;
+                                    selected(v) => { root.set-kind-filter(v); }
+                                }
+                                Text { text: "PRIORITY"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
+                                ComboBox { model: ["any", "A", "B", "C"]; current-value <=> root.filter-priority; selected(v) => { root.set-priority-filter(v); } }
+                                ActionButton { icon: Icons.filter-x; label: "Clear filters"; clicked => { root.clear-filters(); } }
+                            }
+                        }
+                    }
+
+                    if root.workspace-left-open && !root.focus-mode: Rectangle {
+                        width: 9px;
+                        background: (leftResize.has-hover || leftResize.pressed) ? #c8d0d9 : transparent;
+                        leftResize := TouchArea {
+                            mouse-cursor: ew-resize;
+                            property <length> sw;
+                            property <length> sx;
+                            pointer-event(e) => {
+                                if (e.kind == PointerEventKind.down) {
+                                    self.sw = root.workspace-left-width;
+                                    self.sx = self.absolute-position.x + self.mouse-x;
+                                }
+                            }
+                            moved => { root.workspace-left-width = clamp(self.sw + (self.absolute-position.x + self.mouse-x - self.sx), 190px, 540px); }
+                        }
+                    }
+
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        background: transparent;
+                        VerticalLayout {
+                            spacing: 8px;
+                            Rectangle {
+                                vertical-stretch: 1;
+                                HorizontalLayout {
                                     spacing: 8px;
-                                    MetricTile { value: "" + root.person-discuss.length; label: "to discuss"; accent: #9a5b1b; horizontal-stretch: 1; }
-                                    MetricTile { value: "" + root.person-delegated.length; label: "delegated"; accent: #1f7a44; horizontal-stretch: 1; }
-                                    MetricTile { value: "" + root.person-other.length; label: "other todos"; accent: Theme.accent; horizontal-stretch: 1; }
-                                    MetricTile { value: "" + root.person-oneonone-notes.length; label: "1:1 notes"; accent: Theme.text2; horizontal-stretch: 1; }
-                                }
-                                if root.selected-person != "": HorizontalLayout {
-                                    spacing: 12px;
                                     Rectangle {
                                         horizontal-stretch: 1;
-                                        height: 280px;
-                                        background: Theme.surface2;
-                                        border-radius: 7px;
+                                        background: Theme.surface;
+                                        border-radius: 8px;
                                         border-width: 1px;
                                         border-color: Theme.border;
+                                        clip: true;
                                         VerticalLayout {
-                                            padding: 10px; spacing: 8px;
+                                            padding: 10px;
+                                            spacing: 8px;
                                             HorizontalLayout {
-                                                spacing: 8px;
                                                 SectionTitle {
-                                                    title: "CURRENT 1:1";
-                                                    detail: root.person-current-oneonone-title == "" ? "create one to start writing" : root.person-current-oneonone-title;
-                                                    accent: #9a5b1b;
+                                                    title: root.workspace-primary == "oneonone" ? "1:1 FOCUS" : (root.workspace-primary == "notes" ? "NOTES" : (root.workspace-primary == "tasks" ? "TASKS" : (root.workspace-primary == "board" ? "BOARD" : (root.workspace-primary == "settings" ? "SETTINGS" : "REVIEW"))));
+                                                    detail: root.workspace-primary == "oneonone" ? (root.selected-person == "" ? "pick a person" : root.selected-person) : (root.active-summary == "" ? "all local data" : root.active-summary);
+                                                    accent: Theme.accent;
                                                     horizontal-stretch: 1;
                                                 }
-                                                if root.person-current-oneonone-id != "": Button { text: "Open full editor"; clicked => { root.select-note(root.person-current-oneonone-id); root.set-view("notes"); } }
+                                                ActionButton { icon: Icons.people; label: root.workspace-left-open ? "" : "Nav"; a11y: "Show navigation drawer"; clicked => { root.workspace-left-open = true; } }
+                                                ActionButton { icon: Icons.panel-right; label: root.workspace-right-open ? "" : "Context"; a11y: "Show context pane"; clicked => { root.workspace-right-open = true; } }
+                                                ActionButton { icon: Icons.tasks; label: root.workspace-bottom-open ? "" : "Queue"; a11y: "Show queue pane"; clicked => { root.workspace-bottom-open = true; } }
                                             }
-                                            if root.person-current-oneonone-id == "": EmptyState {
-                                                glyph: "1:1";
-                                                title: "No current 1:1 note";
-                                                hint: "Create a 1:1 note to write live notes here.";
+                                            HorizontalLayout {
+                                                spacing: 5px;
+                                                SegBtn { label: "1:1"; active: root.workspace-primary == "oneonone"; clicked => { root.workspace-primary = "oneonone"; root.workspace-nav-surface = "people"; root.set-view("workspace"); } }
+                                                SegBtn { label: "Note"; active: root.workspace-primary == "notes"; clicked => { root.workspace-primary = "notes"; root.workspace-nav-surface = "notes"; root.set-view("workspace"); } }
+                                                SegBtn { label: "Tasks"; active: root.workspace-primary == "tasks"; clicked => { root.workspace-primary = "tasks"; root.set-view("workspace"); } }
+                                                SegBtn { label: "Board"; active: root.workspace-primary == "board"; clicked => { root.workspace-primary = "board"; root.set-view("workspace"); } }
+                                                SegBtn { label: "Review"; active: root.workspace-primary == "review"; clicked => { root.workspace-primary = "review"; root.workspace-bottom-open = true; root.set-view("workspace"); } }
                                             }
-                                            if root.person-current-oneonone-id != "": LineEdit {
-                                                text <=> root.current-title;
-                                                edited(t) => { root.note-title-edited(t); }
-                                            }
-                                            if root.person-current-oneonone-id != "": TextEdit {
+
+                                            if root.workspace-primary == "oneonone": Rectangle {
                                                 vertical-stretch: 1;
-                                                text <=> root.current-body;
-                                                wrap: word-wrap;
-                                                placeholder-text: "Type live 1:1 notes, decisions, and follow-up todos here...";
-                                                edited => { root.note-edited(); }
+                                                if root.selected-person == "": EmptyState { glyph: "1:1"; title: "Pick a person"; hint: "Open People in the navigation drawer and choose someone."; }
+                                                if root.selected-person != "": VerticalLayout {
+                                                    spacing: 8px;
+                                                    if root.person-current-oneonone-id == "": EmptyState { glyph: "1:1"; title: "No current 1:1 note"; hint: "Create one to start writing."; }
+                                                    if root.person-current-oneonone-id != "": LineEdit { text <=> root.current-title; edited(t) => { root.note-title-edited(t); } }
+                                                    if root.person-current-oneonone-id != "": TextEdit {
+                                                        vertical-stretch: 1;
+                                                        text <=> root.current-body;
+                                                        wrap: word-wrap;
+                                                        placeholder-text: "Type current 1:1 notes and Markdown tasks.";
+                                                        edited => { root.note-edited(); }
+                                                    }
+                                                    HorizontalLayout {
+                                                        spacing: 6px;
+                                                        ActionButton { icon: Icons.meeting; label: "New 1:1"; primary: true; clicked => { root.new-from-template("oneonone"); } }
+                                                        ActionButton { icon: Icons.check; label: "Add task"; clicked => { root.open-add-todo(); } }
+                                                    }
+                                                }
+                                            }
+
+                                            if root.workspace-primary == "notes": Rectangle {
+                                                vertical-stretch: 1;
+                                                if root.current-id == "": EmptyState { glyph: "[]"; title: "No note selected"; hint: "Choose a note from the navigation drawer or create one."; }
+                                                if root.current-id != "": VerticalLayout {
+                                                    spacing: 8px;
+                                                    LineEdit { text <=> root.current-title; edited(t) => { root.note-title-edited(t); } }
+                                                    TextEdit {
+                                                        vertical-stretch: 1;
+                                                        text <=> root.current-body;
+                                                        wrap: word-wrap;
+                                                        placeholder-text: "Write Markdown here.";
+                                                        edited => { root.note-edited(); }
+                                                    }
+                                                    HorizontalLayout {
+                                                        spacing: 6px;
+                                                        ActionButton { icon: Icons.check; label: "Add task"; clicked => { root.open-add-todo(); } }
+                                                        ActionButton { icon: Icons.branch; label: "Related note"; clicked => { root.new-related-note(); } }
+                                                        ActionButton { icon: Icons.download; label: "Export PDF"; clicked => { root.export-note("pdf"); } }
+                                                    }
+                                                }
+                                            }
+
+                                            if root.workspace-primary == "tasks": Rectangle {
+                                                vertical-stretch: 1;
+                                                if root.tasks.length == 0: EmptyState { glyph: "[]"; title: "No tasks"; hint: "Open tasks will appear here."; }
+                                                ListView {
+                                                    for t in root.tasks: CommitmentRow {
+                                                        t: t;
+                                                        accent: Theme.accent;
+                                                        action-label: "Open";
+                                                        cycle(id) => { root.cycle-todo(id); }
+                                                        edit(id) => { root.edit-todo(id); }
+                                                        external(url) => { root.open-url(url); }
+                                                        open(id) => { root.open-note(id); }
+                                                    }
+                                                }
+                                            }
+
+                                            if root.workspace-primary == "board": Rectangle {
+                                                vertical-stretch: 1;
+                                                ScrollView {
+                                                    HorizontalLayout {
+                                                        spacing: 8px;
+                                                        for col in root.board-columns: PaneSection {
+                                                            width: 270px;
+                                                            title: col.title;
+                                                            detail: col.count + " cards";
+                                                            accent: Theme.accent;
+                                                            if col.cards.length == 0: EmptyState { glyph: "[]"; title: "Empty"; hint: "No cards in this lane."; }
+                                                            for card in col.cards: AgendaRow {
+                                                                t: card;
+                                                                cycle(id) => { root.cycle-todo(id); }
+                                                                edit(id) => { root.edit-todo(id); }
+                                                                open(id) => { root.open-note(id); }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            if root.workspace-primary == "review": Rectangle {
+                                                vertical-stretch: 1;
+                                                HorizontalLayout {
+                                                    spacing: 8px;
+                                                    PaneSection {
+                                                        horizontal-stretch: 1;
+                                                        title: "Waiting";
+                                                        detail: root.waiting-todos.length + " delegated";
+                                                        accent: #7a5b9a;
+                                                        for t in root.waiting-todos: AgendaRow {
+                                                            t: t;
+                                                            cycle(id) => { root.cycle-todo(id); }
+                                                            edit(id) => { root.edit-todo(id); }
+                                                            open(id) => { root.open-note(id); }
+                                                        }
+                                                    }
+                                                    PaneSection {
+                                                        horizontal-stretch: 1;
+                                                        title: "Stale";
+                                                        detail: root.today-stale.length + " old";
+                                                        accent: #b8742e;
+                                                        for t in root.today-stale: AgendaRow {
+                                                            t: t;
+                                                            cycle(id) => { root.cycle-todo(id); }
+                                                            edit(id) => { root.edit-todo(id); }
+                                                            open(id) => { root.open-note(id); }
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            if root.workspace-primary == "settings": Rectangle {
+                                                vertical-stretch: 1;
+                                                VerticalLayout {
+                                                    spacing: 10px;
+                                                    Field { label: "Vault"; LineEdit { text <=> root.vault-input; placeholder-text: root.vault-path; } }
+                                                    Text { text: "Index: " + root.index-path; font-size: (12px * Z.f); color: Theme.text3; wrap: word-wrap; }
+                                                    Text { text: "Settings: " + root.settings-path; font-size: (12px * Z.f); color: Theme.text3; wrap: word-wrap; }
+                                                    HorizontalLayout {
+                                                        spacing: 6px;
+                                                        ActionButton { icon: Icons.save; label: "Save"; primary: true; clicked => { root.save-settings(root.vault-input); } }
+                                                        ActionButton { icon: Icons.external; label: "Open vault"; clicked => { root.open-vault-folder(); } }
+                                                        ActionButton { icon: Icons.info; label: "Licenses"; clicked => { root.open-licenses(); } }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
-                                    Rectangle {
-                                        width: 310px;
-                                        height: 280px;
+
+                                    if root.workspace-right-open && !root.focus-mode: Rectangle {
+                                        width: 9px;
+                                        background: (rightResize.has-hover || rightResize.pressed) ? #c8d0d9 : transparent;
+                                        rightResize := TouchArea {
+                                            mouse-cursor: ew-resize;
+                                            property <length> sw;
+                                            property <length> sx;
+                                            pointer-event(e) => {
+                                                if (e.kind == PointerEventKind.down) {
+                                                    self.sw = root.workspace-right-width;
+                                                    self.sx = self.absolute-position.x + self.mouse-x;
+                                                }
+                                            }
+                                            moved => { root.workspace-right-width = clamp(self.sw - (self.absolute-position.x + self.mouse-x - self.sx), 240px, 600px); }
+                                        }
+                                    }
+
+                                    if root.workspace-right-open && !root.focus-mode: Rectangle {
+                                        preferred-width: root.workspace-right-width;
+                                        min-width: 240px;
+                                        max-width: root.workspace-right-width;
                                         background: Theme.surface2;
-                                        border-radius: 7px;
+                                        border-radius: 8px;
                                         border-width: 1px;
                                         border-color: Theme.border;
+                                        clip: true;
                                         VerticalLayout {
-                                            padding: 10px; spacing: 6px;
-                                            SectionTitle { title: "1:1 NOTES"; detail: root.person-oneonone-notes.length + " notes"; accent: Theme.text2; }
-                                            if root.person-oneonone-notes.length == 0 : Text { text: "No 1:1 notes for this person yet."; color: Theme.text3; font-size: (12px * Z.f); font-italic: true; }
-                                            ListView {
-                                                vertical-stretch: 1;
-                                                for n in root.person-oneonone-notes: NoteRow { note: n; open(id) => { root.select-note(id); root.set-view("notes"); } }
+                                            padding: 10px;
+                                            spacing: 8px;
+                                            HorizontalLayout {
+                                                SectionTitle { title: "CONTEXT"; detail: root.workspace-primary; accent: #7a5b9a; horizontal-stretch: 1; }
+                                                CloseX { a11y: "Close context pane"; closed => { root.workspace-right-open = false; } }
                                             }
-                                        }
-                                    }
-                                }
-                                if root.selected-person != "": ppsv := ScrollView {
-                                    vertical-stretch: 1;
-                                    VerticalLayout {
-                                        width: ppsv.visible-width;
-                                        spacing: 10px;
-                                        Rectangle {
-                                            background: Theme.surface2; border-radius: 7px;
-                                            VerticalLayout {
-                                                padding: 10px; spacing: 3px;
-                                                SectionTitle { title: "DISCUSS"; detail: root.person-discuss.length + " prompts for the next 1:1"; accent: #9a5b1b; }
-                                                for t in root.person-discuss: AgendaRow { t: t; cycle(id) => { root.cycle-todo(id); } edit(id) => { root.edit-todo(id); } open(id) => { root.open-note(id); } }
-                                                if (root.person-discuss.length == 0): Text { text: "Nothing queued to discuss."; color: Theme.text3; font-size: (12px * Z.f); font-italic: true; }
-                                            }
-                                        }
-                                        Rectangle {
-                                            background: Theme.surface2; border-radius: 7px;
-                                            VerticalLayout {
-                                                padding: 10px; spacing: 3px;
-                                                SectionTitle { title: "DELEGATED"; detail: root.person-delegated.length + " items you are waiting on"; accent: #1f7a44; }
-                                                for t in root.person-delegated: AgendaRow { t: t; cycle(id) => { root.cycle-todo(id); } edit(id) => { root.edit-todo(id); } open(id) => { root.open-note(id); } }
-                                                if (root.person-delegated.length == 0): Text { text: "No delegated items waiting."; color: Theme.text3; font-size: (12px * Z.f); font-italic: true; }
-                                            }
-                                        }
-                                        Rectangle {
-                                            background: Theme.surface2; border-radius: 7px;
-                                            VerticalLayout {
-                                                padding: 10px; spacing: 3px;
-                                                SectionTitle { title: "DELEGATED HISTORY"; detail: root.person-delegated-history.length + " past and current items"; accent: #1f7a44; }
-                                                for t in root.person-delegated-history: AgendaRow { t: t; cycle(id) => { root.cycle-todo(id); } edit(id) => { root.edit-todo(id); } open(id) => { root.open-note(id); } }
-                                                if (root.person-delegated-history.length == 0): Text { text: "No delegated history yet."; color: Theme.text3; font-size: (12px * Z.f); font-italic: true; }
-                                            }
-                                        }
-                                        Rectangle {
-                                            background: Theme.surface2; border-radius: 7px;
-                                            VerticalLayout {
-                                                padding: 10px; spacing: 3px;
-                                                SectionTitle { title: "OTHER TODOS"; detail: root.person-other.length + " related tasks"; accent: Theme.accent; }
-                                                for t in root.person-other: AgendaRow { t: t; cycle(id) => { root.cycle-todo(id); } edit(id) => { root.edit-todo(id); } open(id) => { root.open-note(id); } }
-                                            }
-                                        }
-                                        Rectangle {
-                                            background: Theme.surface2; border-radius: 7px;
-                                            VerticalLayout {
-                                                padding: 10px; spacing: 3px;
-                                                SectionTitle { title: "RECENT CONTEXT"; detail: root.person-notes.length + " notes mention them"; accent: Theme.text2; }
-                                                for n in root.person-notes: NoteRow { note: n; open(id) => { root.select-note(id); root.set-view("notes"); } }
+                                            ScrollView {
+                                                VerticalLayout {
+                                                    spacing: 8px;
+                                                    PaneSection {
+                                                        title: "1:1 history";
+                                                        detail: root.person-oneonone-count + " notes";
+                                                        accent: #9a5b1b;
+                                                        for n in root.person-oneonone-notes: NoteRow {
+                                                            note: n;
+                                                            open(id) => { root.workspace-primary = "oneonone"; root.select-note(id); }
+                                                        }
+                                                    }
+                                                    PaneSection {
+                                                        title: "Backlinks";
+                                                        detail: root.current-backlinks.length + " notes";
+                                                        accent: Theme.accent;
+                                                        for n in root.current-backlinks: NoteRow {
+                                                            note: { id: n.id, title: n.title, subtitle: "backlink" };
+                                                            open(id) => { root.workspace-primary = "notes"; root.select-note(id); }
+                                                        }
+                                                    }
+                                                    PaneSection {
+                                                        title: "Related";
+                                                        detail: root.current-related.length + " matches";
+                                                        accent: #2a7a4a;
+                                                        for r in root.current-related: Rectangle {
+                                                            height: 38px;
+                                                            border-radius: 5px;
+                                                            background: relrow.has-hover ? Theme.surface3 : transparent;
+                                                            HorizontalLayout {
+                                                                padding: 6px; spacing: 6px;
+                                                                Text { text: r.title; font-size: (12px * Z.f); font-weight: 650; color: Theme.text; horizontal-stretch: 1; overflow: elide; }
+                                                                Chip { text: r.via; tint: #e7f7ec; ink: #1f7a44; }
+                                                            }
+                                                            relrow := TouchArea { clicked => { root.link-related(r.id); } }
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
-                        }
-                    }
-                }
 
-                // ----- AGENDA view -----
-                if (root.view == "agenda"): Rectangle {
-                    horizontal-stretch: 1;
-                    background: Theme.bg;
-                    VerticalLayout {
-                        padding: 10px; spacing: 8px;
-                        Text { text: "AGENDA — what's due, by date"; font-size: (11px * Z.f); letter-spacing: 0.5px; color: Theme.text3; }
-                        Rectangle {
-                            vertical-stretch: 1; background: Theme.surface; border-radius: 8px;
-                            agsv := ScrollView {
-                                VerticalLayout {
-                                    width: agsv.visible-width;
-                                    padding: 8px;
-                                    spacing: 12px;
-                                    if (root.agenda-overdue.length > 0): VerticalLayout {
-                                        spacing: 2px;
-                                        Text { text: "⚠ OVERDUE (" + root.agenda-overdue.length + ")"; font-size: (11px * Z.f); font-weight: 700; color: #c82333; }
-                                        for t in root.agenda-overdue: AgendaRow { t: t; cycle(id) => { root.cycle-todo(id); } edit(id) => { root.edit-todo(id); } open(id) => { root.open-note(id); } }
-                                    }
-                                    VerticalLayout {
-                                        spacing: 2px;
-                                        Text { text: "TODAY (" + root.agenda-today.length + ")"; font-size: (11px * Z.f); font-weight: 700; color: #1f7a44; }
-                                        for t in root.agenda-today: AgendaRow { t: t; cycle(id) => { root.cycle-todo(id); } edit(id) => { root.edit-todo(id); } open(id) => { root.open-note(id); } }
-                                        if (root.agenda-today.length == 0): Text { text: "Nothing due today."; color: Theme.text3; font-size: (12px * Z.f); font-italic: true; }
-                                    }
-                                    if (root.agenda-week.length > 0): VerticalLayout {
-                                        spacing: 2px;
-                                        Text { text: "NEXT 7 DAYS (" + root.agenda-week.length + ")"; font-size: (11px * Z.f); font-weight: 700; color: Theme.accent; }
-                                        for t in root.agenda-week: AgendaRow { t: t; cycle(id) => { root.cycle-todo(id); } edit(id) => { root.edit-todo(id); } open(id) => { root.open-note(id); } }
-                                    }
-                                    if (root.agenda-later.length > 0): VerticalLayout {
-                                        spacing: 2px;
-                                        Text { text: "LATER (" + root.agenda-later.length + ")"; font-size: (11px * Z.f); font-weight: 700; color: Theme.text2; }
-                                        for t in root.agenda-later: AgendaRow { t: t; cycle(id) => { root.cycle-todo(id); } edit(id) => { root.edit-todo(id); } open(id) => { root.open-note(id); } }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ----- INBOX view (quick capture + unfiled notes) -----
-                if (root.view == "inbox"): Rectangle {
-                    horizontal-stretch: 1;
-                    background: Theme.bg;
-                    HorizontalLayout {
-                        padding: 12px; spacing: 12px;
-                        Rectangle {
-                            width: 340px;
-                            background: Theme.surface;
-                            border-radius: 8px;
-                            border-width: 1px;
-                            border-color: Theme.border;
-                            VerticalLayout {
-                                padding: 14px; spacing: 10px;
-                                Text { text: "Inbox"; font-size: (22px * Z.f); font-weight: 800; color: Theme.text; }
-                                Text { text: "Capture loosely. Triage later into notes, workstreams, people, and todos."; font-size: (12px * Z.f); color: Theme.text3; wrap: word-wrap; }
-                                LineEdit {
-                                    placeholder-text: "Capture a thought, promise, or loose note";
-                                    text <=> root.capture-input;
-                                    accepted => { root.quick-capture(root.capture-input); }
-                                }
-                                ActionButton { icon: Icons.plus; label: "Capture to inbox"; primary: true; clicked => { root.quick-capture(root.capture-input); } }
-                                Rectangle { height: 1px; background: Theme.border; }
-                                SectionTitle { title: "TRIAGE FLOW"; detail: "open an item, then file it"; accent: #5b1b9a; }
-                                Text { text: "1. Open the oldest loose note\n2. Add a workstream or person\n3. Convert next actions into todos\n4. Archive or keep as reference"; font-size: (12px * Z.f); color: Theme.text2; wrap: word-wrap; }
-                            }
-                        }
-                        Rectangle {
-                            horizontal-stretch: 1;
-                            background: Theme.surface;
-                            border-radius: 8px;
-                            border-width: 1px;
-                            border-color: Theme.border;
-                            VerticalLayout {
-                                padding: 10px; spacing: 6px;
-                                HorizontalLayout {
-                                    SectionTitle { title: "UNFILED"; detail: root.inbox-notes.length + " notes need a home"; accent: #5b1b9a; horizontal-stretch: 1; }
-                                    ActionButton { icon: Icons.plus; label: "New note"; clicked => { root.new-note(); } }
-                                }
-                                if root.inbox-notes.length == 0 : EmptyState {
-                                    glyph: "Inbox";
-                                    title: "Inbox zero";
-                                    hint: "Nothing unfiled. Capture on the left, or add [[workstreams]] to existing notes.";
-                                }
-                                ListView {
-                                    vertical-stretch: 1;
-                                    for n in root.inbox-notes: Rectangle {
-                                        height: 58px;
-                                        border-radius: 7px;
-                                        background: ibt.has-hover ? Theme.surface3 : transparent;
-                                        animate background { duration: 100ms; }
-                                        HorizontalLayout {
-                                            padding: 8px; spacing: 8px;
-                                            Rectangle { width: 3px; height: 100%; border-radius: 2px; background: #5b1b9a; }
-                                            VerticalLayout {
-                                                horizontal-stretch: 1;
-                                                Text { text: n.title; font-size: (13px * Z.f); font-weight: 700; color: Theme.text; overflow: elide; }
-                                                Text { text: n.subtitle; font-size: (10px * Z.f); color: Theme.text3; overflow: elide; }
-                                            }
-                                            Button { text: "Triage"; clicked => { root.select-note(n.id); root.set-view("notes"); } }
+                            if root.workspace-bottom-open && !root.focus-mode: Rectangle {
+                                height: 9px;
+                                background: (bottomResize.has-hover || bottomResize.pressed) ? #c8d0d9 : transparent;
+                                bottomResize := TouchArea {
+                                    mouse-cursor: ns-resize;
+                                    property <length> sh;
+                                    property <length> sy;
+                                    pointer-event(e) => {
+                                        if (e.kind == PointerEventKind.down) {
+                                            self.sh = root.workspace-bottom-height;
+                                            self.sy = self.absolute-position.y + self.mouse-y;
                                         }
-                                        ibt := TouchArea { mouse-cursor: pointer; double-clicked => { root.select-note(n.id); root.set-view("notes"); } }
                                     }
+                                    moved => { root.workspace-bottom-height = clamp(self.sh - (self.absolute-position.y + self.mouse-y - self.sy), 120px, 380px); }
                                 }
                             }
-                        }
-                    }
-                }
 
-                // ----- TASKS view (commitment command center) -----
-                if (root.view == "tasks"): Rectangle {
-                    horizontal-stretch: 1;
-                    background: Theme.bg;
-                    VerticalLayout {
-                        padding: 12px;
-                        spacing: 10px;
-                        HorizontalLayout {
-                            spacing: 10px;
-                            VerticalLayout {
-                                horizontal-stretch: 1;
-                                Text { text: "Tasks"; font-size: (22px * Z.f); font-weight: 800; color: Theme.text; }
-                                Text { text: "Work from a clean commitment list. Complete, edit, or jump back to the source note."; font-size: (12px * Z.f); color: Theme.text3; }
-                            }
-                            ActionButton { icon: Icons.check; label: "Add todo"; primary: true; clicked => { root.open-add-todo(); } }
-                        }
-                        HorizontalLayout {
-                            spacing: 8px;
-                            MetricTile { value: "" + root.tasks.length; label: "matching tasks"; accent: Theme.accent; horizontal-stretch: 1; }
-                            MetricTile { value: "" + root.agenda-overdue.length; label: "overdue"; accent: #c82333; horizontal-stretch: 1; }
-                            MetricTile { value: "" + root.agenda-today.length; label: "due today"; accent: #1f7a44; horizontal-stretch: 1; }
-                            MetricTile { value: root.active-summary == "" ? "All" : root.active-summary; label: "active filter"; accent: #9a5b1b; horizontal-stretch: 2; }
-                        }
-                        Rectangle {
-                            vertical-stretch: 1;
-                            background: Theme.surface;
-                            border-radius: 8px;
-                            border-width: 1px;
-                            border-color: Theme.border;
-                            VerticalLayout {
-                                padding: 10px;
-                                spacing: 6px;
-                                SectionTitle { title: "COMMITMENTS"; detail: root.tasks.length + " visible items"; accent: Theme.accent; }
-                            if root.tasks.length == 0 : EmptyState {
-                                glyph: "Tasks";
-                                title: "No tasks match";
-                                hint: "Add a todo, or loosen the filters in the rail.";
-                            }
-                            ListView {
-                                vertical-stretch: 1;
-                                for t in root.tasks: CommitmentRow {
-                                    t: t;
-                                    accent: Theme.accent;
-                                    action-label: "Open note";
-                                    cycle(id) => { root.cycle-todo(id); }
-                                    edit(id) => { root.edit-todo(id); }
-                                    external(id) => { root.open-external(id); }
-                                    open(id) => { root.open-note(id); }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ----- WAITING view (follow-up queue) -----
-                if (root.view == "waiting"): Rectangle {
-                    horizontal-stretch: 1;
-                    background: Theme.bg;
-                    VerticalLayout {
-                        padding: 12px;
-                        spacing: 10px;
-                        HorizontalLayout {
-                            spacing: 10px;
-                            VerticalLayout {
-                                horizontal-stretch: 1;
-                                Text { text: "Waiting"; font-size: (22px * Z.f); font-weight: 800; color: Theme.text; }
-                                Text { text: "Track delegated work and decide who needs a nudge before it goes stale."; font-size: (12px * Z.f); color: Theme.text3; }
-                            }
-                            ActionButton { icon: Icons.meeting; label: "People"; clicked => { root.set-view("people"); } }
-                            ActionButton { icon: Icons.check; label: "Add follow-up"; primary: true; clicked => { root.open-add-todo(); } }
-                        }
-                        HorizontalLayout {
-                            spacing: 8px;
-                            MetricTile { value: "" + root.waiting-todos.length; label: "delegated items"; accent: #1f7a44; horizontal-stretch: 1; }
-                            MetricTile { value: "" + root.person-delegated.length; label: "selected person"; accent: #9a5b1b; horizontal-stretch: 1; }
-                            MetricTile { value: root.selected-person == "" ? "All people" : root.selected-person; label: "people filter"; accent: Theme.accent; horizontal-stretch: 2; }
-                        }
-                        Rectangle {
-                            vertical-stretch: 1;
-                            background: Theme.surface;
-                            border-radius: 8px;
-                            border-width: 1px;
-                            border-color: Theme.border;
-                            VerticalLayout {
-                                padding: 10px;
-                                spacing: 6px;
-                                SectionTitle { title: "FOLLOW-UP QUEUE"; detail: "oldest delegated items first"; accent: #1f7a44; }
-                            if root.waiting-todos.length == 0 : EmptyState {
-                                glyph: "Waiting";
-                                title: "Nothing delegated";
-                                hint: "Delegated todos with a person show here. Use the person filter to prep a focused follow-up.";
-                            }
-                            ListView {
-                                vertical-stretch: 1;
-                                for t in root.waiting-todos: CommitmentRow {
-                                    t: t;
-                                    accent: #1f7a44;
-                                    action-label: "Nudge";
-                                    cycle(id) => { root.cycle-todo(id); }
-                                    edit(id) => { root.edit-todo(id); }
-                                    external(id) => { root.open-external(id); }
-                                    open(id) => { root.open-note(id); }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ----- WORKSTREAM HUB (one workstream's todos + notes) -----
-                if (root.view == "workstream"): Rectangle {
-                    horizontal-stretch: 1;
-                    background: Theme.bg;
-                    VerticalLayout {
-                        padding: 12px;
-                        spacing: 10px;
-                        HorizontalLayout {
-                            spacing: 8px;
-                            VerticalLayout {
-                                horizontal-stretch: 1;
-                                Text { text: root.hub-name == "" ? "Workstream" : root.hub-name; font-size: (22px * Z.f); font-weight: 800; color: Theme.text; }
-                                Text { text: "Project cockpit: open loops, related notes, and next actions in one place."; font-size: (12px * Z.f); color: Theme.text3; }
-                            }
-                            ActionButton { icon: Icons.filter-x; label: "Filter notes"; clicked => { root.toggle-project(root.hub-name); root.set-view("notes"); } }
-                            ActionButton { icon: Icons.check; label: "Add todo"; primary: true; clicked => { root.open-add-todo(); } }
-                        }
-                        HorizontalLayout {
-                            spacing: 8px;
-                            MetricTile { value: "" + root.hub-todos.length; label: "open todos"; accent: Theme.accent; horizontal-stretch: 1; }
-                            MetricTile { value: "" + root.hub-notes.length; label: "linked notes"; accent: #1f7a44; horizontal-stretch: 1; }
-                            MetricTile { value: root.selected-person == "" ? "-" : root.selected-person; label: "person filter"; accent: #9a5b1b; horizontal-stretch: 1; }
-                        }
-                        HorizontalLayout {
-                            spacing: 12px;
-                            // Left: open todos in this workstream.
-                            Rectangle {
-                                horizontal-stretch: 1;
-                                background: Theme.surface;
+                            if root.workspace-bottom-open && !root.focus-mode: Rectangle {
+                                height: root.workspace-bottom-height;
+                                background: Theme.surface2;
                                 border-radius: 8px;
                                 border-width: 1px;
                                 border-color: Theme.border;
-                                VerticalLayout {
-                                    padding: 10px; spacing: 6px;
-                                    SectionTitle { title: "OPEN LOOPS"; detail: root.hub-todos.length + " active commitments"; accent: Theme.accent; }
-                                    if root.hub-todos.length == 0 : Text { text: "No open todos in this workstream."; font-size: (12px * Z.f); color: Theme.text3; }
-                                    ListView {
-                                        vertical-stretch: 1;
-                                        for t in root.hub-todos: AgendaRow {
-                                            t: t;
-                                            cycle(id) => { root.cycle-todo(id); }
-                                            edit(id) => { root.edit-todo(id); }
-                                            open(id) => { root.open-note(id); }
-                                        }
-                                    }
-                                }
-                            }
-                            // Right: notes that reference this workstream.
-                            Rectangle {
-                                width: 340px;
-                                background: Theme.surface;
-                                border-radius: 8px;
-                                border-width: 1px;
-                                border-color: Theme.border;
-                                VerticalLayout {
-                                    padding: 10px; spacing: 6px;
-                                    SectionTitle { title: "REFERENCE"; detail: root.hub-notes.length + " linked notes"; accent: #1f7a44; }
-                                    if root.hub-notes.length == 0 : Text { text: "No notes link [[" + root.hub-name + "]] yet."; font-size: (12px * Z.f); color: Theme.text3; wrap: word-wrap; }
-                                    ListView {
-                                        vertical-stretch: 1;
-                                        for n in root.hub-notes: Rectangle {
-                                            height: 42px;
-                                            border-radius: 6px;
-                                            background: hnt.has-hover ? Theme.hover : transparent;
-                                            VerticalLayout {
-                                                padding-left: 8px; padding-right: 8px; padding-top: 6px; padding-bottom: 6px;
-                                                Text { text: n.title; font-size: (13px * Z.f); font-weight: 650; color: Theme.text; overflow: elide; }
-                                                Text { text: "Open note"; font-size: (10px * Z.f); color: Theme.text3; }
-                                            }
-                                            hnt := TouchArea { clicked => { root.select-note(n.id); root.set-view("notes"); } }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ----- LABELS view (taxonomy manager) -----
-                if (root.view == "labels"): Rectangle {
-                    horizontal-stretch: 1;
-                    background: Theme.bg;
-                    VerticalLayout {
-                        padding: 12px;
-                        spacing: 10px;
-                        HorizontalLayout {
-                            spacing: 10px;
-                            VerticalLayout {
-                                horizontal-stretch: 1;
-                                Text { text: "Labels"; font-size: (22px * Z.f); font-weight: 800; color: Theme.text; }
-                                Text { text: "Use labels as lightweight facets for retrieval, review, and cleanup."; font-size: (12px * Z.f); color: Theme.text3; }
-                            }
-                            ActionButton { icon: Icons.plus; label: "New note"; clicked => { root.new-note(); } }
-                        }
-                        HorizontalLayout {
-                            spacing: 8px;
-                            MetricTile { value: "" + root.tags.length; label: "labels"; accent: #5b1b9a; horizontal-stretch: 1; }
-                            MetricTile { value: "" + root.max-tag-count; label: "top usage"; accent: #1f7a44; horizontal-stretch: 1; }
-                            MetricTile { value: root.active-summary == "" ? "All notes" : root.active-summary; label: "active filter"; accent: Theme.accent; horizontal-stretch: 2; }
-                        }
-                        HorizontalLayout {
-                            spacing: 12px;
-                            Rectangle {
-                                width: 300px;
-                                background: Theme.surface;
-                                border-radius: 8px;
-                                border-width: 1px;
-                                border-color: Theme.border;
-                                VerticalLayout {
-                                    padding: 12px;
-                                    spacing: 8px;
-                                    SectionTitle { title: "LABEL WORKFLOW"; detail: "keep the taxonomy small"; accent: #5b1b9a; }
-                                    Text { text: "Click a label to filter notes. Prefer durable categories over one-off tags, and clean up labels with very low reuse."; font-size: (12px * Z.f); color: Theme.text2; wrap: word-wrap; }
-                                    Rectangle { height: 1px; background: Theme.border; }
-                                    Text { text: "Good labels answer: what context should retrieve this later?"; font-size: (12px * Z.f); color: Theme.text3; wrap: word-wrap; }
-                                }
-                            }
-                            Rectangle {
-                                horizontal-stretch: 1;
-                                background: Theme.surface;
-                                border-radius: 8px;
-                                border-width: 1px;
-                                border-color: Theme.border;
+                                clip: true;
                                 VerticalLayout {
                                     padding: 10px;
-                                    spacing: 6px;
-                                    SectionTitle { title: "FACETS"; detail: root.tags.length + " labels sorted by use"; accent: #5b1b9a; }
-                                    if (root.tags.length == 0): EmptyState {
-                                        glyph: "Labels";
-                                        title: "No labels yet";
-                                        hint: "Add #labels to notes when a reusable retrieval facet appears.";
-                                    }
-                                    lsv := ScrollView {
-                                        vertical-stretch: 1;
-                                        VerticalLayout {
-                                            width: lsv.visible-width;
-                                            spacing: 6px;
-                                            for t in root.tags: Rectangle {
-                                                height: 42px;
-                                                border-radius: 7px;
-                                                background: lt.has-hover ? #ede3fb : Theme.surface2;
-                                                animate background { duration: 110ms; easing: ease-out; }
-                                                HorizontalLayout {
-                                                    padding-left: 10px; padding-right: 10px;
-                                                    spacing: 8px;
-                                                    Text {
-                                                        text: "#" + t.name;
-                                                        color: #5b1b9a;
-                                                        font-weight: 700;
-                                                        font-size: min(13px + t.count * 8px / max(1, root.max-tag-count), 18px) * Z.f;
-                                                        vertical-alignment: center;
-                                                        horizontal-stretch: 1;
-                                                        overflow: elide;
-                                                    }
-                                                    Chip { text: t.count; tint: #eef2f7; ink: #4a5560; }
-                                                    Button { text: "Filter"; clicked => { root.toggle-tag(t.name); } }
-                                                }
-                                                lt := TouchArea { mouse-cursor: pointer; double-clicked => { root.toggle-tag(t.name); } }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ----- GANTT view -----
-                if (root.view == "gantt"): Rectangle {
-                    horizontal-stretch: 1;
-                    background: Theme.bg;
-                    VerticalLayout {
-                        padding: 12px;
-                        spacing: 10px;
-                        HorizontalLayout {
-                            spacing: 10px;
-                            VerticalLayout {
-                                horizontal-stretch: 1;
-                                Text { text: "Timeline"; font-size: (22px * Z.f); font-weight: 800; color: Theme.text; }
-                                Text { text: "See scheduled commitments as a planning horizon, then open the source note for detail."; font-size: (12px * Z.f); color: Theme.text3; }
-                            }
-                            ActionButton { icon: Icons.check; label: "Add dated todo"; primary: true; clicked => { root.open-add-todo(); } }
-                        }
-                        HorizontalLayout {
-                            spacing: 8px;
-                            MetricTile { value: "" + root.gantt-items.length; label: "scheduled items"; accent: Theme.accent; horizontal-stretch: 1; }
-                            MetricTile { value: "" + root.agenda-week.length; label: "next 7 days"; accent: #1f7a44; horizontal-stretch: 1; }
-                            MetricTile { value: "" + root.agenda-later.length; label: "later"; accent: #9a5b1b; horizontal-stretch: 1; }
-                        }
-                        Rectangle {
-                            vertical-stretch: 1;
-                            background: Theme.surface;
-                            border-radius: 8px;
-                            border-width: 1px;
-                            border-color: Theme.border;
-                            VerticalLayout {
-                                padding: 10px;
-                                spacing: 8px;
-                                SectionTitle { title: "PLANNING HORIZON"; detail: "start to due date"; accent: Theme.accent; }
-                                HorizontalLayout {
                                     spacing: 8px;
-                                    Text { text: "Commitment"; width: 260px; font-size: (10px * Z.f); font-weight: 800; color: Theme.text3; }
-                                    Text { text: "Schedule"; horizontal-stretch: 1; font-size: (10px * Z.f); font-weight: 800; color: Theme.text3; }
-                                }
-                                if root.gantt-items.length == 0 : EmptyState {
-                                    glyph: "Timeline";
-                                    title: "No dated work";
-                                    hint: "Add due dates to todos to plan the horizon here.";
-                                }
-                                ListView {
-                                    vertical-stretch: 1;
-                                    for g in root.gantt-items: Rectangle {
-                                        height: 46px;
-                                        border-radius: 7px;
-                                        background: gta.has-hover ? Theme.surface3 : transparent;
-                                        animate background { duration: 100ms; }
-                                        gta := TouchArea { mouse-cursor: pointer; double-clicked => { root.open-note(g.id); } }
-                                        HorizontalLayout {
-                                            padding-left: 8px; padding-right: 8px; spacing: 10px;
-                                            HorizontalLayout {
-                                                width: 260px;
-                                                spacing: 7px;
-                                            KindDot { kind: g.kind; }
-                                                Text { text: g.text; font-size: (12px * Z.f); font-weight: 650; color: Theme.text; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
+                                    HorizontalLayout {
+                                        SectionTitle { title: "QUEUE"; detail: "follow-up work"; accent: #b8742e; horizontal-stretch: 1; }
+                                        CloseX { a11y: "Close queue pane"; closed => { root.workspace-bottom-open = false; } }
+                                    }
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        PaneSection {
+                                            horizontal-stretch: 1;
+                                            title: "Follow-ups";
+                                            detail: root.person-discuss.length + " open";
+                                            accent: #b8742e;
+                                            for t in root.person-discuss: AgendaRow {
+                                                t: t;
+                                                cycle(id) => { root.cycle-todo(id); }
+                                                edit(id) => { root.edit-todo(id); }
+                                                open(id) => { root.open-note(id); }
                                             }
-                                            Rectangle {
-                                                horizontal-stretch: 1;
-                                                height: 24px;
-                                                y: 11px;
-                                                border-radius: 5px;
-                                                background: Theme.hover;
-                                                Rectangle {
-                                                    x: parent.width * g.start-frac;
-                                                    width: max(16px, parent.width * g.span-frac);
-                                                    height: 18px;
-                                                    y: (parent.height - self.height) / 2;
-                                                    border-radius: 5px;
-                                                    background:
-                                                        g.kind == "do" ? Theme.accent :
-                                                        g.kind == "followup" ? #d98324 :
-                                                        g.kind == "delegated" ? #1f9d57 :
-                                                        g.kind == "todelegate" ? #9a5bd6 : #6b7280;
-                                                    Text { text: g.date; font-size: (10px * Z.f); font-weight: 700; color: white; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
-                                                }
+                                        }
+                                        PaneSection {
+                                            horizontal-stretch: 1;
+                                            title: "Delegated";
+                                            detail: root.person-delegated.length + " open";
+                                            accent: #3a8c63;
+                                            for t in root.person-delegated: AgendaRow {
+                                                t: t;
+                                                cycle(id) => { root.cycle-todo(id); }
+                                                edit(id) => { root.edit-todo(id); }
+                                                open(id) => { root.open-note(id); }
                                             }
-                                            Button { text: "Open"; clicked => { root.open-note(g.id); } }
                                         }
                                     }
                                 }
@@ -2698,193 +1394,7 @@ export component AppWindow inherits Window {
             }
         }
 
-        // ===== Todo editor overlay =====
-        if (root.form-visible): Rectangle {
-            width: 100%; height: 100%;
-            background: #0b1b2c40;
-            TouchArea {} // swallow clicks behind the dialog
-            Rectangle {
-                width: min(560px, root.width - 28px);
-                height: formbox.preferred-height;
-                background: Theme.surface;
-                border-radius: 10px;
-                drop-shadow-blur: 18px;
-                drop-shadow-color: #0000002c;
-                formbox := VerticalLayout {
-                    padding: 16px;
-                    spacing: 12px;
-                    HorizontalLayout {
-                        spacing: 10px;
-                        Text {
-                            text: root.form-is-new ? "Add todo" : "Edit todo";
-                            font-size: (17px * Z.f); font-weight: 700; color: Theme.text;
-                            horizontal-stretch: 1;
-                            vertical-alignment: center;
-                        }
-                        CloseX { closed => { root.form-visible = false; } }
-                    }
-                    Field {
-                        label: "Task";
-                        LineEdit { placeholder-text: "What needs to happen?"; text <=> root.form-text; accepted => { root.save-todo(); } }
-                    }
-                    HorizontalLayout {
-                        spacing: 10px;
-                        Field {
-                            label: "Type";
-                            ComboBox {
-                                model: ["do", "followup", "delegated", "todelegate", "someday", "reading"];
-                                current-value <=> root.form-kind;
-                            }
-                        }
-                        Field {
-                            label: "Due";
-                            LineEdit { placeholder-text: "YYYY-MM-DD"; text <=> root.form-due; }
-                        }
-                    }
-                    HorizontalLayout {
-                        spacing: 10px;
-                        Field {
-                            label: "Person";
-                            LineEdit { placeholder-text: "person name"; text <=> root.form-person; }
-                        }
-                        Field {
-                            label: "Workstream";
-                            LineEdit { placeholder-text: "workstream name"; text <=> root.form-project; }
-                        }
-                    }
-                    Rectangle { height: 1px; background: Theme.border; }
-                    HorizontalLayout {
-                        spacing: 8px;
-                        Text {
-                            text: "Details";
-                            font-size: (12px * Z.f);
-                            font-weight: 700;
-                            color: Theme.text2;
-                            horizontal-stretch: 1;
-                            vertical-alignment: center;
-                        }
-                        Button { text: root.form-show-details ? "Hide" : "Show"; clicked => { root.form-show-details = !root.form-show-details; } }
-                    }
-                    if (root.form-show-details): VerticalLayout {
-                        spacing: 10px;
-                        HorizontalLayout {
-                            spacing: 10px;
-                            Field {
-                                label: "Status";
-                                ComboBox {
-                                    model: ["todo", "doing", "done"];
-                                    current-value <=> root.form-status;
-                                }
-                            }
-                            Field {
-                                label: "Priority";
-                                ComboBox { model: ["", "A", "B", "C"]; current-value <=> root.form-priority; }
-                            }
-                        }
-                        HorizontalLayout {
-                            spacing: 10px;
-                            Field {
-                                label: "Start";
-                                LineEdit { placeholder-text: "YYYY-MM-DD"; text <=> root.form-start; }
-                            }
-                            Field {
-                                label: "Repeat";
-                                LineEdit { placeholder-text: "for example 1w"; text <=> root.form-repeat; }
-                            }
-                        }
-                        Field {
-                            label: "External reference";
-                            LineEdit { placeholder-text: "ref:https://example.com/item, gh:owner/repo#1, or URL"; text <=> root.form-external; }
-                        }
-                    }
-                    Rectangle { vertical-stretch: 1; }
-                    HorizontalLayout {
-                        spacing: 8px;
-                        Rectangle { horizontal-stretch: 1; }
-                        Button { text: "Cancel"; clicked => { root.form-visible = false; } }
-                        Button { text: root.form-is-new ? "Add todo" : "Save changes"; primary: true; clicked => { root.save-todo(); } }
-                    }
-                }
-            }
-        }
-
-        // ===== Menu-bar dropdown overlays (in-window → open instantly) =====
-        // Scrim below the menu bar: clicking anywhere outside closes the menu.
-        if root.open-menu != "": TouchArea {
-            x: 0; y: 30px; width: root.width; height: root.height - 30px;
-            clicked => { root.open-menu = ""; }
-        }
-        if root.open-menu == "file": MenuPanel {
-            x: fileTitle.absolute-position.x;
-            y: fileTitle.absolute-position.y + fileTitle.height + 3px;
-            width: 232px;
-            MenuItem { icon: Icons.plus; label: "New note"; shortcut: "Ctrl+N"; clicked => { root.open-menu = ""; root.new-note(); } }
-            MenuItem { icon: Icons.meeting; label: "New meeting note"; clicked => { root.open-menu = ""; root.new-from-template("meeting"); } }
-            MenuItem { icon: Icons.person; label: "New 1:1 note"; clicked => { root.open-menu = ""; root.new-from-template("oneonone"); } }
-            MenuItem { icon: Icons.decision; label: "New decision note"; clicked => { root.open-menu = ""; root.new-from-template("decision"); } }
-            MenuSep {}
-            MenuItem { icon: Icons.download; label: "Export note as Markdown"; clicked => { root.open-menu = ""; root.export-note("md"); } }
-            MenuItem { icon: Icons.print; label: "Export note as PDF"; clicked => { root.open-menu = ""; root.export-note("pdf"); } }
-            MenuSep {}
-            MenuItem { icon: Icons.folder; label: "Open vault folder"; clicked => { root.open-menu = ""; root.open-vault-folder(); } }
-            MenuItem { icon: Icons.refresh; label: "Reindex from files"; clicked => { root.open-menu = ""; root.reindex(); } }
-            MenuItem { icon: Icons.trash2; label: "Open Trash"; clicked => { root.open-menu = ""; root.set-view("trash"); } }
-            MenuSep {}
-            MenuItem { icon: Icons.power; label: "Exit Noet"; shortcut: "Ctrl+Q"; clicked => { root.open-menu = ""; root.quit(); } }
-        }
-        if root.open-menu == "help": MenuPanel {
-            x: helpTitle.absolute-position.x;
-            y: helpTitle.absolute-position.y + helpTitle.height + 3px;
-            width: 250px;
-            MenuItem { icon: Icons.keyboard; label: "Keyboard shortcuts"; clicked => { root.open-menu = ""; root.shortcuts-open = true; } }
-            MenuSep {}
-            MenuItem { icon: Icons.info; label: "About Noet " + root.app-version; clicked => { root.open-menu = ""; root.set-view("about"); } }
-            MenuItem { icon: Icons.license; label: "Open-source licenses"; clicked => { root.open-menu = ""; root.set-view("about"); } }
-            MenuSep {}
-            MenuItem { icon: Icons.branch; label: "Noet on GitHub"; clicked => { root.open-menu = ""; root.open-url("https://github.com/marctjones/noet"); } }
-            MenuItem { icon: Icons.flag; label: "Report an issue"; clicked => { root.open-menu = ""; root.open-url("https://github.com/marctjones/noet/issues"); } }
-            MenuItem { icon: Icons.download; label: "Releases / check for updates"; clicked => { root.open-menu = ""; root.open-url("https://github.com/marctjones/noet/releases"); } }
-        }
-        if root.open-menu == "edit": MenuPanel {
-            x: editTitle.absolute-position.x;
-            y: editTitle.absolute-position.y + editTitle.height + 3px;
-            width: 210px;
-            MenuItem { icon: Icons.cut; label: "Cut"; shortcut: "Ctrl+X"; clicked => { root.open-menu = ""; root.editing = true; root.edit-action = "cut"; } }
-            MenuItem { icon: Icons.copy; label: "Copy"; shortcut: "Ctrl+C"; clicked => { root.open-menu = ""; root.editing = true; root.edit-action = "copy"; } }
-            MenuItem { icon: Icons.paste; label: "Paste"; shortcut: "Ctrl+V"; clicked => { root.open-menu = ""; root.editing = true; root.edit-action = "paste"; } }
-            MenuSep {}
-            MenuItem { icon: Icons.selectall; label: "Select all"; shortcut: "Ctrl+A"; clicked => { root.open-menu = ""; root.editing = true; root.edit-action = "selectall"; } }
-        }
-        if root.open-menu == "note": MenuPanel {
-            x: noteTitle.absolute-position.x;
-            y: noteTitle.absolute-position.y + noteTitle.height + 3px;
-            width: 240px;
-            MenuItem { icon: Icons.edit; label: "Edit this note"; clicked => { root.open-menu = ""; root.editing = true; root.set-view("notes"); } }
-            MenuItem { icon: Icons.branch; label: "New related note"; clicked => { root.open-menu = ""; root.new-related-note(); } }
-            MenuItem { icon: Icons.check; label: "Add todo to note"; clicked => { root.open-menu = ""; root.open-add-todo(); } }
-            MenuSep {}
-            MenuItem { icon: Icons.swap; label: "Toggle Markdown / Typst"; clicked => { root.open-menu = ""; root.toggle-kind(); } }
-            MenuItem { icon: Icons.archive; label: "Archive note"; clicked => { root.open-menu = ""; root.archive-note(true); } }
-            MenuItem { icon: Icons.unarchive; label: "Unarchive note"; clicked => { root.open-menu = ""; root.archive-note(false); } }
-            MenuSep {}
-            MenuItem { icon: Icons.trash2; label: "Delete note (to trash)"; danger: true; clicked => { root.open-menu = ""; root.delete-note(); } }
-        }
-        if root.open-menu == "view": MenuPanel {
-            x: viewTitle.absolute-position.x;
-            y: viewTitle.absolute-position.y + viewTitle.height + 3px;
-            width: 236px;
-            MenuItem { icon: Icons.focus; label: root.focus-mode ? "Exit focus mode" : "Focus mode (hide chrome)"; clicked => { root.open-menu = ""; root.focus-mode = !root.focus-mode; } }
-            MenuItem { icon: Icons.panel-left; label: root.nav-collapsed ? "Expand sidebar" : "Collapse sidebar"; clicked => { root.open-menu = ""; root.nav-collapsed = !root.nav-collapsed; } }
-            MenuItem { icon: Icons.panel-right; label: root.rail-hidden ? "Show filter rail" : "Hide filter rail"; clicked => { root.open-menu = ""; root.rail-hidden = !root.rail-hidden; } }
-            MenuSep {}
-            MenuItem { icon: Icons.eye; label: root.show-archived ? "Hide archived notes" : "Show archived notes"; clicked => { root.open-menu = ""; root.set-show-archived(!root.show-archived); } }
-            MenuItem { icon: Icons.filter-x; label: "Clear all filters"; clicked => { root.open-menu = ""; root.clear-filters(); } }
-            MenuSep {}
-            MenuItem { icon: Icons.textsize; label: "Reset zoom"; clicked => { root.open-menu = ""; Z.f = 1.0; } }
-            MenuItem { icon: Theme.dark ? Icons.sun : Icons.moon; label: Theme.dark ? "Light theme" : "Dark theme"; clicked => { root.open-menu = ""; Palette.color-scheme = Theme.dark ? ColorScheme.light : ColorScheme.dark; } }
-        }
-
-        // ===== Note context menu (right-click note rows / note tabs) =====
+        // ===== Minimal note context menu =====
         if root.note-context-open: TouchArea {
             x: 0; y: 0; width: root.width; height: root.height;
             clicked => { root.note-context-open = false; }
@@ -2892,17 +1402,12 @@ export component AppWindow inherits Window {
         if root.note-context-open: MenuPanel {
             x: max(8px, root.note-context-x);
             y: max(8px, root.note-context-y);
-            width: 240px;
-            MenuItem { icon: Icons.edit; label: "Open"; clicked => { root.note-context-open = false; root.select-note(root.note-context-id); root.set-view("notes"); } }
-            MenuItem { icon: Icons.panel-right; label: "Open in split"; clicked => { root.note-context-open = false; root.open-in-split(root.note-context-id); } }
+            width: 232px;
+            MenuItem { icon: Icons.edit; label: "Open"; clicked => { root.note-context-open = false; root.workspace-primary = "notes"; root.select-note(root.note-context-id); } }
             MenuItem { icon: Icons.star; label: "Pin / unpin"; clicked => { root.note-context-open = false; root.pin-note(root.note-context-id); } }
             MenuItem { icon: Icons.copy; label: "Copy note link"; clicked => { root.note-context-open = false; root.set-clip("[[" + root.note-context-title + "]]"); } }
             MenuSep {}
-            MenuItem { icon: Icons.archive; label: "Archive"; clicked => { root.note-context-open = false; root.archive-note-id(root.note-context-id, true); } }
-            MenuItem { icon: Icons.unarchive; label: "Unarchive"; clicked => { root.note-context-open = false; root.archive-note-id(root.note-context-id, false); } }
-            MenuItem { icon: Icons.x; label: "Close tab"; clicked => { root.note-context-open = false; root.close-tab(root.note-context-id); } }
-            MenuSep {}
-            MenuItem { icon: Icons.trash2; label: "Delete note (to trash)"; danger: true; clicked => { root.note-context-open = false; root.delete-note-id(root.note-context-id); } }
+            MenuItem { icon: Icons.trash2; label: "Delete note"; danger: true; clicked => { root.note-context-open = false; root.delete-note-id(root.note-context-id); } }
         }
 
         // ===== Command palette overlay (Ctrl/⌘+K) =====

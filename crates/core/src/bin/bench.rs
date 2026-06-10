@@ -65,9 +65,10 @@ const TAGS: &[&str] = &[
 ];
 const KINDS: &[&str] = &[
     "do",
+    "mine",
     "followup",
     "delegated",
-    "todelegate",
+    "waiting",
     "someday",
     "reading",
 ];

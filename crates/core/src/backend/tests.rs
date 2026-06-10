@@ -481,6 +481,54 @@ fn add_update_and_drop_via_form() {
 }
 
 #[test]
+fn carry_followup_to_current_one_on_one() {
+    let dir = std::env::temp_dir().join(format!("noet-test-{}", ulid::Ulid::new()));
+    let mut b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();
+    let old = b.new_note().unwrap();
+    let current = b.new_note().unwrap();
+
+    let id = b
+        .add_todo(
+            &old.id,
+            &TodoFields {
+                kind: "followup".into(),
+                status: "todo".into(),
+                text: "ask about roadmap".into(),
+                person: "Jane".into(),
+                due: "2026-07-01".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let carried = b.carry_todo_to_note(&id, &current.id).unwrap();
+
+    let old_todo = b.get_todo(&id).unwrap();
+    assert!(old_todo.done);
+    assert_eq!(old_todo.status, "done");
+
+    let new_todo = b.get_todo(&carried).unwrap();
+    assert_eq!(new_todo.note_id, current.id);
+    assert_eq!(new_todo.kind, "followup");
+    assert_eq!(new_todo.status, "todo");
+    assert_eq!(new_todo.person, "Jane");
+
+    let old_body = std::fs::read_to_string(&old.path).unwrap();
+    let current_body = std::fs::read_to_string(&current.path).unwrap();
+    assert!(old_body.contains("- [x]"));
+    assert!(old_body.contains("ask about roadmap"));
+    assert!(old_body.contains("@[[Jane]]"));
+    assert!(old_body.contains("#followup"));
+    assert!(old_body.contains("due:2026-07-01"));
+    assert!(current_body.contains("- [ ]"));
+    assert!(current_body.contains("ask about roadmap"));
+    assert!(current_body.contains("@[[Jane]]"));
+    assert!(current_body.contains("#followup"));
+    assert!(current_body.contains("due:2026-07-01"));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn priority_repeat_cycle_recurrence() {
     let dir = std::env::temp_dir().join(format!("noet-test-{}", ulid::Ulid::new()));
     let mut b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();

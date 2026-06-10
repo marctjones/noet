@@ -1,154 +1,205 @@
 # Noet
 
-A native, lightweight desktop app for **meeting notes, typed todos, and
-projects/workstreams**, built over **plain markdown files**. No web browser, no
-JS — a small native Rust + [Slint](https://slint.dev) binary for **Windows 11**,
-**macOS**, and **Linux**.
+Noet is a native, local-first personal work memory app built around plain
+Markdown notes, indexed tasks, people, labels, workstreams, and flexible
+workspace layouts.
 
-> **Status — v0.6.0 ("Daily Driver").** The note/todo/project core and local
-> views are working. The note editor is a **WYSIWYG rich-text editor**
-> ([`sred`](https://github.com/marctjones/sred)) with Markdown Live Preview,
-> spellcheck, find/replace, entity autocomplete, and a command palette. This release
-> adds **start-a-meeting-note-from-anywhere** (tray + global hotkey on Win/macOS;
-> `noet --new-meeting` + a Custom Shortcut on GNOME), **quick capture**,
-> **launch-on-startup**, and **linking related meetings**. See
-> [CHANGELOG](CHANGELOG.md) and [ROADMAP](ROADMAP.md).
->
-> The name is a deliberate misspelling of *note* (it began as a typo and stuck).
+The goal is not to replace shared team systems. Jira, Outlook, Webex,
+SharePoint, OneDrive, and similar tools can remain where the team works. Noet is
+the user's private operating layer for capturing notes, preparing for
+conversations, tracking commitments, and following up.
 
-## Download
+The name is a deliberate misspelling of "note".
 
-No installer — portable binaries on the [**Releases**](https://github.com/marctjones/noet/releases) page:
+## Status
 
-- **Windows 11** — download `noet.exe` (or the `.zip`) and run it.
-- **macOS** (Apple Silicon) — download the `.dmg`, drag
-  **Noet** to Applications. If macOS says it can't verify the developer (unsigned
-  build), right-click **Noet → Open**, or run
-  `xattr -dr com.apple.quarantine /Applications/Noet.app`.
-- **Linux** — download the `.tar.gz` (unpack, run `./noet`) or the `.deb`
-  (`sudo apt install ./noet_*_amd64.deb`).
+Noet is pre-1.0 and undergoing a UX architecture reset.
 
-On first launch it creates your vault at `~/Documents/NoetVault` (change it in
-Settings, or set `NOET_VAULT`). The disposable index lives in your OS cache dir;
-settings live in your OS config dir. No cloud accounts, OAuth tokens, or
-third-party credentials are required for the current local-only build.
+The target design is documented in
+[docs/product-architecture.md](docs/product-architecture.md). That document is
+the product and architecture source of truth for the next phase.
 
-### Always-there capture (start a meeting note from anywhere)
+The current direction:
 
-- **Windows / macOS** — Noet adds a **system-tray icon** (menu: *New meeting note*,
-  *Show Noet*, *Quit*) and a global **Ctrl+Alt+N** to open a fresh meeting note from
-  any app.
-- **Linux / GNOME** — Wayland doesn't let apps grab global hotkeys or sit in a tray,
-  so Noet runs **single-instance** and exposes the action on the command line:
-  `noet --new-meeting` opens a fresh meeting note in the running window (or launches
-  it). Bind it to a key in **Settings → Keyboard → Custom Shortcuts**
-  (e.g. Ctrl+Alt+N → `noet --new-meeting`) — the Wayland-clean equivalent. The `.deb`
-  installs a desktop entry whose right-click menu also has **New meeting note**.
-- **Launch at login** — toggle in **Settings → Startup** (all platforms; per-user,
-  no admin).
+- Markdown files are the source of truth.
+- SQLite is a rebuildable local index.
+- The app is local-only for now.
+- The UX should be built from workspaces, panes, and reusable surfaces, not
+  hard-coded pages.
+- Navigation panes help find context; they do not own the work being edited.
+- The note editor uses `sred` as an editor engine behind a Noet editor surface.
 
-## Principles
+Implemented foundation:
 
-- **Plain files are the source of truth.** Every note is a `.md` file with YAML
-  front-matter in your vault folder. Point the vault at a OneDrive/Google Drive
-  folder and it syncs for free.
-- **The database is disposable.** A SQLite index is rebuilt from the files; it
-  lives in the OS cache dir and can be deleted anytime — it only makes
-  link/todo/board/gantt queries fast.
-- **Your vault is the system of record.** Noet writes local Markdown and a
-  rebuildable local index; external systems do not own your data.
-- **UI-agnostic core.** All logic lives in `noet-core`, which has **no GUI
-  dependencies**, so alternate frontends (the Slint GUI today, a terminal UI
-  tomorrow) build on the same engine.
+- `noet-app` owns the application model boundary between `noet-core` and
+  `noet-gui`.
+- Workspaces, panes, surfaces, selection state, navigation state, app commands,
+  and workspace presets are implemented and unit tested.
+- The current GUI is still being migrated to this model.
 
-## Features
+## Core Ideas
 
-- **Views**: Today dashboard · Notes (WYSIWYG rich-text editor) · Tasks ·
-  Board (Kanban, drag-and-drop) · Gantt · Agenda · Calendar · People (1:1 prep) ·
-  Labels · Inbox (quick capture) · Trash · Settings · About.
-- **Typed todos** — kinds (`do`/`followup`/`delegated`/`todelegate`/`someday`/
-  `reading`), status cycling (To Do/Doing/Done), priorities `[#A]`, recurrence
-  `repeat:`, start/due dates.
-- **Organization** — hierarchical workstreams `[[ ]]` and labels `#` (via `/`),
-  people `@`, backlinks, related notes, faceted filtering, saved smart lists.
-- **WYSIWYG editor** ([sred](https://github.com/marctjones/sred)) — Markdown Live
-  Preview (headings/lists/emphasis render in place; markers reveal on the caret
-  line), inline spellcheck, find/replace (Ctrl/⌘+F), Tab/Shift-Tab list indent,
-  **type-ahead autocomplete** for `[[`workstreams, `@[[`people, and `#`tags,
-  clickable entity chips, and a plain-text/source toggle.
-- **Keyboard-first** — command palette (Ctrl/⌘+K), a shortcuts cheat sheet, and
-  focus mode for distraction-free writing.
-- **Markdown + Typst** rendering with clickable entity chips; autosave; outline
-  folding; full-text search (SQLite FTS5). Per-note **export** to Markdown or PDF.
-- **Native Win11 feel** — left NavigationView, in-window menu bar (File · Edit ·
-  Note · View · Help), per-view **context toolbar**, light/dark
-  theming, resizable panes, live font zoom, panel **✕ Close / ← Back**.
-- **Performance** — indexing runs off the UI thread; queries are gated to the
-  visible view; search is debounced — the UI never blocks on indexing.
+### Plain Markdown Vault
 
-## File-first syntax
+Your vault is a local folder of Markdown files. Notes remain useful outside
+Noet. The index can be deleted and rebuilt from the vault.
 
-Inside any note body:
+### Noet Markdown
 
-| You type | Meaning |
-|---|---|
-| `[[Acme Onboarding]]` | Link this note to a workstream (hierarchical via `/`) |
-| `TODO(do) draft agenda` | A typed todo (kinds: do/followup/delegated/todelegate/someday/reading) |
-| `DOING(do) …` / `DONE(do) …` | The three statuses |
-| `@jane` or `@[[Jane Smith]]` | Mention a person |
-| `#urgent` | A label/tag (hierarchical via `/`) |
-| `[#A]` | Priority (A/B/C) |
-| `start:2026-06-01 due:2026-06-10` | Start/due dates (feed Gantt + Agenda) |
-| `repeat:1w` | Recurring todo (`Nd`/`Nw`/`Nm`) |
-| `ref:https://example.com/item` · `https://example.com` · `gh:owner/repo#12` | External references (clickable 🔗) |
+Noet builds on CommonMark with visible, readable extensions:
 
-Most of this you never type by hand — the **＋ Add todo** form, **✎ Edit**, the
-entity pickers, and Board drag-and-drop write the syntax for you.
+```markdown
+# 1:1 - Jane Smith
 
-## Build from source
+#meeting/one-on-one
+@[[Jane Smith]]
+[[Client/Acme]]
 
-Requires a recent stable Rust toolchain (Linux GUI builds need
-`libfontconfig1-dev`).
-
-```bash
-cargo run -p noet-gui                              # launch the GUI
-NOET_VAULT=/path/to/vault cargo run -p noet-gui    # point at any (e.g. synced) folder
-
-cargo test --workspace                             # tests (core + headless GUI)
-cargo run --release -p noet-core --bin noet-bench -- 5000   # backend benchmark
-./scripts/coverage.sh                              # coverage ratchet (needs cargo-llvm-cov)
+- [ ] Ask about launch risks @[[Jane Smith]] #followup due:2026-06-17 priority:A
+- [/] Draft onboarding checklist #mine
+- [x] Send NDA @[[Sam Lee]] #delegated
 ```
 
-On Apple Silicon macOS, build a local app bundle, `.dmg`, and tarball:
+Canonical syntax:
+
+- tasks: `- [ ]`, `- [/]`, `- [x]`
+- people: `@[[Jane Smith]]`
+- workstreams and note links: `[[Client/Acme]]`
+- labels: `#followup`, `#meeting/one-on-one`
+- properties: `due:2026-06-17`, `priority:A`, `repeat:1w`
+- references: `ref:https://...`, normal URLs, `gh:owner/repo#12`
+
+See [docs/noet-markdown.md](docs/noet-markdown.md).
+
+### Workspace UX
+
+The target UI model:
+
+```text
+Window
+  App Shell
+    Workspace Picker
+    Workspace Host
+      Pane Layout
+        Pane
+          Surface
+```
+
+Panes are reusable layout objects. A pane can be navigation, primary work,
+context, queue, or inspector. The role changes defaults; the layout model stays
+the same.
+
+Surfaces are reusable content objects:
+
+- PersonBrowser
+- NoteBrowser
+- NoteEditor
+- OneOnOne
+- TaskList
+- Board
+- History
+- Backlinks
+- FollowupQueue
+
+Closing a navigation pane must not close the work surface. Selecting a person
+should open or update a `1:1 Focus` workspace, then the People pane can close.
+
+## Primary Workflows
+
+### Capture
+
+Capture notes quickly without choosing the perfect folder or view first. Add
+structure through labels, people, workstreams, tasks, and properties when useful.
+
+### 1:1 Focus
+
+For a selected person, Noet should show:
+
+- current editable 1:1 note
+- previous 1:1 notes
+- open follow-ups
+- delegated or waiting items
+- related context notes
+
+The People browser is navigation. It should not be required after the person is
+selected.
+
+### Tasks
+
+Inline tasks and task notes should appear in one task universe. Task state and
+workflow changes must write back to Markdown.
+
+### Review
+
+Waiting, delegated, stale follow-ups, due items, labels, and workstreams should
+be reviewable through workspace layouts over the same indexed Markdown facts.
+
+## Architecture
+
+Target dependency direction:
+
+```text
+noet-gui -> noet-app -> noet-core
+```
+
+`noet-core` owns durable product logic:
+
+- vault IO
+- Markdown parsing
+- Noet extension parsing
+- SQLite indexing
+- queries
+- Markdown write-back mutations
+- workflow read models
+
+`noet-app` should own application behavior:
+
+- selection state
+- command dispatch
+- workspace model
+- pane model
+- surface model
+- surface adapters
+
+`noet-gui` owns rendering and platform integration:
+
+- Slint components
+- native window behavior
+- platform integration
+- `SredEditorAdapter`
+
+`sred` is an editor engine used by the note editor surface. It should not know
+about vaults, people, labels, tasks, panes, or workspaces.
+
+## Build From Source
+
+Requires a recent stable Rust toolchain. Linux GUI builds may need
+`libfontconfig1-dev`.
+
+```bash
+cargo run -p noet-gui
+NOET_VAULT=/path/to/vault cargo run -p noet-gui
+
+cargo test --workspace
+```
+
+On Apple Silicon macOS, build a local app bundle and disk image:
 
 ```bash
 ./scripts/package-macos.sh
 ```
 
-The local packaging script ad-hoc signs `Noet.app` and disables release LTO by
-default to avoid the current macOS tray/menu linker issue. If you later have a
-Developer ID identity, pass `SIGN_IDENTITY="Developer ID Application: ..."`; the
-default path does not require one.
+The packaging script supports ad-hoc signing. Developer ID signing is optional
+and not required for local development.
 
-## Architecture
+## Documentation
 
-A Cargo workspace:
-
-```
-crates/
-  core/  →  noet-core  (lib)  model, markdown/Typst parsing, SQLite index,
-                              queries, mutations, render, export —
-                              NO GUI dependencies
-  gui/   →  noet       (bin)  the Slint frontend (depends on noet-core + slint)
-```
-
-`noet-core` is split into focused modules (`model`/`parse`/`vault`/`index`/
-`query`/`mutate`/`render`/`export`). A future `noet-tui` could reuse the same
-core. The GUI has a headless test suite using Slint's testing backend.
+- [Product Architecture](docs/product-architecture.md)
+- [Noet Markdown](docs/noet-markdown.md)
+- [Implementation Roadmap](docs/implementation-roadmap.md)
+- [UX Redesign Plan](docs/ux-redesign-plan.md)
+- [Roadmap](ROADMAP.md)
 
 ## License
 
-**GPL-3.0-only** — see [LICENSE](LICENSE). Noet's UI is built with
-[Slint](https://slint.dev) under its **GPL-3.0** option, so the distributed app
-is GPL-3.0. Third-party dependency licenses are bundled and viewable in-app
-(**Settings → Open-source licenses**), generated by `scripts/gen-licenses.py`.
+GPL-3.0-only. See [LICENSE](LICENSE).

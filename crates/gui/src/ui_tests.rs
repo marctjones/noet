@@ -37,7 +37,11 @@ fn headless_ui_smoke() {
     refresh(ui, &ctx.state.borrow());
 
     // ----- Level 1: generated property + callback API -----
-    assert_eq!(ui.get_view(), "notes", "default view");
+    assert_eq!(
+        ui.get_view(),
+        "workspace",
+        "default route is the workspace shell"
+    );
 
     // the licenses view model is populated from the embedded component list
     assert!(
@@ -46,9 +50,11 @@ fn headless_ui_smoke() {
         ui.get_license_rows().row_count()
     );
 
-    // view switching through the real set-view handler
-    ui.invoke_set_view("board".into());
-    assert_eq!(ui.get_view(), "board");
+    // Workspace surface switching is separate from the route.
+    ui.set_workspace_primary("board".into());
+    ui.invoke_set_view("workspace".into());
+    assert_eq!(ui.get_view(), "workspace");
+    assert_eq!(ui.get_workspace_primary(), "board");
 
     // creating a note runs the real handler (writes a file + incremental index)
     let count = |c: &AppCtx| {
@@ -102,9 +108,10 @@ fn headless_ui_smoke() {
     settings.invoke_accessible_default_action();
     assert_eq!(
         ui.get_view(),
-        "settings",
-        "activating the Settings tab switched the view"
+        "workspace",
+        "activating Settings stays in the workspace shell"
     );
+    assert_eq!(ui.get_workspace_primary(), "settings");
 
     // ----- Level 2c: synthesized pointer input (real hit-testing) + geometry -----
     let board = ElementHandle::find_by_accessible_label(ui, "Board")
@@ -117,13 +124,15 @@ fn headless_ui_smoke() {
     board.mock_single_click(slint::platform::PointerEventButton::Left);
     assert_eq!(
         ui.get_view(),
-        "board",
-        "mouse-clicking the Board tab navigated"
+        "workspace",
+        "mouse-clicking Board stays in the workspace shell"
     );
+    assert_eq!(ui.get_workspace_primary(), "board");
 
     // ----- Level 2d: structural query by accessible role -----
-    // The Settings view exposes app-level buttons (Save, open vault, licenses).
-    ui.invoke_set_view("settings".into());
+    // The replacement shell exposes app-level buttons inside the workspace.
+    ui.set_workspace_primary("settings".into());
+    ui.invoke_set_view("workspace".into());
     itest::mock_elapsed_time(std::time::Duration::from_millis(16));
     let buttons = ElementQuery::from_root(ui)
         .match_descendants()
@@ -548,6 +557,84 @@ fn headless_ui_smoke() {
     );
     ui.invoke_close_split();
     assert_eq!(ui.get_split_note_id(), "", "close clears the split");
+
+    // ----- Level 12: workspace panes are selectable, collapsible, and resizable -----
+    {
+        let mut st = ctx.state.borrow_mut();
+        let n = st.backend.new_note().unwrap();
+        st.backend
+            .save_note(
+                &n.id,
+                "Alice 1:1",
+                "# Alice 1:1\n\n- [ ] follow up @[[Alice]] #followup\n- [ ] delegate back to @[[Alice]] #delegated\n",
+            )
+            .unwrap();
+    }
+    ctx.state.borrow_mut().backend.reindex_all().unwrap();
+    refresh(ui, &ctx.state.borrow());
+    ui.set_workspace_left_open(true);
+    ui.set_workspace_right_open(true);
+    ui.set_workspace_bottom_open(true);
+    ui.set_workspace_primary("oneonone".into());
+    ui.set_workspace_nav_surface("people".into());
+    ui.invoke_set_view("workspace".into());
+    itest::mock_elapsed_time(std::time::Duration::from_millis(16));
+
+    ui.invoke_pick_person("Alice".into());
+    assert_eq!(ui.get_selected_person(), "Alice", "person selection worked");
+    assert_eq!(
+        ui.get_view(),
+        "workspace",
+        "person selection stays inside the replacement workspace shell"
+    );
+    assert_eq!(ui.get_workspace_primary(), "oneonone");
+    assert!(
+        !ui.get_workspace_left_open(),
+        "selecting a person closes the navigation drawer, not the workspace"
+    );
+
+    // ----- Level 13: workspace prototype keeps navigation separate from work -----
+    ui.set_workspace_left_open(true);
+    ui.set_workspace_right_open(true);
+    ui.set_workspace_bottom_open(true);
+    ui.invoke_set_view("workspace".into());
+    refresh(ui, &ctx.state.borrow());
+    assert_eq!(ui.get_view(), "workspace");
+    assert!(
+        ui.get_notes().row_count() >= 1,
+        "workspace refresh populates note browser data"
+    );
+    assert!(
+        ui.get_tasks().row_count() >= 2,
+        "workspace refresh populates task surface data"
+    );
+
+    ui.invoke_pick_person("Alice".into());
+    assert_eq!(
+        ui.get_view(),
+        "workspace",
+        "picking a person inside Workspace stays in the workspace route"
+    );
+    assert_eq!(ui.get_workspace_primary(), "oneonone");
+    assert!(
+        !ui.get_workspace_left_open(),
+        "picking a person closes only the workspace navigation drawer"
+    );
+    assert!(
+        ui.get_workspace_right_open(),
+        "the context pane remains independent"
+    );
+
+    ui.set_workspace_left_open(true);
+    itest::mock_elapsed_time(std::time::Duration::from_millis(16));
+    let close_context = ElementHandle::find_by_accessible_label(ui, "Close context pane")
+        .find(|e| e.accessible_role() == Some(AccessibleRole::Button))
+        .expect("workspace context close control");
+    close_context.invoke_accessible_default_action();
+    assert!(
+        !ui.get_workspace_right_open(),
+        "workspace context pane closes independently"
+    );
 
     // (Slint's lightweight testing backend renders no pixels — its window is a
     // measurement-only renderer — so Window::take_snapshot is unavailable here.

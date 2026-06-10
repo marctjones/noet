@@ -144,6 +144,16 @@ impl Backend {
         Ok(format!("{note_id}:{line_no}"))
     }
 
+    /// Carry a todo forward into another note, marking the original complete.
+    pub fn carry_todo_to_note(&mut self, todo_id: &str, target_note_id: &str) -> Result<String> {
+        let todo = self.get_todo(todo_id)?;
+        let mut fields = TodoFields::from_todo(&todo);
+        fields.status = "todo".into();
+        let new_id = self.add_todo(target_note_id, &fields)?;
+        self.set_todo_status(todo_id, "done")?;
+        Ok(new_id)
+    }
+
     /// Cycle a todo's state TODO → DOING → DONE → TODO. A recurring todo
     /// (`repeat:`) that would complete instead advances its dates and stays TODO.
     pub fn cycle_todo(&mut self, todo_id: &str) -> Result<()> {
@@ -378,7 +388,7 @@ impl Backend {
     }
 
     /// Drag-and-drop a card onto a column: set the grouped dimension to the
-    /// column's value (status/kind/project/person), rewriting the line.
+    /// column's value (status/workflow/workstream/person), rewriting the line.
     pub fn drop_card(&mut self, todo_id: &str, group_by: &str, target_key: &str) -> Result<()> {
         let mut fields = TodoFields::from_todo(&self.get_todo(todo_id)?);
         let val = if target_key == "(none)" {

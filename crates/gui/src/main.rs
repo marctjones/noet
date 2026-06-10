@@ -998,6 +998,7 @@ fn facet_tree(items: &[backend::Project], active: &str) -> ModelRc<FacetItem> {
 fn to_todo_item(t: &backend::Todo) -> TodoItem {
     TodoItem {
         id: t.id.clone().into(),
+        note_id: t.note_id.clone().into(),
         kind: t.kind.clone().into(),
         status: t.status.clone().into(),
         text: t.text.clone().into(),
@@ -1056,6 +1057,13 @@ fn due_display(b: &str) -> &'static str {
         "hasdate" => "has date",
         "nodate" => "no date",
         _ => "any",
+    }
+}
+
+fn board_group_key(group_by: &str) -> &str {
+    match group_by {
+        "workflow" => "kind",
+        other => other,
     }
 }
 
@@ -1120,7 +1128,7 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
     // keystroke or filter change doesn't recompute all ten views at once.
     let view = ui.get_view().to_string();
 
-    if view == "notes" {
+    if view == "notes" || view == "workspace" {
         if let Ok(notes) = b.query_notes(f) {
             let items: Vec<NoteItem> = notes.iter().map(to_note_item).collect();
             ui.set_notes(ModelRc::new(VecModel::from(items)));
@@ -1139,7 +1147,7 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
     }
 
     // flat task list (same filtered todos as the board, ungrouped)
-    if view == "tasks" {
+    if view == "tasks" || view == "workspace" {
         if let Ok(todos) = b.query_todos(f) {
             let items: Vec<TodoItem> = todos.iter().map(to_todo_item).collect();
             ui.set_tasks(ModelRc::new(VecModel::from(items)));
@@ -1244,24 +1252,33 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
         ui.set_cal_cells(cc);
     }
 
-    // person 1:1 prep, grouped by todo kind (based on the active person filter)
-    if view == "people" {
-        ui.set_selected_person(f.person.clone().into());
+    // Standalone 1:1 workspace, keyed by the selected person.
+    let workspace_primary = ui.get_workspace_primary().to_string();
+    if view == "oneonone" || (view == "workspace" && workspace_primary == "oneonone") {
+        let selected_person = ui.get_selected_person().to_string();
+        let workspace_person = if selected_person.trim().is_empty() {
+            f.person.clone()
+        } else {
+            selected_person.trim().to_string()
+        };
+        if ui.get_selected_person().is_empty() && !workspace_person.is_empty() {
+            ui.set_selected_person(workspace_person.clone().into());
+        }
         let pf = Filter {
-            person: f.person.clone(),
+            person: workspace_person.clone(),
             status: "open".into(),
             ..Default::default()
         };
-        let ptodos = if f.person.is_empty() {
+        let ptodos = if workspace_person.is_empty() {
             Vec::new()
         } else {
             b.query_todos(&pf).unwrap_or_default()
         };
-        let person_history_todos = if f.person.is_empty() {
+        let person_history_todos = if workspace_person.is_empty() {
             Vec::new()
         } else {
             b.query_todos(&Filter {
-                person: f.person.clone(),
+                person: workspace_person.clone(),
                 ..Default::default()
             })
             .unwrap_or_default()
@@ -1275,56 +1292,95 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
                     .collect::<Vec<_>>(),
             ))
         };
-        ui.set_person_discuss(pick(&|k| k == "todelegate" || k == "followup"));
+        ui.set_person_discuss(pick(&|k| k == "followup" || k == "waiting"));
         ui.set_person_delegated(pick(&|k| k == "delegated"));
         ui.set_person_delegated_history(ModelRc::new(VecModel::from(
             person_history_todos
                 .iter()
-                .filter(|t| t.kind == "delegated" || t.kind == "followup" || t.kind == "todelegate")
+                .filter(|t| t.kind == "delegated" || t.kind == "followup" || t.kind == "waiting")
                 .map(to_todo_item)
                 .collect::<Vec<_>>(),
         )));
         ui.set_person_other(pick(&|k| {
-            k != "todelegate" && k != "followup" && k != "delegated"
+            k != "waiting" && k != "followup" && k != "delegated"
         }));
-        let oneonone_notes = if f.person.is_empty() {
+        let oneonone_notes = if workspace_person.is_empty() {
             Vec::new()
         } else {
             b.query_notes(&Filter {
-                person: f.person.clone(),
+                person: workspace_person.clone(),
                 tag: PERSON_ONEONONE_TAG.into(),
                 ..Default::default()
             })
             .unwrap_or_default()
         };
-        let current_oneonone = if f.person.is_empty() {
-            None
+        let current_id = ui.get_current_id().to_string();
+        let current_idx = oneonone_notes
+            .iter()
+            .position(|n| n.id == current_id)
+            .unwrap_or(0);
+        let current_oneonone = oneonone_notes.get(current_idx);
+        let prev_oneonone = if current_idx > 0 {
+            oneonone_notes.get(current_idx - 1)
         } else {
-            let current_id = ui.get_current_id().to_string();
-            oneonone_notes
+            None
+        };
+        let next_oneonone = oneonone_notes.get(current_idx + 1);
+        let last_oneonone = next_oneonone;
+        let last_followups = if let Some(prev) = last_oneonone {
+            ptodos
                 .iter()
-                .find(|n| n.id == current_id)
-                .or_else(|| oneonone_notes.first())
+                .filter(|t| {
+                    t.note_id == prev.id
+                        && (t.kind == "followup" || t.kind == "delegated" || t.kind == "waiting")
+                })
+                .map(to_todo_item)
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
         };
         if let Some(n) = current_oneonone {
             ui.set_person_current_oneonone_id(n.id.clone().into());
             ui.set_person_current_oneonone_title(n.title.clone().into());
-            if ui.get_current_id().to_string() != n.id {
+            if current_id != n.id {
                 open_in_editor(ui, b, &n.id);
-                ui.set_view("people".into());
+                if view == "oneonone" {
+                    ui.set_view("oneonone".into());
+                }
             }
         } else {
             ui.set_person_current_oneonone_id("".into());
             ui.set_person_current_oneonone_title("".into());
         }
+        ui.set_person_last_oneonone_title(
+            last_oneonone
+                .map(|n| n.title.clone())
+                .unwrap_or_default()
+                .into(),
+        );
+        ui.set_person_prev_oneonone_id(
+            prev_oneonone
+                .map(|n| n.id.clone())
+                .unwrap_or_default()
+                .into(),
+        );
+        ui.set_person_next_oneonone_id(
+            next_oneonone
+                .map(|n| n.id.clone())
+                .unwrap_or_default()
+                .into(),
+        );
+        ui.set_person_oneonone_index(current_idx as i32);
+        ui.set_person_oneonone_count(oneonone_notes.len() as i32);
+        ui.set_person_last_followups(ModelRc::new(VecModel::from(last_followups)));
         ui.set_person_oneonone_notes(ModelRc::new(VecModel::from(
             oneonone_notes.iter().map(to_note_item).collect::<Vec<_>>(),
         )));
-        let pnotes = if f.person.is_empty() {
+        let pnotes = if workspace_person.is_empty() {
             Vec::new()
         } else {
             b.query_notes(&Filter {
-                person: f.person.clone(),
+                person: workspace_person.clone(),
                 ..Default::default()
             })
             .unwrap_or_default()
@@ -1334,9 +1390,9 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
         )));
     }
 
-    if view == "board" {
+    if view == "board" || view == "workspace" {
         let group_by = ui.get_group_by().to_string();
-        if let Ok(cols) = b.board(&group_by, f) {
+        if let Ok(cols) = b.board(board_group_key(&group_by), f) {
             let items: Vec<BoardColumn> = cols
                 .into_iter()
                 .map(|(title, key, todos)| {
@@ -1379,7 +1435,7 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
         chip(format!("# {}", f.tag), "tag");
     }
     if !f.kind.is_empty() {
-        chip(format!("kind: {}", f.kind), "kind");
+        chip(format!("workflow: {}", f.kind), "kind");
     }
     if !f.priority.is_empty() {
         chip(format!("priority {}", f.priority), "priority");
@@ -1788,14 +1844,14 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             "Noet keeps plain markdown files as the source of truth. #welcome\n\n\
              - [[Acme Onboarding]] links this note to a project/workstream.\n\
              - #tags label notes — filter by them in the left rail.\n\n\
-             Task list items filter & group on the Board:\n\
+             Task list items filter and group by workflow label:\n\
              - [ ] draft the kickoff agenda [[Acme Onboarding]] start:2026-06-04 due:2026-06-10 #urgent\n\
              - [/] set up the repo [[Acme Onboarding]] due:2026-06-06\n\
              - [ ] check pricing with Jane @[[Jane]] [[Acme Onboarding]] #followup\n\
              - [ ] send NDA @[[Sam]] [[Acme Onboarding]] #delegated due:2026-06-12\n\
              - [ ] skim the Rust async book #reading\n\
              - [ ] wire up the API [[Platform]] ref:https://example.com/proj-12 due:2026-06-20\n\n\
-             Try: the Board tab (group by status/kind/project/person), the Gantt tab,\n\
+             Try: the Board tab (group by status/workflow/workstream/person), the Gantt tab,\n\
              and the search box + Projects/Tags/People filters on the left.\n",
         )?;
     }
@@ -2260,6 +2316,48 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         });
     }
 
+    // Resolve or carry over a previous 1:1 follow-up.
+    {
+        let ui_w = ui.as_weak();
+        let state = state.clone();
+        ui.on_resolve_followup(move |todo_id: SharedString| {
+            let ui = ui_w.unwrap();
+            let mut s = state.borrow_mut();
+            match s.backend.set_todo_status(&todo_id, "done") {
+                Ok(()) => {
+                    let current = ui.get_current_id().to_string();
+                    if !current.is_empty() {
+                        open_in_editor(&ui, &s.backend, &current);
+                    }
+                    ui.set_status_text("Follow-up resolved".into());
+                }
+                Err(e) => ui.set_status_text(format!("Error: {e}").into()),
+            }
+            refresh(&ui, &s);
+        });
+    }
+    {
+        let ui_w = ui.as_weak();
+        let state = state.clone();
+        ui.on_carry_followup(move |todo_id: SharedString| {
+            let ui = ui_w.unwrap();
+            let mut s = state.borrow_mut();
+            let target = ui.get_current_id().to_string();
+            if target.is_empty() {
+                ui.set_status_text("Open a 1:1 note first.".into());
+                return;
+            }
+            match s.backend.carry_todo_to_note(&todo_id, &target) {
+                Ok(_) => {
+                    open_in_editor(&ui, &s.backend, &target);
+                    ui.set_status_text("Follow-up carried into the current 1:1".into());
+                }
+                Err(e) => ui.set_status_text(format!("Error: {e}").into()),
+            }
+            refresh(&ui, &s);
+        });
+    }
+
     // When a background reindex finishes: reflect new data, open the first note
     // if none is open yet (launch), reopen the current note from disk otherwise,
     // and rerun if a change landed while we were indexing.
@@ -2654,7 +2752,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let ui = ui_w.unwrap();
             let group_by = ui.get_group_by().to_string();
             let mut s = state.borrow_mut();
-            let _ = s.backend.board_move(&id, &group_by, dir);
+            let _ = s.backend.board_move(&id, board_group_key(&group_by), dir);
             let current = ui.get_current_id().to_string();
             if !current.is_empty() && id.starts_with(&format!("{current}:")) {
                 open_in_editor(&ui, &s.backend, &current);
@@ -2700,7 +2798,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let ui = ui_w.unwrap();
             let group_by = ui.get_group_by().to_string();
             let mut s = state.borrow_mut();
-            let _ = s.backend.drop_card(&id, &group_by, &key);
+            let _ = s.backend.drop_card(&id, board_group_key(&group_by), &key);
             let current = ui.get_current_id().to_string();
             if !current.is_empty() && id.starts_with(&format!("{current}:")) {
                 open_in_editor(&ui, &s.backend, &current);
@@ -2724,19 +2822,39 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                     ui.set_current_body(n.body.into());
                 }
             }
+            let current_view = ui.get_view().to_string();
+            let workspace_primary = ui.get_workspace_primary().to_string();
+            let kind = if !s.filter.kind.is_empty() {
+                s.filter.kind.clone()
+            } else {
+                match current_view.as_str() {
+                    "people" | "oneonone" => "followup".to_string(),
+                    "workspace" if workspace_primary == "oneonone" => "followup".to_string(),
+                    "waiting" => "delegated".to_string(),
+                    _ => "do".to_string(),
+                }
+            };
+            let person = if current_view == "people"
+                || current_view == "oneonone"
+                || (current_view == "workspace" && workspace_primary == "oneonone")
+            {
+                ui.get_selected_person().to_string()
+            } else {
+                s.filter.person.clone()
+            };
             ui.set_form_is_new(true);
             ui.set_form_id("".into());
             ui.set_form_text("".into());
-            ui.set_form_kind("do".into());
+            ui.set_form_kind(kind.into());
             ui.set_form_status("todo".into());
-            ui.set_form_person("".into());
+            ui.set_form_person(person.into());
             ui.set_form_project(s.filter.project.clone().into()); // prefill active project
             ui.set_form_start("".into());
             ui.set_form_due("".into());
             ui.set_form_external("".into());
-            ui.set_form_priority("".into());
+            ui.set_form_priority(s.filter.priority.clone().into());
             ui.set_form_repeat("".into());
-            ui.set_form_show_details(false);
+            ui.set_form_show_details(matches!(current_view.as_str(), "agenda" | "gantt"));
             ui.set_form_visible(true);
             refresh(&ui, &s);
         });
@@ -2992,7 +3110,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         });
     }
 
-    // dimension filters: kind / priority / due
+    // Dimension filters: workflow label / priority / due.
     {
         let ui_w = ui.as_weak();
         let state = state.clone();
@@ -3209,10 +3327,15 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_new_from_template(move |t: SharedString| {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
+            let started_in_workspace = ui.get_view().to_string() == "workspace";
             if let Ok(n) = s.backend.new_from_template(&t) {
                 let mut id = n.id.clone();
                 if t.as_str() == "oneonone" {
-                    let person = s.filter.person.trim().to_string();
+                    let person = if ui.get_selected_person().is_empty() {
+                        s.filter.person.trim().to_string()
+                    } else {
+                        ui.get_selected_person().to_string()
+                    };
                     if !person.is_empty() {
                         let title = format!("1:1 — {person}");
                         let body = format!(
@@ -3225,8 +3348,15 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 }
                 open_in_editor(&ui, &s.backend, &id);
                 ui.set_editing(true);
-                ui.set_view(if t.as_str() == "oneonone" && !s.filter.person.is_empty() {
-                    "people".into()
+                ui.set_view(if started_in_workspace {
+                    if t.as_str() == "oneonone" {
+                        ui.set_workspace_primary("oneonone".into());
+                    } else {
+                        ui.set_workspace_primary("notes".into());
+                    }
+                    "workspace".into()
+                } else if t.as_str() == "oneonone" {
+                    "oneonone".into()
                 } else {
                     "notes".into()
                 });
@@ -3346,15 +3476,20 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             ui.set_form_is_new(true);
             ui.set_form_id("".into());
             ui.set_form_text(text.into());
-            ui.set_form_kind("do".into());
+            ui.set_form_kind(if s.filter.kind.is_empty() {
+                "do".into()
+            } else {
+                s.filter.kind.clone().into()
+            });
             ui.set_form_status("todo".into());
-            ui.set_form_person("".into());
+            ui.set_form_person(s.filter.person.clone().into());
             ui.set_form_project(s.filter.project.clone().into());
             ui.set_form_start("".into());
             ui.set_form_due("".into());
             ui.set_form_external("".into());
-            ui.set_form_priority("".into());
+            ui.set_form_priority(s.filter.priority.clone().into());
             ui.set_form_repeat("".into());
+            ui.set_form_show_details(false);
             ui.set_form_visible(true);
             refresh(&ui, &s);
         });
@@ -3396,7 +3531,16 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         let state = state.clone();
         ui.on_pick_person(move |name: SharedString| {
             let ui = ui_w.unwrap();
-            state.borrow_mut().filter.person = name.to_string();
+            let name = name.to_string();
+            ui.set_selected_person(name.clone().into());
+            if ui.get_view().to_string() == "workspace" {
+                ui.set_workspace_primary("oneonone".into());
+                ui.set_workspace_left_open(false);
+            } else {
+                ui.set_view("oneonone".into());
+                ui.set_person_list_open(false);
+            }
+            ui.set_rail_hidden(true);
             refresh(&ui, &state.borrow());
         });
     }

@@ -1,326 +1,272 @@
 # UX Redesign Plan
 
-This redesign intentionally ignores compatibility with earlier Noet grammar and
-UI flows. The goal is a clean implementation around Noet Markdown, a stronger
-task model, and a usable 1:1 workflow. Noet should feel like a fast, native
-desktop app, not a web app wrapped for desktop.
+This plan should be read after
+[Product Architecture](product-architecture.md). The product architecture
+defines the target vision, data model, workflow model, and object hierarchy.
 
-## Product Vision
+This document focuses on how the user experience should be rebuilt.
 
-Noet is a local-first personal work memory app for people who think and plan in
-notes. It should capture commitments in context, then reliably resurface them in
-the right workflow: today, agenda, board, waiting, people, and source notes.
+## UX Goal
 
-The primary persona is a manager or operator who spends the day in meetings,
-captures notes quickly, and needs follow-up memory across people, projects, and
-time.
+Noet should feel like a native personal operating console for notes, tasks,
+people, and follow-up. It should not feel like a set of unrelated pages.
 
-The closest existing pain point is using OneNote for meeting notes and then
-losing the follow-up system. OneNote is good at capture, but organization
-depends too much on notebooks, sections, and manual filing chosen in advance.
-Noet should let the user capture naturally, then dynamically organize the same
-material through labels, people, links, dates, and task state.
+The user should be able to:
 
-Noet is for the user's personal command center. Team systems such as Jira,
-Webex, SharePoint, OneDrive, and Outlook may remain the shared systems of
-record. Noet should help the user remember, prepare, decide, and follow up
-without trying to replace every team collaboration tool. The current product
-surface is local-only; account connectors and remote imports are intentionally
-out of scope until the local workflow is excellent.
+- capture notes quickly
+- open a 1:1 workspace for a person
+- close navigation without losing work
+- see note context while editing
+- review tasks without losing source context
+- resize and hide panes based on the current task
 
-## Platform Direction
+## Core UX Abstractions
 
-Noet should be cross-platform and local-first without adopting Electron or a web
-runtime as the desktop application architecture.
+### Workspace
 
-Target platforms:
+A workspace is a saved arrangement of panes for a workflow.
 
-- Windows 11: primary work platform. It must feel reliable in a managed
-  corporate environment while keeping the user's Noet data local.
-- macOS: primary personal platform. It needs polished app packaging, Keychain
-  storage, and a simple unsigned-local install path until Developer ID signing
-  exists.
-- GNOME/Linux: supported platform. It should be functional and clean, while
-  accepting that global hotkeys, tray behavior, and packaging may be more
-  constrained by the desktop environment.
+Initial workspaces:
 
-Architecture implications:
+- 1:1 Focus
+- Notes
+- Tasks
+- Board
+- Review
+- Settings
 
-- Keep the core engine in Rust: parsing, vault IO, indexing, search, task
-  extraction, label hierarchy, people, and write-back.
-- Keep vault data as plain Markdown files plus a rebuildable local SQLite index.
-- Avoid storing third-party credentials in the app for this phase.
-- Keep GUI work in Slint/native-style desktop code.
+The workspace is the durable working context. It should remember pane visibility,
+sizes, focused pane, and active surfaces.
 
-## Design Principles
+### Pane
 
-- Capture must stay fast during live meetings.
-- The source note remains the source of truth.
-- Tasks can live inline until they need their own note.
-- Views should answer a workflow question, not expose raw data tables.
-- Metadata should be visible and editable as readable Markdown.
-- Noet should automate resurfacing, not force users to duplicate items into new
-  meeting notes.
-- Manual organization should be optional. Labels, people, links, dates, and task
-  state should let the same note appear where it is useful.
-- The app should stay calm, dense, and keyboard-friendly: closer to a personal
-  operator console than a marketing-style productivity dashboard.
+A pane is one reusable layout object.
 
-## Target 1:1 Workflow
+Pane roles:
 
-1. User creates or opens a 1:1 note for a person.
-2. The note starts with an H1, `#meeting/one-on-one`, and `@[[Person]]`.
-3. User types normal notes and inline tasks during the meeting.
-4. Tasks tagged with `#followup`, `#delegated`, `#mine`, or `#someday` are indexed.
-5. The People view shows active follow-ups for that person, including items from
-   previous notes and promoted task notes.
-6. User can optionally insert selected follow-ups into the current 1:1 note, but
-   Noet does not require duplication.
-7. User can promote an inline task to a full task note when it needs more detail.
-8. Done or someday tasks stop dominating the next 1:1 prep surface.
+- navigation
+- primary
+- context
+- queue
+- inspector
 
-## People View
+A navigation drawer is a pane with role `navigation`. It should not be a separate
+system.
 
-The People view should become a working cockpit.
+Panes own layout behavior:
 
-Required regions:
+- open/closed
+- collapsed/expanded
+- size
+- min/max constraints
+- focus
+- optional tabs
 
-- Person list: searchable people, counts, stale follow-up indicators.
-- Current 1:1 note: editable body for the active meeting.
-- Follow-up queue: open tasks involving this person.
-- Delegated/waiting: tasks where this person owns or blocks something.
-- Previous 1:1 notes: history filtered by `#meeting/one-on-one` and person.
-- Context notes: non-1:1 notes mentioning this person.
-- Promote/insert actions: move a task into a task note or insert it into current
-  1:1 agenda.
+Panes do not own note text, task state, people, labels, or Markdown facts.
 
-The view should optimize for "what do I need to talk to this person about next?"
+### Surface
 
-## Task System
+A surface is reusable content inside a pane.
 
-Replace the current `TODO(kind)` system with GFM-style task items plus labels and
-properties.
+Initial surfaces:
 
-Target syntax:
+- PersonBrowser
+- NoteBrowser
+- LabelBrowser
+- FilterBrowser
+- NoteEditor
+- OneOnOne
+- TaskList
+- Board
+- History
+- Backlinks
+- RelatedNotes
+- FollowupQueue
+- Settings
 
-```markdown
-- [ ] Ask Jane about launch risks @[[Jane]] #followup due:2026-06-17
-- [/] Draft onboarding checklist #mine priority:A
-- [x] Send NDA @[[Sam]] #delegated
+Surfaces own local interaction state such as selected row, scroll position,
+grouping, or editor cursor. They do not own pane visibility or workspace layout.
+
+## Layout Model
+
+The first implementation should use a constrained layout, not a full IDE docking
+system:
+
+```text
+workspace picker | navigation pane | primary pane | context pane
+                                      queue pane
 ```
 
-Implementation requirements:
+Resizable:
 
-- Parse task state from checkbox marker.
-- Parse workflow from labels.
-- Parse planning metadata from general `key:value` properties.
-- Preserve source note id, line, and block anchor for every task.
-- Make task edit dialogs write back to the source line.
-- Add "promote to task note" from task rows and context menus.
+- navigation pane width
+- context pane width
+- queue pane height
+- board lane widths later
+- inspector width later
 
-## Task Notes
+Usually fixed:
 
-A task note is a normal note with `#task` in its note metadata area and a primary
-task item in the body.
+- workspace picker
+- top command bar
+- pane headers
+- rows and cards
 
-Task notes are for work that needs detail, history, attachments, or independent
-review. They must still appear beside inline tasks in Tasks, Board, Waiting, and
-People.
+Scrolling:
 
-## Main Views
+- the workspace itself should not scroll
+- pane headers should not scroll
+- each surface body should scroll internally
+- navigation lists should scroll internally
+- task lists should scroll internally
+- history/backlinks should scroll internally
+- board should scroll horizontally at the board level and vertically within lanes
+- the note editor should own its document scroll
 
-### Today
+## 1:1 Focus Workspace
 
-Purpose: decide what needs attention now.
+Default layout:
 
-Show overdue, due today, stale follow-ups, inbox captures, and quick capture.
-This is the default "what should I do next?" surface, not a calendar clone.
+```text
+navigation pane: PersonBrowser, open only while choosing a person
+primary pane: current 1:1 note editor
+context pane: previous 1:1 notes, backlinks, related notes
+queue pane: follow-ups, delegated, waiting
+```
 
-### Tasks
+Behavior:
 
-Purpose: act on all active commitments.
+- selecting a person opens or updates `OneOnOne(person)`
+- the PersonBrowser pane can close immediately
+- filters are not required
+- current 1:1 note remains editable
+- previous 1:1 notes are browsable independently
+- unresolved follow-ups continue to surface until resolved, deferred, or moved
+- carry-over is optional
 
-Show all open inline tasks and task notes together. Provide filters for person,
-label, due bucket, and workstream.
+This is the key test of the architecture. If People or Filters must stay open
+for 1:1 to work, the design is wrong.
 
-The task edit flow should not feel like a raw property editor. It should expose
-the common decisions first: owner/person, due date, workflow label, source note,
-and whether this should remain inline or be promoted to a task note.
+## Notes Workspace
 
-### Board
+Default layout:
 
-Purpose: manage flow.
+```text
+navigation pane: NoteBrowser
+primary pane: NoteEditor
+context pane: Backlinks / RelatedNotes / SourceTasks
+queue pane: optional tasks from current note
+```
 
-Columns should be workflow/status oriented. Cards should show task text, person,
-labels, due date, and source note.
+Behavior:
 
-The board is useful only if movement writes back to Markdown source. Dragging a
-card should change task state or workflow labels, not create a separate hidden
-task database.
+- selecting a note opens it in the editor surface
+- closing NoteBrowser keeps the note open
+- backlinks and related notes follow the selected note
+- task actions preserve source context
 
-### Waiting
+## Tasks Workspace
 
-Purpose: follow up on commitments owned by others.
+Default layout:
 
-Show `#delegated` and `#waiting` tasks grouped by person and age.
+```text
+navigation pane: Filters / Labels / People
+primary pane: TaskList
+context pane: TaskDetail / SourceNote
+queue pane: optional grouped review
+```
 
-This view should answer "who do I need to nudge, and what has gone stale?"
-Grouping by person matters more than presenting a generic task table.
+Behavior:
 
-### Gantt/Timeline
+- task rows include inline tasks and task notes
+- task status changes write back to Markdown
+- task detail should expose common actions before raw metadata
+- opening source context should not destroy task list state
 
-Purpose: inspect scheduled commitments.
+## Board Workspace
 
-Show tasks with `start:` and/or `due:`. The timeline should be a planning aid,
-not a generic chart.
+Default layout:
 
-The visual design should emphasize date pressure and gaps. It should not try to
-be full project-management software.
+```text
+navigation pane: Filters / Labels
+primary pane: Board
+context pane: selected card detail / source note
+```
 
-### Labels
+Behavior:
 
-Purpose: manage the label hierarchy.
-
-Show nested labels, counts, reserved workflow labels, and cleanup opportunities.
-
-Labels are the dynamic organization layer that OneNote lacks. The label view
-should make it easy to see emergent structure, rename labels, merge duplicates,
-and understand which labels drive workflow behavior.
-
-## Architecture Plan
-
-### 1. Define Noet Markdown AST
-
-Create a parser layer that produces typed structures for:
-
-- note metadata area
-- labels
-- people
-- links
-- contacts
-- properties
-- tasks
-- task source spans
-
-All indexing, rendering, autocomplete, and write-back should consume this model.
-
-### 2. Replace Todo Parser
-
-Remove runtime dependence on `TODO(kind)`.
-
-Add the new task parser:
-
-- `- [ ]`, `- [/]`, `- [x]`
-- labels
-- people
-- links
-- `key:value` properties
-- stable source anchors
-
-### 3. Rebuild Index Schema
-
-Index note metadata and task metadata separately:
-
-- notes: id, title, body, updated, kind/render mode
-- note_labels: note_id, label
-- note_people: note_id, person
-- tasks: id, source_note_id, source_anchor, state, text
-- task_labels: task_id, label
-- task_people: task_id, person
-- task_properties: task_id, key, value
-- note_properties: note_id, key, value
-
-The old schema should be replaced, not patched around.
-
-### 4. Update Mutations
-
-All task operations should rewrite Markdown source:
-
-- cycle state
-- edit text
-- add/remove labels
-- add/remove people
-- set property
-- promote task
-- archive/done/someday
-
-### 5. Rebuild View Models
-
-Each view should receive purpose-built presentation models rather than raw arrays.
-
-Examples:
-
-- PersonCockpit
-- TaskListViewModel
-- WaitingQueue
-- TimelineModel
-- LabelTree
-
-### 6. Redesign UI Surfaces
-
-Use the new view models to redesign the workflows:
-
-- People cockpit first.
-- Task list and edit flow second.
-- Waiting and Board third.
-- Timeline and Labels fourth.
-
-### 7. Add Migration Command
-
-Because compatibility is not a product goal, migration should be explicit:
-
-- command: "Rewrite vault to Noet Markdown"
-- preview diff
-- backup prompt
-- rewrite old syntax once
-
-After migration, old syntax should not be emitted.
-
-## Next Implementation Steps
-
-1. Freeze this design contract.
-2. Finish the clean Noet Markdown implementation already in progress:
-   task-list parsing, H1-derived titles, nested labels, people mentions,
-   properties, and source-line write-back.
-3. Update samples, templates, tests, and UI code so Noet no longer emits or
-   depends on old `TODO(kind)` or `+[[Workstream]]` syntax.
-4. Stabilize the People/1:1 cockpit with current note editing, previous 1:1
-   notes, open follow-ups, delegated/waiting items, and context notes.
-5. Refactor view data into purpose-built models instead of passing raw task
-   arrays into every surface.
-6. Redesign Tasks and Waiting around actual operator workflows.
-7. Redesign Board, Timeline, and Labels on top of the new models.
-8. Implement promote inline task to task note.
-9. Package a new macOS checkpoint when tests and live UI checks pass.
-10. Add Windows packaging and credential-storage hardening as the next
-    cross-platform release step.
-
-## Next Commit / Release Boundary
-
-The next stable checkpoint should be a narrow architecture release, not the whole
-visual redesign.
-
-Commit target:
-
-- Noet Markdown contract documented and implemented in core parsing.
-- Runtime no longer emits old task/workstream syntax.
-- Core tests pass for the new grammar.
-- GUI compiles with the new H1 title behavior and updated 1:1 template.
-- People view can show current 1:1 note, previous 1:1 notes, and person-related
-  active tasks without requiring manual duplication.
-
-Release target:
-
-- Build and package macOS `.app`/`.dmg` from that commit.
-- Keep ad-hoc signing acceptable; do not block on Developer ID.
-- Document install steps and expected Gatekeeper workaround.
-- Note Windows/GNOME as supported build targets but do not claim installer polish
-  until packaging is separately verified.
-
-Defer from this checkpoint:
-
-- Full visual polish for every secondary view.
-- Inline-task promotion UX beyond core model support unless it is already low
-  risk.
-- Windows installer and Linux package release artifacts.
-- Account connectors and remote imports.
+- board cards are tasks backed by Markdown
+- moving a card updates task state or workflow label
+- board lanes are surface sections, not hidden databases
+
+## Review Workspace
+
+Default layout:
+
+```text
+navigation pane: Saved views / Filters
+primary pane: Waiting and stale follow-up review
+context pane: selected person or source note
+queue pane: due soon / someday / inbox
+```
+
+Behavior:
+
+- group waiting/delegated work by person and age
+- stale follow-ups should be visible without manual filtering
+- review actions should resolve, defer, open source, or promote
+
+## Settings Workspace
+
+Settings is still a surface in the workspace system. It does not need complex
+panes, but it should not require a separate page architecture.
+
+## Interaction Rules
+
+- navigation opens or changes context
+- work surfaces contain the work
+- panes control layout
+- Markdown stores truth
+- commands mutate app state or Markdown
+- filters narrow results but do not own selected work
+- closing panes hides UI only
+- selecting a person/note/task updates selection state, not arbitrary layout
+
+## Visual Direction
+
+Noet should feel calm, dense, and native.
+
+Priorities:
+
+- clear pane boundaries
+- compact controls
+- readable typography
+- restrained color
+- strong focus state
+- stable layout dimensions
+- keyboard-accessible commands
+- visible but quiet resize handles
+- useful empty states
+
+Avoid:
+
+- decorative dashboards
+- marketing-style cards
+- one-off page layouts
+- hidden magic metadata
+- oversized hero sections
+- burying common actions in raw property forms
+
+## MVP Sequence
+
+1. Implement app-model objects: selection, workspace, pane, surface, command.
+2. Add unit tests for pane and workspace behavior.
+3. Build 1:1 Focus on the new model.
+4. Build Notes on the new model.
+5. Build Tasks on the new model.
+6. Build Review and Board.
+7. Remove old page/view assumptions from GUI code.
+8. Polish visuals and keyboard navigation.
+
+Do not optimize for preserving the old shell during this work. Temporary UX
+regression is acceptable if it lets the architecture become correct.

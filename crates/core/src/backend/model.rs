@@ -18,7 +18,7 @@ pub struct Note {
 pub struct Todo {
     pub id: String, // "<note_id>:<line_no>"
     pub note_id: String,
-    pub kind: String,   // do/followup/delegated/todelegate/someday/reading
+    pub kind: String, // workflow label: do/mine/followup/delegated/waiting/someday/reading
     pub status: String, // todo / doing / done
     pub text: String,
     pub project: String,
@@ -26,7 +26,7 @@ pub struct Todo {
     pub start: String, // optional start:YYYY-MM-DD (for Gantt bars)
     pub due: String,
     pub external: String, // optional local/user ref, usually ref:https://...
-    pub priority: String, // "A" / "B" / "C" / "" (org-style [#A])
+    pub priority: String, // "A" / "B" / "C" / "" from priority:A
     pub repeat: String,   // e.g. "1w" / "3d" / "1m" — recurring interval
     pub done: bool,
     pub line_no: usize,

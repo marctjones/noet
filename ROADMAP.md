@@ -1,137 +1,181 @@
 # Noet Roadmap
 
-Noet is a native (Rust + Slint), plain-markdown personal-information-manager for
-managers: meeting notes → typed todos (do / followup / delegated / todelegate /
-someday / reading) → workstreams, with 1:1 prep, agenda, board, and capture.
+This roadmap follows the design in
+[docs/product-architecture.md](docs/product-architecture.md).
 
-## Shipped
-- Plain-markdown vault + disposable SQLite index; file-watch live reload.
-- Notes with markdown + Typst rendering (inline `typst` blocks), edited in a
-  **WYSIWYG rich-text editor** ([sred](https://github.com/marctjones/sred)) with
-  Markdown Live Preview, inline spellcheck, find/replace, and a source-mode toggle.
-- Typed todos with status cycling (TODO/DOING/DONE), priorities `[#A]`,
-  recurring `repeat:`, start/due dates.
-- Workstreams `[[ ]]` and labels `#` — **hierarchical** via `/`; people `@`.
-- Views: Notes, Tasks, Board (kanban, drag), Gantt, Agenda, Labels (cloud),
-  People (1:1 prep), Inbox (quick capture).
-- Faceted filtering: search, status, kind, priority, due, workstream/label/people
-  trees, removable active-filter chips.
-- Linking: backlinks, related-note, file-into-workstream, auto-link on new note,
-  inline clickable entity chips + clickable URLs.
-- Resizable panes; live font zoom (A− / A＋ / reset).
+Noet is being rebuilt around a local-first Markdown core and a workspace UX
+model. The old page/view shell is not the target architecture.
 
-## Phase 1 — Close the core promise
-- [x] **Folder / file associations** — "📎 attach a file/folder path" inserts a
-  clickable link that opens the file/folder. (Native picker still a nicety.)
-- [x] **Note templates** — Meeting / 1:1 / Decision, one click (File menu).
-- [x] **Today dashboard** — overdue + due-today + stale follow-ups + inbox count +
-  recently edited, in one home screen (Today tab).
-- [x] **Trash + restore** — soft-delete to `.trash`, restore (Note menu → Delete;
-  File menu → Trash…).
-- [x] **Saved smart lists** — save the current filter as a named one-click view
-  (rail "SMART LISTS"; save-as input; ✕ to delete).
-- [~] **Delegation aging & follow-up nudges** — stale follow-ups now surface on
-  the Today dashboard; explicit "delegated N weeks ago" aging still to add.
+## Product Direction
 
-## Phase 2 — Stickiness & power use
-- [ ] **Desktop reminders / notifications** — due-soon, stale follow-ups, 1:1 today.
-- [ ] **Global quick-capture hotkey** — capture from anywhere into the Inbox.
-- [x] **Command palette + keyboard shortcuts** — Ctrl/⌘+K palette (views,
-  commands, recent notes), a shortcuts cheat sheet, focus mode, and editor chords.
-- [x] **Full-text search (SQLite FTS5)** — token + prefix matching on note
-  title/body, with automatic LIKE fallback if FTS5 is unavailable.
-- [x] **Outline folding** — click a heading's ▾ to collapse its section (hides
-  until the next equal/higher heading); ▸ to expand. Folds reset per note.
-- [x] **Inline type-ahead autocomplete** — `[[` / `+[[` / `@[[` / `#` caret popup
-  offering indexed workstream / people / tag names; ↑↓ + Enter/Tab/Esc or click.
-- [x] **Light + dark theming** — `Theme` global (light/dark) with a top-bar
-  toggle that also flips the widget palette. *Next: follow the system scheme +
-  accent color; tune chip colors for dark.*
-- [x] **Calendar view** — month grid of todos by due date; ◀ ▶ navigation,
-  Today button, click a day's todo to open its note.
-- [ ] **1:1 history & continuity** — per-person time-ordered note thread, "last met".
+Noet should become a native personal work memory system for:
 
-## Phase 3 — Reliability & local-first hardening
+- meeting notes
+- 1:1 preparation and follow-up
+- personal tasks
+- delegated/waiting work
+- labels and workstreams
+- source-linked task history
 
-- [ ] **Git-backed version history** — view/restore previous versions of a note.
-- [ ] **Sync-conflict awareness** — detect concurrent OneDrive/Drive edits.
-- [ ] **Local reference model** — keep clickable `ref:`, URL, and `gh:` metadata
-  without storing third-party credentials or importing remote state.
-- [ ] **Calendar/meeting import strategy** — design a local-first path before
-  adding account integrations.
-- [x] **Export (per note)** — File menu: "Export note as Markdown" (copies the
-  .md) and "Export note as PDF" (Typst CLI; typst notes natively, markdown via a
-  lightweight heading/bullet converter). Writes to `<vault>/exports/` and opens
-  the folder. *Markdown→PDF escapes markup for guaranteed compile, so emphasis
-  shows literally; whole-vault bundle export still to add.*
-- [~] **Settings + onboarding** — vault location persists in `settings.json`
-  (OS config dir; resolved `$NOET_VAULT` → settings → default); the SQLite index
-  moved to the OS cache dir so it never syncs; and an in-app **Settings view**
-  (left nav) edits the vault folder + shows the storage paths. *Still to add: more
-  defaults and a syntax cheatsheet / onboarding flow.*
+It should remain local-first and open. Account connectors, cloud imports, and
+team-system sync are out of scope until the local workflow is excellent.
 
-## Phase 4 — UX modernization (from the Opus UX review)
-Benchmarked vs. UX best practice, Windows 11 Fluent thick-client standards,
-Linear / Notion / Things / Obsidian, and org-mode.
+## Architecture Direction
 
-P0 — native feel + clarity:
-- [x] **Left NavigationView** replacing the top tab strip — collapsible (☰ → icons
-  only), icon+label, grouped Plan / Work / Notes / Organize. Fixes tab overload,
-  feels Win11-native. Glyphs are now monochrome Lucide SVG icons.
-- [x] **Command palette (Ctrl-K) + keyboard shortcuts** — keyboard-first speed
-  (org/Linear), accessibility, the single biggest modern-UX upgrade.
-- [ ] **Tame the left rail** — progressive disclosure; Filters in a popover.
-- [x] **Monochrome icon set** — custom Lucide-based (ISC) SVG icons replacing the
-  emoji glyphs, plus a custom Noet app mark and typed-todo-kind icons.
-- [ ] **Fluent type ramp** (14px body, Segoe UI Variable) + strict 4px spacing.
+Target layers:
 
-P1 — polish & trend alignment:
-- [x] Hover-reveal row/card actions — task rows and board cards reveal ◀▶✎↗
-  (opacity fade) only on hover; rows tint + cards lift their shadow on hover.
-- [ ] Motion as feedback (view-switch / fold / check transitions).
-- [ ] Beautiful empty states + syntax cheatsheet / onboarding.
-- [ ] System accent color + Mica-ish layered material.
-- [ ] Density toggle (comfortable / compact).
+```text
+noet-gui -> noet-app -> noet-core
+```
 
-P2 — depth & delight:
-- [ ] Graph / relationships view (workstreams ↔ people ↔ backlinks).
-- [ ] Today as a daily-planning ritual.
-- [ ] Full keyboard navigation + screen-reader (UIA).
+`noet-core`:
 
-## Performance (measured, not guessed)
-Benchmark harness: `cargo run --release --bin noet-bench -- [N]` generates a
-synthetic N-note vault (realistic token density) and times indexing + every
-query. Findings & fixes:
-- [x] **Regex caching in `parse_todos`** — was recompiling 6 regexes per note on
-  every index. Caching them (`OnceLock`) cut a 2 000-note index **12.0s → 2.2s
-  (5.6×)**. Queries were already fast (<120ms).
-- [x] **Active-view-only `refresh()`** — was recomputing all ten views' queries
-  on every keystroke/filter/tab (~266ms at 2k notes incl. board+agenda+gantt).
-  Now only the visible view's query runs (+ cheap rail facets) — a Notes
-  keystroke is ~query_notes (≈11ms) instead of ~266ms.
-- [x] **Debounced search** — refresh fires 180ms after typing stops, not per key.
-- [x] **Background reindex (off the UI thread)** — full rebuilds run on a worker
-  thread with their own SQLite connection (WAL journaling so the UI connection
-  keeps reading). The event loop never freezes; a "Indexing…" status shows and
-  `reindex-finished` hops back to refresh.
-- [x] **Async startup + indexing never on the UI thread (design decision)** — the
-  window opens instantly via `open_lazy` (schema only, no index); the first index
-  runs in the background (worker thread, own SQLite connection, WAL) and again on
-  manual ⟳. In-app edits update their own note incrementally
-  (`persist`→`index_note`, idempotent) so they appear instantly. **A `notify`
-  filesystem watcher is enabled** (re-added 2026-06-04 for non-blocking
-  auto-reload): external edits (other editor / OneDrive / Drive) trigger a
-  *background* rebuild via a 700ms-debounced timer. Guards keep it off the
-  responsiveness path — skip while `editing` (your own autosaves are already
-  indexed incrementally), and coalesce overlapping rebuilds (`indexing`/`dirty`).
-  **The hard rule: the full reindex must NEVER run on the UI thread** — always a
-  worker + `reindex-finished` hop back. The watcher is fine as long as it stays
-  debounced + editing-guarded + off-thread.
-- [x] **Incremental indexing** — the file-watcher + manual reindex reconcile by
-  mtime/path: only changed/new files are re-parsed and deleted files are dropped,
-  instead of DELETE-all + full re-parse. A warm live rebuild is now per-edit cost
-  rather than a full-vault re-read; the initial (empty-index) build is unchanged.
-- [x] **Release profile tuned for speed** — `opt-level = 3` + `lto = true` +
-  `strip` + `panic = "abort"` (was size-optimized `"z"`).
+- vault IO
+- Markdown parsing
+- Noet extension parsing
+- SQLite index
+- queries
+- Markdown write-back mutations
+- workflow read models
 
-Implementation proceeds in waves, newest progress noted in commit/PR history.
+`noet-app`:
+
+- selection state
+- command bus
+- workspace model
+- pane model
+- surface model
+- surface adapters
+- workspace presets
+
+`noet-gui`:
+
+- Slint rendering
+- platform integration
+- `SredEditorAdapter`
+
+## UX Direction
+
+The target UX is workspace-based:
+
+```text
+Workspace
+  PaneLayout
+    Pane(role = navigation | primary | context | queue | inspector)
+      Surface
+```
+
+Navigation drawers are panes with a navigation role. They are not a separate
+system. Closing one must not close the work surface.
+
+Initial workspaces:
+
+- 1:1 Focus
+- Notes
+- Tasks
+- Board
+- Review
+- Settings
+
+Initial surfaces:
+
+- PersonBrowser
+- NoteBrowser
+- NoteEditor
+- OneOnOne
+- TaskList
+- Board
+- History
+- Backlinks
+- FollowupQueue
+- LabelBrowser
+- FilterBrowser
+
+## Phase 1 - Freeze The Foundation
+
+- [x] Document product architecture.
+- [x] Document Noet Markdown.
+- [x] Remove account connectors from the product direction.
+- [x] Commit to local-only as the current phase.
+- [x] Commit to workspaces, panes, and surfaces as the UX model.
+- [x] Commit to `sred` as an editor engine behind a Noet editor surface.
+
+## Phase 2 - Extract The App Model
+
+- [ ] Add a `noet-app` crate or equivalent module boundary.
+- [ ] Implement `SelectionState`.
+- [ ] Implement `Command`.
+- [ ] Implement `Workspace`.
+- [ ] Implement `Pane`.
+- [ ] Implement `Surface`.
+- [ ] Implement workspace presets.
+- [ ] Add app-model tests independent of Slint.
+
+Required tests:
+
+- selecting a person does not mutate layout
+- closing a navigation pane does not close work
+- pane resize clamps to min/max
+- workspace presets contain expected panes
+- commands update selection and workspace state predictably
+
+## Phase 3 - Build Workflow Models
+
+- [ ] Build `OneOnOneContext`.
+- [ ] Build task review model.
+- [ ] Build waiting/follow-up model.
+- [ ] Build board grouping model.
+- [ ] Build label/workstream review model.
+- [ ] Build note context model: backlinks, related notes, source tasks.
+
+Required tests:
+
+- 1:1 context finds prior notes and active follow-ups
+- unresolved follow-ups continue to surface
+- carried-over follow-ups preserve source context
+- waiting review groups by person and age
+- board grouping derives from Markdown-backed task facts
+
+## Phase 4 - Rebuild The GUI On The App Model
+
+- [ ] Render `Workspace` from app state.
+- [ ] Render `Pane` from pane state.
+- [ ] Render each `Surface` through a reusable surface renderer.
+- [ ] Route GUI events through commands instead of direct product mutations.
+- [ ] Keep `sred` behind `SredEditorAdapter`.
+- [ ] Add GUI tests for pane visibility, focus, resize, and accessibility.
+
+Minimum UX contract:
+
+- People navigation can close while 1:1 stays open.
+- Filters can close without changing selected person, note, or task.
+- The current note editor is a work surface, not a page.
+- Context and queue panes resize independently.
+- Board and task views share task source behavior.
+
+## Phase 5 - Restore And Improve Workflows
+
+- [ ] 1:1 Focus reaches daily-use quality.
+- [ ] Notes workspace reaches daily-use quality.
+- [ ] Tasks workspace reaches daily-use quality.
+- [ ] Review workspace covers waiting, stale, due, and delegated items.
+- [ ] Board workspace writes task movement back to Markdown.
+- [ ] Labels/workstreams support cleanup and review.
+- [ ] Inline task promotion creates task notes with source links.
+
+## Phase 6 - Packaging And Platform Polish
+
+- [ ] Package macOS `.app` and `.dmg` from a stable checkpoint.
+- [ ] Keep ad-hoc signing acceptable until Developer ID exists.
+- [ ] Document unsigned macOS install behavior.
+- [ ] Add Windows packaging after the workspace shell is stable.
+- [ ] Add Linux packaging after the workspace shell is stable.
+
+## Deferred
+
+- Cloud sync
+- Jira, Outlook, Gmail, Google, Todoist, or other account connectors
+- Full plugin system
+- Arbitrary IDE-grade docking
+- Team collaboration features
+- Hidden database-only task state

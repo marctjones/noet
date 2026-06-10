@@ -6,6 +6,11 @@ All notable changes to Noet are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+- Documentation now treats the workspace/pane/surface architecture in
+  `docs/product-architecture.md` as the target design. Older changelog entries
+  remain historical and may describe removed or superseded UI/connectors.
+
 ## [0.6.0] - 2026-06-08
 
 **Daily Driver** — capture a meeting note from anywhere, always-on presence, and
