@@ -39,7 +39,12 @@ Implemented foundation:
   1:1 context, task review, waiting review, board columns, and label review.
 - `noet-gui` renders workspace panes from `noet-app`, routes workspace pane
   operations through app commands, and adapts the note editor surface to `sred`.
-- Daily workflow screens are still being migrated onto the new workspace shell.
+- Tasks, Board, and Review surfaces now consume workflow read models instead of
+  ad hoc GUI todo queries.
+- Inline tasks can be promoted into full task notes while leaving a linked
+  source-line reference behind in the original note.
+- Daily workflow screens are still being migrated onto the new workspace shell;
+  the 1:1, task, board, and review flows are the active MVP path.
 
 ## Core Ideas
 
@@ -133,10 +138,16 @@ selected.
 Inline tasks and task notes should appear in one task universe. Task state and
 workflow changes must write back to Markdown.
 
+Inline tasks can be promoted into standalone task notes. The promoted note keeps
+the people, workstream, label, due date, priority, and source-note backlink; the
+original line is rewritten to link to the promoted task note with a stable block
+anchor.
+
 ### Review
 
-Waiting, delegated, stale follow-ups, due items, labels, and workstreams should
-be reviewable through workspace layouts over the same indexed Markdown facts.
+Overdue work, scheduled work, people follow-ups, waiting/delegated items,
+someday items, inbox notes, labels, and workstreams should be reviewable through
+workspace layouts over the same indexed Markdown facts.
 
 ## Architecture
 

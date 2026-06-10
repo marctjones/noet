@@ -630,10 +630,14 @@ fn headless_ui_smoke() {
         ui.get_notes().row_count() >= 1,
         "workspace refresh populates note browser data"
     );
+    ui.invoke_workspace_switch("tasks".into());
+    refresh(ui, &ctx.state.borrow());
     assert!(
         ui.get_tasks().row_count() >= 2,
-        "workspace refresh populates task surface data"
+        "task workspace refresh populates task surface data"
     );
+    ui.invoke_workspace_switch("one-on-one-focus".into());
+    refresh(ui, &ctx.state.borrow());
 
     ui.invoke_pick_person("Alice".into());
     assert_eq!(
@@ -661,6 +665,62 @@ fn headless_ui_smoke() {
         !ui.get_workspace_right_open(),
         "workspace context pane closes independently"
     );
+
+    // ----- Level 14: inline task promotion creates a task note and opens it -----
+    let promote_source_id;
+    let promote_todo_id;
+    {
+        let mut st = ctx.state.borrow_mut();
+        let n = st.backend.new_note().unwrap();
+        st.backend
+            .save_note(
+                &n.id,
+                "Promotion source",
+                "# Promotion source\n\n- [ ] draft promotion test @[[Jane]] #followup [[Acme]] due:2026-06-20 priority:A\n",
+            )
+            .unwrap();
+        promote_source_id = n.id.clone();
+        promote_todo_id = format!("{}:2", n.id);
+    }
+    ctx.state.borrow_mut().backend.reindex_all().unwrap();
+    ui.invoke_promote_task(promote_todo_id.clone().into());
+    assert_eq!(ui.get_view(), "notes", "promotion opens the promoted note");
+    assert_eq!(
+        ctx.state.borrow().app.selection.task_id.as_deref(),
+        Some(promote_todo_id.as_str()),
+        "promotion selects the source task in the app model"
+    );
+    let promoted_id = ui.get_current_id().to_string();
+    assert!(!promoted_id.is_empty(), "promoted note is open");
+    assert!(
+        ui.get_current_body().contains("#task")
+            && ui
+                .get_current_body()
+                .contains("source:[[Promotion source#^draft-promotion-test]]"),
+        "promoted note carries task type and source link: {:?}",
+        ui.get_current_body()
+    );
+    let source = ctx
+        .state
+        .borrow()
+        .backend
+        .load_note(&promote_source_id)
+        .unwrap();
+    for expected in [
+        "[[draft promotion test]]",
+        "@[[Jane]]",
+        "[[Acme]]",
+        "#followup",
+        "due:2026-06-20",
+        "priority:A",
+        "^draft-promotion-test",
+    ] {
+        assert!(
+            source.body.contains(expected),
+            "source line preserves {expected}: {:?}",
+            source.body
+        );
+    }
 
     // (Slint's lightweight testing backend renders no pixels — its window is a
     // measurement-only renderer — so Window::take_snapshot is unavailable here.

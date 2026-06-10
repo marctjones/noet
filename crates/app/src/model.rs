@@ -142,9 +142,12 @@ impl AppModel {
                 self.navigation.clear_filters();
                 CommandOutcome::accepted()
             }
-            AppCommand::ResolveTask(_task_id)
-            | AppCommand::CarryOverFollowup(_task_id)
-            | AppCommand::PromoteTask(_task_id) => CommandOutcome::accepted(),
+            AppCommand::ResolveTask(task_id)
+            | AppCommand::CarryOverFollowup(task_id)
+            | AppCommand::PromoteTask(task_id) => {
+                self.selection.select_task(task_id);
+                CommandOutcome::accepted()
+            }
         }
     }
 
@@ -283,5 +286,20 @@ mod tests {
             Surface::OneOnOne { .. }
         ));
         assert_eq!(model.selection.note_id.as_deref(), Some("n1"));
+    }
+
+    #[test]
+    fn task_workflow_commands_select_the_task_without_changing_layout() {
+        let mut model = AppModel::new();
+        let before = model.workspaces.active().unwrap().clone();
+
+        assert!(
+            model
+                .apply(AppCommand::PromoteTask("note:12".into()))
+                .accepted
+        );
+
+        assert_eq!(model.selection.task_id.as_deref(), Some("note:12"));
+        assert_eq!(model.workspaces.active().unwrap(), &before);
     }
 }

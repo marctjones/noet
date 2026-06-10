@@ -4,7 +4,7 @@
 
 use super::parse::{advance_date, format_todo_line, parse_links, parse_tags, set_marker_kind};
 use super::vault::{markdown_title, read_note, write_note};
-use super::{Backend, Filter, NamedFilter, Note, TodoFields, KINDS, STATUSES};
+use super::{Backend, Filter, NamedFilter, Note, Todo, TodoFields, KINDS, STATUSES};
 use anyhow::{Context, Result};
 use chrono::Utc;
 use std::path::PathBuf;
@@ -152,6 +152,70 @@ impl Backend {
         let new_id = self.add_todo(target_note_id, &fields)?;
         self.set_todo_status(todo_id, "done")?;
         Ok(new_id)
+    }
+
+    /// Promote an inline todo into a full task note while leaving a source link
+    /// at the original line. The promoted note carries the actionable task; the
+    /// original meeting/note line remains a readable backlink to where it came
+    /// from.
+    pub fn promote_todo_to_note(&mut self, todo_id: &str) -> Result<Note> {
+        let todo = self.get_todo(todo_id)?;
+        let source = self.load_note(&todo.note_id)?;
+        let title = todo_title(&todo);
+        let anchor = block_anchor(&title);
+        let source_ref = format!("[[{}#^{}]]", source.title, anchor);
+
+        let mut fields = TodoFields::from_todo(&todo);
+        fields.text = title.clone();
+        fields.status = "todo".into();
+
+        let mut body = format!("# {title}\n\n#task\n");
+        if !todo.person.is_empty() {
+            body.push_str(&format!("@[[{}]]\n", todo.person));
+        }
+        if !todo.project.is_empty() {
+            body.push_str(&format!("[[{}]]\n", todo.project));
+        }
+        if !todo.kind.is_empty() && todo.kind != "do" {
+            body.push_str(&format!("#{}\n", todo.kind));
+        }
+        for (key, value) in [
+            ("priority", todo.priority.as_str()),
+            ("start", todo.start.as_str()),
+            ("due", todo.due.as_str()),
+            ("repeat", todo.repeat.as_str()),
+        ] {
+            if !value.is_empty() {
+                body.push_str(&format!("{key}:{value}\n"));
+            }
+        }
+        if !todo.external.is_empty() {
+            body.push_str(&format!("{}\n", todo.external));
+        }
+        body.push_str(&format!("source:{source_ref}\n\n"));
+        body.push_str(&format_todo_line(&fields));
+        body.push_str("\n\n## Context\n");
+        body.push_str(&format!("Promoted from {source_ref}.\n"));
+
+        let id = ulid::Ulid::new().to_string();
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string();
+        let note = Note {
+            id: id.clone(),
+            title,
+            created: now.clone(),
+            updated: now,
+            kind: "markdown".into(),
+            body,
+            path: self.vault.join("notes").join(format!("{id}.md")),
+        };
+        self.persist(&note)?;
+
+        let mut source_fields = TodoFields::from_todo(&todo);
+        source_fields.text = format!("[[{}]]", note.title);
+        let linked_line = format!("{} ^{}", format_todo_line(&source_fields), anchor);
+        self.rewrite_line(todo_id, |_old| linked_line.clone())?;
+
+        Ok(note)
     }
 
     /// Cycle a todo's state TODO → DOING → DONE → TODO. A recurring todo
@@ -439,5 +503,34 @@ impl Backend {
         } else {
             self.set_todo_kind(todo_id, target)
         }
+    }
+}
+
+fn todo_title(todo: &Todo) -> String {
+    let title = todo.text.trim();
+    if title.is_empty() {
+        "Task".into()
+    } else {
+        title.chars().take(80).collect()
+    }
+}
+
+fn block_anchor(title: &str) -> String {
+    let mut out = String::new();
+    let mut last_dash = false;
+    for ch in title.chars().flat_map(char::to_lowercase) {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch);
+            last_dash = false;
+        } else if !last_dash {
+            out.push('-');
+            last_dash = true;
+        }
+    }
+    let out = out.trim_matches('-');
+    if out.is_empty() {
+        format!("task-{}", ulid::Ulid::new().to_string().to_lowercase())
+    } else {
+        out.chars().take(48).collect()
     }
 }

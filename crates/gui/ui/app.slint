@@ -285,12 +285,23 @@ component KindDot inherits Rectangle {
 }
 
 component MiniBtn inherits Rectangle {
-    in property <string> label;
+    in property <image> icon;
+    in property <string> a11y;
     callback clicked;
     width: 22px; height: 22px; border-radius: 4px;
     background: t.has-hover ? #d9dfe7 : Theme.hover;
     animate background { duration: 100ms; easing: ease-out; }
-    Text { text: label; font-size: (11px * Z.f); color: #4a5560; horizontal-alignment: center; vertical-alignment: center; }
+    accessible-role: button;
+    accessible-label: a11y;
+    accessible-action-default => { root.clicked(); }
+    Image {
+        source: root.icon;
+        colorize: #4a5560;
+        width: 13px * Z.f;
+        height: 13px * Z.f;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+    }
     t := TouchArea { clicked => { root.clicked(); } }
 }
 
@@ -427,6 +438,7 @@ component CommitmentRow inherits Rectangle {
     callback edit(string);
     callback external(string);
     callback open(string);
+    callback promote(string);
     height: 62px;
     border-radius: 7px;
     background: crt.has-hover ? Theme.surface3 : transparent;
@@ -469,6 +481,7 @@ component CommitmentRow inherits Rectangle {
             }
         }
         Button { text: root.action-label; clicked => { root.open(t.id); } }
+        Button { text: "Promote"; clicked => { root.promote(t.id); } }
         Button { text: "Edit"; clicked => { root.edit(t.id); } }
     }
 }
@@ -479,6 +492,7 @@ component AgendaRow inherits Rectangle {
     callback cycle(string);
     callback edit(string);
     callback open(string);
+    callback promote(string);
     height: 38px;
     border-radius: 5px;
     background: ar.has-hover ? Theme.surface3 : transparent;
@@ -505,8 +519,9 @@ component AgendaRow inherits Rectangle {
         }
         Chip { text: t.due; tint: #fde7ea; ink: #9a1b33; }
         Chip { text: t.project; tint: #e7f7ec; ink: #1f7a44; }
-        MiniBtn { label: "✎"; clicked => { root.edit(t.id); } }
-        MiniBtn { label: "↗"; clicked => { root.open(t.id); } }
+        MiniBtn { icon: Icons.notes; a11y: "Promote task to note"; clicked => { root.promote(t.id); } }
+        MiniBtn { icon: Icons.edit; a11y: "Edit task"; clicked => { root.edit(t.id); } }
+        MiniBtn { icon: Icons.external; a11y: "Open source note"; clicked => { root.open(t.id); } }
     }
 }
 
@@ -597,6 +612,12 @@ export component AppWindow inherits Window {
     in property <[GanttItem]> gantt-items;
     in property <[TodoItem]> tasks;
     in property <[TodoItem]> waiting-todos; // open delegated items for the Waiting view
+    in property <[TodoItem]> review-overdue;
+    in property <[TodoItem]> review-due;
+    in property <[TodoItem]> review-followups;
+    in property <[TodoItem]> review-waiting;
+    in property <[TodoItem]> review-someday;
+    in property <[NoteItem]> review-inbox-notes;
     // Workstream hub: one workstream's open todos + the notes referencing it.
     in-out property <string> hub-name;
     in property <[TodoItem]> hub-todos;
@@ -834,6 +855,7 @@ export component AppWindow inherits Window {
     callback drop-card(string /*todo id*/, string /*column key*/);
     callback open-add-todo();
     callback edit-todo(string);
+    callback promote-task(string);
     callback save-todo();
     callback add-tag(string);
     callback note-edited();
@@ -1205,6 +1227,7 @@ export component AppWindow inherits Window {
                                                         edit(id) => { root.edit-todo(id); }
                                                         external(url) => { root.open-url(url); }
                                                         open(id) => { root.open-note(id); }
+                                                        promote(id) => { root.promote-task(id); }
                                                     }
                                                 }
                                             }
@@ -1225,6 +1248,7 @@ export component AppWindow inherits Window {
                                                                 cycle(id) => { root.cycle-todo(id); }
                                                                 edit(id) => { root.edit-todo(id); }
                                                                 open(id) => { root.open-note(id); }
+                                                                promote(id) => { root.promote-task(id); }
                                                             }
                                                         }
                                                     }
@@ -1233,30 +1257,89 @@ export component AppWindow inherits Window {
 
                                             if root.workspace-primary == "review": Rectangle {
                                                 vertical-stretch: 1;
-                                                HorizontalLayout {
-                                                    spacing: 8px;
-                                                    PaneSection {
-                                                        horizontal-stretch: 1;
-                                                        title: "Waiting";
-                                                        detail: root.waiting-todos.length + " delegated";
-                                                        accent: #7a5b9a;
-                                                        for t in root.waiting-todos: AgendaRow {
-                                                            t: t;
-                                                            cycle(id) => { root.cycle-todo(id); }
-                                                            edit(id) => { root.edit-todo(id); }
-                                                            open(id) => { root.open-note(id); }
+                                                ScrollView {
+                                                    HorizontalLayout {
+                                                        spacing: 8px;
+                                                        PaneSection {
+                                                            width: 300px;
+                                                            title: "Overdue";
+                                                            detail: root.review-overdue.length + " late";
+                                                            accent: #a33a45;
+                                                            if root.review-overdue.length == 0: EmptyState { glyph: "✓"; title: "Clear"; hint: "No overdue work."; }
+                                                            for t in root.review-overdue: AgendaRow {
+                                                                t: t;
+                                                                cycle(id) => { root.cycle-todo(id); }
+                                                                edit(id) => { root.edit-todo(id); }
+                                                                open(id) => { root.open-note(id); }
+                                                                promote(id) => { root.promote-task(id); }
+                                                            }
                                                         }
-                                                    }
-                                                    PaneSection {
-                                                        horizontal-stretch: 1;
-                                                        title: "Stale";
-                                                        detail: root.today-stale.length + " old";
-                                                        accent: #b8742e;
-                                                        for t in root.today-stale: AgendaRow {
-                                                            t: t;
-                                                            cycle(id) => { root.cycle-todo(id); }
-                                                            edit(id) => { root.edit-todo(id); }
-                                                            open(id) => { root.open-note(id); }
+                                                        PaneSection {
+                                                            width: 300px;
+                                                            title: "Due";
+                                                            detail: root.review-due.length + " scheduled";
+                                                            accent: Theme.accent;
+                                                            if root.review-due.length == 0: EmptyState { glyph: "[]"; title: "No due tasks"; hint: "Dated work will appear here."; }
+                                                            for t in root.review-due: AgendaRow {
+                                                                t: t;
+                                                                cycle(id) => { root.cycle-todo(id); }
+                                                                edit(id) => { root.edit-todo(id); }
+                                                                open(id) => { root.open-note(id); }
+                                                                promote(id) => { root.promote-task(id); }
+                                                            }
+                                                        }
+                                                        PaneSection {
+                                                            width: 300px;
+                                                            title: "Follow-ups";
+                                                            detail: root.review-followups.length + " open";
+                                                            accent: #b8742e;
+                                                            if root.review-followups.length == 0: EmptyState { glyph: "@"; title: "No follow-ups"; hint: "People follow-ups will collect here."; }
+                                                            for t in root.review-followups: AgendaRow {
+                                                                t: t;
+                                                                cycle(id) => { root.cycle-todo(id); }
+                                                                edit(id) => { root.edit-todo(id); }
+                                                                open(id) => { root.open-note(id); }
+                                                                promote(id) => { root.promote-task(id); }
+                                                            }
+                                                        }
+                                                        PaneSection {
+                                                            width: 300px;
+                                                            title: "Waiting";
+                                                            detail: root.review-waiting.length + " delegated";
+                                                            accent: #7a5b9a;
+                                                            if root.review-waiting.length == 0: EmptyState { glyph: "[]"; title: "Nothing waiting"; hint: "Delegated or waiting tasks will appear here."; }
+                                                            for t in root.review-waiting: AgendaRow {
+                                                                t: t;
+                                                                cycle(id) => { root.cycle-todo(id); }
+                                                                edit(id) => { root.edit-todo(id); }
+                                                                open(id) => { root.open-note(id); }
+                                                                promote(id) => { root.promote-task(id); }
+                                                            }
+                                                        }
+                                                        PaneSection {
+                                                            width: 300px;
+                                                            title: "Someday";
+                                                            detail: root.review-someday.length + " parked";
+                                                            accent: #6b7280;
+                                                            if root.review-someday.length == 0: EmptyState { glyph: "..."; title: "No someday list"; hint: "Parked tasks will appear here."; }
+                                                            for t in root.review-someday: AgendaRow {
+                                                                t: t;
+                                                                cycle(id) => { root.cycle-todo(id); }
+                                                                edit(id) => { root.edit-todo(id); }
+                                                                open(id) => { root.open-note(id); }
+                                                                promote(id) => { root.promote-task(id); }
+                                                            }
+                                                        }
+                                                        PaneSection {
+                                                            width: 300px;
+                                                            title: "Inbox";
+                                                            detail: root.review-inbox-notes.length + " notes";
+                                                            accent: #3a8c63;
+                                                            if root.review-inbox-notes.length == 0: EmptyState { glyph: "✓"; title: "Inbox clear"; hint: "Unfiled notes will appear here."; }
+                                                            for n in root.review-inbox-notes: NoteRow {
+                                                                note: n;
+                                                                open(id) => { root.select-note(id); }
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -1406,6 +1489,7 @@ export component AppWindow inherits Window {
                                                 cycle(id) => { root.cycle-todo(id); }
                                                 edit(id) => { root.edit-todo(id); }
                                                 open(id) => { root.open-note(id); }
+                                                promote(id) => { root.promote-task(id); }
                                             }
                                         }
                                         PaneSection {
@@ -1418,6 +1502,7 @@ export component AppWindow inherits Window {
                                                 cycle(id) => { root.cycle-todo(id); }
                                                 edit(id) => { root.edit-todo(id); }
                                                 open(id) => { root.open-note(id); }
+                                                promote(id) => { root.promote-task(id); }
                                             }
                                         }
                                     }

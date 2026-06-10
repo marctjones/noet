@@ -34,6 +34,19 @@ fn parses_typed_todos_and_tokens() {
 }
 
 #[test]
+fn promoted_task_link_stays_readable_as_todo_text() {
+    let body =
+        "- [ ] [[Ask Jane about launch risks]] @[[Jane]] #followup due:2026-06-17 ^launch-risks\n";
+    let todos = parse_todos("N1", body);
+
+    assert_eq!(todos.len(), 1);
+    assert_eq!(todos[0].text, "Ask Jane about launch risks");
+    assert_eq!(todos[0].person, "Jane");
+    assert_eq!(todos[0].kind, "followup");
+    assert_eq!(todos[0].due, "2026-06-17");
+}
+
+#[test]
 fn kind_detection() {
     // strong typst signals
     assert_eq!(detect_kind("#set page(width: 10cm)\n= Hi"), "typst");
@@ -476,6 +489,60 @@ fn add_update_and_drop_via_form() {
     // drag onto a status column
     b.drop_card(&id, "status", "done").unwrap();
     assert!(b.get_todo(&id).unwrap().done);
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn promote_inline_todo_creates_task_note_and_links_source_line() {
+    let dir = std::env::temp_dir().join(format!("noet-test-{}", ulid::Ulid::new()));
+    let mut b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();
+    let meeting = b.new_note().unwrap();
+    b.save_note(
+        &meeting.id,
+        "1:1 with Jane",
+        "# 1:1 with Jane\n\n#meeting/one-on-one\n@[[Jane]]\n\n\
+         - [ ] Ask Jane about launch risks @[[Jane]] [[Client/Acme]] #followup due:2026-06-17 priority:A\n",
+    )
+    .unwrap();
+
+    let todo = b
+        .query_todos(&Filter {
+            search: "launch risks".into(),
+            ..Default::default()
+        })
+        .unwrap()
+        .remove(0);
+    let promoted = b.promote_todo_to_note(&todo.id).unwrap();
+
+    assert_eq!(promoted.title, "Ask Jane about launch risks");
+    assert!(promoted.body.contains("#task"));
+    assert!(promoted.body.contains("@[[Jane]]"));
+    assert!(promoted.body.contains("[[Client/Acme]]"));
+    assert!(promoted.body.contains("#followup"));
+    assert!(promoted.body.contains("due:2026-06-17"));
+    assert!(promoted.body.contains("priority:A"));
+    assert!(promoted
+        .body
+        .contains("source:[[1:1 with Jane#^ask-jane-about-launch-risks]]"));
+    assert!(promoted
+        .body
+        .contains("- [ ] Ask Jane about launch risks @[[Jane]] [[Client/Acme]] #followup priority:A due:2026-06-17"));
+
+    let source = b.load_note(&meeting.id).unwrap();
+    assert!(source
+        .body
+        .contains("[[Ask Jane about launch risks]] @[[Jane]] [[Client/Acme]] #followup priority:A due:2026-06-17 ^ask-jane-about-launch-risks"));
+
+    let promoted_tasks = b
+        .query_todos(&Filter {
+            search: "launch risks".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(promoted_tasks
+        .iter()
+        .any(|task| task.note_id == promoted.id && task.text == "Ask Jane about launch risks"));
 
     std::fs::remove_dir_all(&dir).ok();
 }

@@ -1166,6 +1166,9 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
     // per-view queries (board / agenda / gantt / tasks / person) are gated so a
     // keystroke or filter change doesn't recompute all ten views at once.
     let view = ui.get_view().to_string();
+    let workspace_primary = ui.get_workspace_primary().to_string();
+    let surface_visible =
+        |surface: &str| view == surface || (view == "workspace" && workspace_primary == surface);
 
     if view == "notes" || view == "workspace" {
         if let Ok(notes) = b.query_notes(f) {
@@ -1186,9 +1189,9 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
     }
 
     // flat task list (same filtered todos as the board, ungrouped)
-    if view == "tasks" || view == "workspace" {
-        if let Ok(todos) = b.query_todos(f) {
-            let items: Vec<TodoItem> = todos.iter().map(to_todo_item).collect();
+    if surface_visible("tasks") {
+        if let Ok(tasks) = b.task_list(f) {
+            let items: Vec<TodoItem> = tasks.iter().map(to_todo_item_from_fact).collect();
             ui.set_tasks(ModelRc::new(VecModel::from(items)));
         }
     }
@@ -1292,7 +1295,6 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
     }
 
     // Standalone 1:1 workspace, keyed by the selected person.
-    let workspace_primary = ui.get_workspace_primary().to_string();
     if view == "oneonone" || (view == "workspace" && workspace_primary == "oneonone") {
         let selected_person = ui.get_selected_person().to_string();
         let workspace_person = if selected_person.trim().is_empty() {
@@ -1455,22 +1457,84 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
         }
     }
 
-    if view == "board" || view == "workspace" {
+    if surface_visible("board") {
         let group_by = ui.get_group_by().to_string();
-        if let Ok(cols) = b.board(board_group_key(&group_by), f) {
-            let items: Vec<BoardColumn> = cols
+        if let Ok(board) = b.board_model(board_group_key(&group_by), f) {
+            let items: Vec<BoardColumn> = board
+                .columns
                 .into_iter()
-                .map(|(title, key, todos)| {
-                    let cards: Vec<TodoItem> = todos.iter().map(to_todo_item).collect();
+                .map(|col| {
+                    let cards: Vec<TodoItem> =
+                        col.tasks.iter().map(to_todo_item_from_fact).collect();
                     BoardColumn {
-                        title: title.into(),
-                        key: key.into(),
+                        title: col.label.into(),
+                        key: col.key.into(),
                         count: cards.len() as i32,
                         cards: ModelRc::new(VecModel::from(cards)),
                     }
                 })
                 .collect();
             ui.set_board_columns(ModelRc::new(VecModel::from(items)));
+        }
+    }
+
+    if surface_visible("review") {
+        if let Ok(review) = b.task_review() {
+            let overdue_ids = review
+                .overdue
+                .iter()
+                .map(|task| task.id.as_str())
+                .collect::<std::collections::HashSet<_>>();
+            let due = review
+                .due
+                .iter()
+                .filter(|task| !overdue_ids.contains(task.id.as_str()))
+                .map(to_todo_item_from_fact)
+                .collect::<Vec<_>>();
+            ui.set_review_overdue(ModelRc::new(VecModel::from(
+                review
+                    .overdue
+                    .iter()
+                    .map(to_todo_item_from_fact)
+                    .collect::<Vec<_>>(),
+            )));
+            ui.set_review_due(ModelRc::new(VecModel::from(due)));
+            ui.set_review_followups(ModelRc::new(VecModel::from(
+                review
+                    .followups
+                    .iter()
+                    .map(to_todo_item_from_fact)
+                    .collect::<Vec<_>>(),
+            )));
+            ui.set_review_someday(ModelRc::new(VecModel::from(
+                review
+                    .someday
+                    .iter()
+                    .map(to_todo_item_from_fact)
+                    .collect::<Vec<_>>(),
+            )));
+        }
+        if let Ok(waiting) = b.waiting_review() {
+            let mut tasks = waiting
+                .groups
+                .into_iter()
+                .flat_map(|group| group.tasks)
+                .map(|task| to_todo_item_from_fact(&task))
+                .collect::<Vec<_>>();
+            tasks.extend(
+                waiting
+                    .unassigned
+                    .iter()
+                    .map(to_todo_item_from_fact)
+                    .collect::<Vec<_>>(),
+            );
+            ui.set_review_waiting(ModelRc::new(VecModel::from(tasks.clone())));
+            ui.set_waiting_todos(ModelRc::new(VecModel::from(tasks)));
+        }
+        if let Ok(notes) = b.inbox() {
+            ui.set_review_inbox_notes(ModelRc::new(VecModel::from(
+                notes.iter().map(to_note_item).collect::<Vec<_>>(),
+            )));
         }
     }
 
@@ -3058,6 +3122,30 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 );
                 ui.set_form_visible(true);
             }
+        });
+    }
+
+    // promote an inline task into its own task note and leave a source link behind
+    {
+        let ui_w = ui.as_weak();
+        let state = state.clone();
+        ui.on_promote_task(move |id: SharedString| {
+            let ui = ui_w.unwrap();
+            let todo_id = id.to_string();
+            let mut s = state.borrow_mut();
+            let _ = s.app.apply(AppCommand::PromoteTask(todo_id.clone()));
+            match s.backend.promote_todo_to_note(&todo_id) {
+                Ok(note) => {
+                    let promoted_id = note.id.clone();
+                    let _ = s.app.apply(AppCommand::SwitchWorkspace("notes".into()));
+                    let _ = s.app.apply(AppCommand::OpenNote(promoted_id.clone()));
+                    open_in_editor(&ui, &s.backend, &promoted_id);
+                    ui.set_view("notes".into());
+                    ui.set_status_text("Promoted task to note".into());
+                }
+                Err(e) => ui.set_status_text(format!("Promote failed: {e}").into()),
+            }
+            refresh(&ui, &s);
         });
     }
 

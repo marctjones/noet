@@ -333,6 +333,10 @@ impl Backend {
         })
     }
 
+    pub fn task_list(&self, filter: &Filter) -> Result<Vec<TaskFact>> {
+        self.task_facts_for_filter(filter)
+    }
+
     pub fn waiting_review(&self) -> Result<WaitingReview> {
         let review = self.task_review()?;
         let waiting_tasks = review

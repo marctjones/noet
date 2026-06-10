@@ -361,6 +361,11 @@ fn property_re() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r"\b(?P<key>[A-Za-z][A-Za-z0-9_-]*):(?P<val>[^\s]+)").unwrap())
 }
 
+fn block_anchor_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?:^|\s)\^[A-Za-z0-9_-]+").unwrap())
+}
+
 pub fn parse_properties(text: &str) -> Vec<(String, String)> {
     property_re()
         .captures_iter(text)
@@ -433,7 +438,19 @@ pub fn parse_todos(note_id: &str, body: &str) -> Vec<Todo> {
             text = link_re().replace_all(&text, "").to_string();
             text = tag_re().replace_all(&text, " ").to_string();
             text = property_re().replace_all(&text, " ").to_string();
-            let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+            text = block_anchor_re().replace_all(&text, " ").to_string();
+            let mut text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+            if text.is_empty() {
+                let mut fallback = rest.clone();
+                fallback = person_re().replace_all(&fallback, " ").to_string();
+                fallback = tag_re().replace_all(&fallback, " ").to_string();
+                fallback = property_re().replace_all(&fallback, " ").to_string();
+                fallback = block_anchor_re().replace_all(&fallback, " ").to_string();
+                text = clean_inline(&fallback)
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ");
+            }
 
             out.push(Todo {
                 id: format!("{note_id}:{line_no}"),
