@@ -45,7 +45,7 @@ fn kind_color(kind: &str) -> &'static str {
     }
 }
 
-/// Render one line's inline Noet entities — `[[workstream]]` / `+[[…]]` (green),
+/// Render one line's inline Noet entities — `[[workstream]]` (green),
 /// `@[[person]]` / `@person` (amber), `#tag` (purple) — as colored chips, escaping
 /// the text between them. Plain prose comes through escaped (verbatim layout).
 fn render_inline(s: &str) -> String {
@@ -61,8 +61,8 @@ fn render_inline(s: &str) -> String {
     let is_word = |ch: char| ch.is_alphanumeric() || ch == '_' || ch == '-' || ch == '.';
     let mut i = 0;
     while i < c.len() {
-        // @[[Person]] / +[[Project]] / [[Workstream]]
-        let marker = c[i] == '@' || c[i] == '+';
+        // @[[Person]] / [[Workstream]]
+        let marker = c[i] == '@';
         let br = if marker { i + 1 } else { i };
         if br + 1 < c.len() && c[br] == '[' && c[br + 1] == '[' {
             if let Some(rel) = c[br + 2..].windows(2).position(|w| w == [']', ']']) {
@@ -156,7 +156,7 @@ fn render_todo(td: &super::Todo) -> String {
 
 /// Lightweight markdown→Typst for PDF export. Renders `#`/`##`/`###` headings,
 /// `- ` bullets, and — crucially — Noet's own markup the way the app shows it:
-/// `TODO/DOING/DONE(kind)` lines become checkbox + kind dot + text + chips, and
+/// GFM task-list items become checkbox + kind dot + text + chips, and
 /// inline `[[workstreams]]` / `@people` / `#tags` become colored chips.
 pub(crate) fn markdown_to_typst(title: &str, body: &str) -> String {
     let mut out = String::from("#set page(margin: 2cm)\n#set text(size: 11pt)\n#set par(justify: false, leading: 0.7em)\n\n");

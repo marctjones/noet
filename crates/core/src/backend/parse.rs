@@ -1,17 +1,16 @@
-//! Parsing — the file-first grammar. Notes are plain markdown; todos are lines
-//! like `TODO(do) text @[[Person]] +[[Project]] due:YYYY-MM-DD #tag`. This module
-//! also formats structured fields back into that canonical line syntax.
+//! Parsing — the file-first grammar. Notes are plain markdown; tasks are
+//! GitHub-style task list items plus Noet labels, people, links, and properties.
 
 use super::{MdBlock, Segment, Todo, TodoFields};
 use regex::Regex;
 use std::sync::OnceLock;
 
-// A todo line:  TODO(kind) some text @[[Person]] +[[Project]] start:2026-06-01 due:2026-06-10 jira:PROJ-12 #urgent
-// Marker is TODO / DOING / DONE -> status. Tokens are stripped from the displayed text.
+// A task line: - [ ] text @[[Person]] [[Project]] #followup due:2026-06-10
+// Marker is [ ] / [/] / [x] -> status.
 fn todo_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"(?m)^\s*(?P<marker>TODO|DOING|DONE)\((?P<kind>[a-zA-Z]+)\)\s+(?P<rest>.*)$")
+        Regex::new(r"^(?P<ws>\s*)(?:[-*+]|\d+[.)])\s+\[(?P<marker>[ xX/])\]\s+(?P<rest>.*)$")
             .unwrap()
     })
 }
@@ -23,22 +22,48 @@ fn link_re() -> &'static Regex {
 
 fn tag_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"(?:^|\s)#(?P<t>[A-Za-z][A-Za-z0-9_-]*)").unwrap())
+    RE.get_or_init(|| Regex::new(r"(?:^|\s)#(?P<t>[A-Za-z][A-Za-z0-9_/-]*)").unwrap())
+}
+
+fn workflow_tag_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?:^|\s)#(?P<t>followup|delegated|mine|someday|waiting|reading|do)\b").unwrap()
+    })
 }
 
 fn marker_to_status(marker: &str) -> String {
     match marker {
-        "DOING" => "doing",
-        "DONE" => "done",
+        "/" => "doing",
+        "x" | "X" => "done",
         _ => "todo",
     }
     .to_string()
 }
 
+fn status_to_marker(status: &str) -> &'static str {
+    match status {
+        "doing" => "/",
+        "done" => "x",
+        _ => " ",
+    }
+}
+
+fn text_lines(body: &str) -> impl Iterator<Item = (usize, &str)> {
+    let mut in_code = false;
+    body.lines().enumerate().filter(move |(_, line)| {
+        if line.trim_start().starts_with("```") {
+            in_code = !in_code;
+            return false;
+        }
+        !in_code
+    })
+}
+
 /// `#tag` labels anywhere in a note body.
 pub fn parse_tags(body: &str) -> Vec<String> {
-    let mut v: Vec<String> = tag_re()
-        .captures_iter(body)
+    let mut v: Vec<String> = text_lines(body)
+        .flat_map(|(_, line)| tag_re().captures_iter(line))
         .map(|c| c["t"].to_string())
         .collect();
     v.sort();
@@ -64,8 +89,8 @@ fn person_name(c: &regex::Captures) -> String {
 
 /// Every `@person` / `@[[Person]]` mention anywhere in a note (not just todos).
 pub fn parse_mentions(body: &str) -> Vec<String> {
-    let mut v: Vec<String> = person_re()
-        .captures_iter(body)
+    let mut v: Vec<String> = text_lines(body)
+        .flat_map(|(_, line)| person_re().captures_iter(line))
         .map(|c| person_name(&c))
         .collect();
     v.sort();
@@ -79,9 +104,9 @@ fn strip_inline(s: &str) -> String {
     static LINK: OnceLock<Regex> = OnceLock::new();
     static WIKI: OnceLock<Regex> = OnceLock::new();
     let link = LINK.get_or_init(|| Regex::new(r"\[([^\]]+)\]\(([^)]*)\)").unwrap());
-    // `[[X]]`, `+[[X]]`, `@[[X]]` -> X so prose reads cleanly (entities show as
+    // `[[X]]`, `@[[X]]` -> X so prose reads cleanly (entities show as
     // clickable chips elsewhere). Bare @name / #tag are already readable.
-    let wiki = WIKI.get_or_init(|| Regex::new(r"[+@]?\[\[([^\]]+)\]\]").unwrap());
+    let wiki = WIKI.get_or_init(|| Regex::new(r"@?\[\[([^\]]+)\]\]").unwrap());
     let s = link.replace_all(s, "$1 ($2)").to_string();
     let s = wiki.replace_all(&s, "$1").to_string();
     s.replace("**", "").replace('`', "")
@@ -97,7 +122,7 @@ pub fn line_segments(raw: &str) -> Vec<Segment> {
     static RE: OnceLock<Regex> = OnceLock::new();
     let re = RE.get_or_init(|| {
         Regex::new(
-            r"(?P<mdlink>\[[^\]]+\]\([^)]*\))|(?P<url>https?://[^\s)]+)|(?P<proj>\+?\[\[[^\]]+\]\])|(?P<pers>@(?:\[\[[^\]]+\]\]|[A-Za-z][A-Za-z0-9_.\-]*))|(?P<tag>#[A-Za-z][A-Za-z0-9_\-]*)",
+            r"(?P<mdlink>\[[^\]]+\]\([^)]*\))|(?P<url>https?://[^\s)]+)|(?P<proj>\[\[[^\]]+\]\])|(?P<pers>@(?:\[\[[^\]]+\]\]|[A-Za-z][A-Za-z0-9_.\-]*))|(?P<tag>#[A-Za-z][A-Za-z0-9_/-]*)",
         )
         .unwrap()
     });
@@ -140,7 +165,6 @@ pub fn line_segments(raw: &str) -> Vec<Segment> {
         } else if let Some(g) = caps.name("proj") {
             let name = g
                 .as_str()
-                .trim_start_matches('+')
                 .trim_start_matches("[[")
                 .trim_end_matches("]]")
                 .to_string();
@@ -332,56 +356,83 @@ pub fn markdown_blocks(body: &str) -> Vec<MdBlock> {
     out
 }
 
+fn property_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"\b(?P<key>[A-Za-z][A-Za-z0-9_-]*):(?P<val>[^\s]+)").unwrap())
+}
+
+pub fn parse_properties(text: &str) -> Vec<(String, String)> {
+    property_re()
+        .captures_iter(text)
+        .map(|m| (m["key"].to_string(), m["val"].to_string()))
+        .collect()
+}
+
+fn first_wikilink(rest: &str) -> String {
+    link_re()
+        .captures_iter(rest)
+        .find(|c| {
+            c.get(0).is_some_and(|m| {
+                let before = &rest[..m.start()];
+                !before.ends_with('@') && !before.ends_with('+')
+            })
+        })
+        .map(|c| c["t"].trim().to_string())
+        .unwrap_or_default()
+}
+
+fn task_kind(labels: &[String]) -> String {
+    for label in labels {
+        match label.as_str() {
+            "followup" | "delegated" | "mine" | "someday" | "waiting" | "reading" | "do" => {
+                return label.clone()
+            }
+            _ => {}
+        }
+    }
+    "do".into()
+}
+
 /// Extract todos from a note body. line_no is 0-based for stable ids.
 pub fn parse_todos(note_id: &str, body: &str) -> Vec<Todo> {
-    // Compile each field regex once for the process, not once per note — this is
-    // the hot path during indexing (called for every note on every reindex).
-    fn re(cell: &'static OnceLock<Regex>, pat: &str) -> &'static Regex {
-        cell.get_or_init(|| Regex::new(pat).unwrap())
-    }
-    static PROJ: OnceLock<Regex> = OnceLock::new();
-    static DUE: OnceLock<Regex> = OnceLock::new();
-    static START: OnceLock<Regex> = OnceLock::new();
-    static PRIO: OnceLock<Regex> = OnceLock::new();
-    static REPEAT: OnceLock<Regex> = OnceLock::new();
-    static EXT: OnceLock<Regex> = OnceLock::new();
-    let proj_re = re(&PROJ, r"\+\[\[(?P<p>[^\]]+)\]\]");
-    let due_re = re(&DUE, r"\bdue:(?P<d>\d{4}-\d{2}-\d{2})\b");
-    let start_re = re(&START, r"\bstart:(?P<d>\d{4}-\d{2}-\d{2})\b");
-    let prio_re = re(&PRIO, r"\[#(?P<p>[ABC])\]");
-    let repeat_re = re(&REPEAT, r"\brepeat:(?P<r>\d+[dwm])\b");
-    // External-ref hook: jira:KEY-123, gh:owner/repo#1, src:outlook:<id>, ref:<anything>
-    let ext_re = re(&EXT, r"\b(?P<ext>(?:jira|gh|src|ref):[A-Za-z0-9_./:#-]+)\b");
-
     let mut out = Vec::new();
-    for (line_no, line) in body.lines().enumerate() {
+    for (line_no, line) in text_lines(body) {
         if let Some(c) = todo_re().captures(line) {
             let status = marker_to_status(&c["marker"]);
-            let kind = c["kind"].to_lowercase();
             let rest = c["rest"].to_string();
-
-            let grab = |re: &Regex, key: &str| {
-                re.captures(&rest)
-                    .map(|m| m[key].to_string())
-                    .unwrap_or_default()
-            };
-            let project = grab(proj_re, "p");
+            let labels: Vec<String> = tag_re()
+                .captures_iter(&rest)
+                .map(|m| m["t"].to_string())
+                .collect();
+            let kind = task_kind(&labels);
+            let project = first_wikilink(&rest);
             let person = person_re()
                 .captures(&rest)
                 .map(|m| person_name(&m))
                 .unwrap_or_default();
-            let due = grab(due_re, "d");
-            let start = grab(start_re, "d");
-            let priority = grab(prio_re, "p");
-            let repeat = grab(repeat_re, "r");
-            let external = grab(ext_re, "ext");
+            let prop = |key: &str| {
+                property_re()
+                    .captures_iter(&rest)
+                    .find(|m| &m["key"] == key)
+                    .map(|m| m["val"].to_string())
+                    .unwrap_or_default()
+            };
+            let due = prop("due");
+            let start = prop("start");
+            let priority = prop("priority");
+            let repeat = prop("repeat");
+            let external = property_re()
+                .captures_iter(&rest)
+                .find(|m| matches!(&m["key"], "jira" | "gh" | "src" | "ref"))
+                .map(|m| format!("{}:{}", &m["key"], &m["val"]))
+                .unwrap_or_default();
 
             // Clean display text: drop the tokens we lifted into fields.
             let mut text = rest.clone();
-            for re in [proj_re, due_re, start_re, prio_re, repeat_re, ext_re] {
-                text = re.replace_all(&text, "").to_string();
-            }
+            text = link_re().replace_all(&text, "").to_string();
             text = person_re().replace_all(&text, " ").to_string();
+            text = tag_re().replace_all(&text, " ").to_string();
+            text = property_re().replace_all(&text, " ").to_string();
             let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
 
             out.push(Todo {
@@ -407,9 +458,16 @@ pub fn parse_todos(note_id: &str, body: &str) -> Vec<Todo> {
 
 /// All `[[wikilink]]` targets in a body (projects / workstreams / pages).
 pub fn parse_links(body: &str) -> Vec<String> {
-    let mut v: Vec<String> = link_re()
-        .captures_iter(body)
-        .map(|c| c["t"].to_string())
+    let mut v: Vec<String> = text_lines(body)
+        .flat_map(|(_, line)| {
+            link_re().captures_iter(line).filter(move |c| {
+                c.get(0).is_some_and(|m| {
+                    let before = &line[..m.start()];
+                    !before.ends_with('@') && !before.ends_with('+')
+                })
+            })
+        })
+        .map(|c| c["t"].trim().to_string())
         .collect();
     v.sort();
     v.dedup();
@@ -418,26 +476,23 @@ pub fn parse_links(body: &str) -> Vec<String> {
 
 /// Render structured fields back into a canonical todo line.
 pub(crate) fn format_todo_line(f: &TodoFields) -> String {
-    let marker = match f.status.as_str() {
-        "doing" => "DOING",
-        "done" => "DONE",
-        _ => "TODO",
-    };
     let kind = if f.kind.is_empty() {
         "do"
     } else {
         f.kind.as_str()
     };
-    let mut s = format!("{marker}({kind}) ");
-    if !f.priority.is_empty() {
-        s += &format!("[#{}] ", f.priority.trim());
-    }
-    s += f.text.trim();
+    let mut s = format!("- [{}] {}", status_to_marker(&f.status), f.text.trim());
     if !f.person.is_empty() {
         s += &format!(" @[[{}]]", f.person.trim());
     }
     if !f.project.is_empty() {
-        s += &format!(" +[[{}]]", f.project.trim());
+        s += &format!(" [[{}]]", f.project.trim());
+    }
+    if !kind.is_empty() && kind != "do" {
+        s += &format!(" #{}", kind);
+    }
+    if !f.priority.is_empty() {
+        s += &format!(" priority:{}", f.priority.trim());
     }
     if !f.start.is_empty() {
         s += &format!(" start:{}", f.start.trim());
@@ -474,17 +529,20 @@ pub(crate) fn advance_date(date: &str, repeat: &str) -> String {
         .unwrap_or_else(|| date.to_string())
 }
 
-/// Replace the marker and/or kind inside a `MARKER(kind)` todo line, preserving
-/// leading whitespace and the rest of the line verbatim.
+/// Replace the marker and/or workflow label inside a task line, preserving
+/// leading whitespace and the rest of the line.
 pub(crate) fn set_marker_kind(line: &str, marker: Option<&str>, kind: Option<&str>) -> String {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    let re = RE.get_or_init(|| {
-        Regex::new(r"^(?P<ws>\s*)(?P<m>TODO|DOING|DONE)\((?P<k>[a-zA-Z]+)\)(?P<rest>.*)$").unwrap()
-    });
-    if let Some(c) = re.captures(line) {
-        let m = marker.unwrap_or(&c["m"]);
-        let k = kind.unwrap_or(&c["k"]);
-        format!("{}{}({}){}", &c["ws"], m, k, &c["rest"])
+    if let Some(c) = todo_re().captures(line) {
+        let ws = &c["ws"];
+        let m = marker.unwrap_or(&c["marker"]);
+        let mut rest = c["rest"].to_string();
+        if let Some(k) = kind {
+            rest = workflow_tag_re().replace_all(&rest, " ").to_string();
+            if k != "do" && !k.is_empty() {
+                rest = format!("{} #{}", rest.trim(), k);
+            }
+        }
+        format!("{ws}- [{m}] {}", rest.trim())
     } else {
         line.to_string()
     }

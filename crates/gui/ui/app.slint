@@ -656,8 +656,12 @@ export component AppWindow inherits Window {
     in-out property <string> filter-due;
     in property <[TodoItem]> person-discuss;
     in property <[TodoItem]> person-delegated;
+    in property <[TodoItem]> person-delegated-history;
     in property <[TodoItem]> person-other;
     in property <[NoteItem]> person-notes;
+    in property <[NoteItem]> person-oneonone-notes;
+    in property <string> person-current-oneonone-id;
+    in property <string> person-current-oneonone-title;
     in-out property <string> topic-input;
 
     // Resizable panes (drag the dividers)
@@ -807,6 +811,7 @@ export component AppWindow inherits Window {
 
     // Callbacks
     callback quit();
+    callback note-title-edited(string);
     callback save-settings(string); // persist a new vault path
     callback save-jira(string, string, string); // base-url, email, token
     callback open-external(string); // open a jira:/gh:/URL ref in the browser
@@ -1506,7 +1511,7 @@ export component AppWindow inherits Window {
                                             text <=> root.current-title;
                                             font-size: (17px * Z.f);
                                             horizontal-stretch: 1;
-                                            edited(t) => { root.note-edited(); }
+                                            edited(t) => { root.note-title-edited(t); }
                                         }
                                         Text {
                                             text: root.current-word-count + " words · " + root.current-char-count + " chars";
@@ -2254,7 +2259,7 @@ export component AppWindow inherits Window {
                                             font-size: (22px * Z.f); font-weight: 800; color: Theme.text;
                                         }
                                         Text {
-                                            text: root.selected-person == "" ? "Select someone from the left to build a prep brief." : "Prep the next conversation from todos, delegation, and notes.";
+                                            text: root.selected-person == "" ? "Select someone from the left to build a prep brief." : "Write the current 1:1 while reviewing prior notes and delegated follow-ups.";
                                             font-size: (12px * Z.f); color: Theme.text3;
                                         }
                                     }
@@ -2270,7 +2275,64 @@ export component AppWindow inherits Window {
                                     MetricTile { value: "" + root.person-discuss.length; label: "to discuss"; accent: #9a5b1b; horizontal-stretch: 1; }
                                     MetricTile { value: "" + root.person-delegated.length; label: "delegated"; accent: #1f7a44; horizontal-stretch: 1; }
                                     MetricTile { value: "" + root.person-other.length; label: "other todos"; accent: Theme.accent; horizontal-stretch: 1; }
-                                    MetricTile { value: "" + root.person-notes.length; label: "notes"; accent: Theme.text2; horizontal-stretch: 1; }
+                                    MetricTile { value: "" + root.person-oneonone-notes.length; label: "1:1 notes"; accent: Theme.text2; horizontal-stretch: 1; }
+                                }
+                                if root.selected-person != "": HorizontalLayout {
+                                    spacing: 12px;
+                                    Rectangle {
+                                        horizontal-stretch: 1;
+                                        height: 280px;
+                                        background: Theme.surface2;
+                                        border-radius: 7px;
+                                        border-width: 1px;
+                                        border-color: Theme.border;
+                                        VerticalLayout {
+                                            padding: 10px; spacing: 8px;
+                                            HorizontalLayout {
+                                                spacing: 8px;
+                                                SectionTitle {
+                                                    title: "CURRENT 1:1";
+                                                    detail: root.person-current-oneonone-title == "" ? "create one to start writing" : root.person-current-oneonone-title;
+                                                    accent: #9a5b1b;
+                                                    horizontal-stretch: 1;
+                                                }
+                                                if root.person-current-oneonone-id != "": Button { text: "Open full editor"; clicked => { root.select-note(root.person-current-oneonone-id); root.set-view("notes"); } }
+                                            }
+                                            if root.person-current-oneonone-id == "": EmptyState {
+                                                glyph: "1:1";
+                                                title: "No current 1:1 note";
+                                                hint: "Create a 1:1 note to write live notes here.";
+                                            }
+                                            if root.person-current-oneonone-id != "": LineEdit {
+                                                text <=> root.current-title;
+                                                edited(t) => { root.note-title-edited(t); }
+                                            }
+                                            if root.person-current-oneonone-id != "": TextEdit {
+                                                vertical-stretch: 1;
+                                                text <=> root.current-body;
+                                                wrap: word-wrap;
+                                                placeholder-text: "Type live 1:1 notes, decisions, and follow-up todos here...";
+                                                edited => { root.note-edited(); }
+                                            }
+                                        }
+                                    }
+                                    Rectangle {
+                                        width: 310px;
+                                        height: 280px;
+                                        background: Theme.surface2;
+                                        border-radius: 7px;
+                                        border-width: 1px;
+                                        border-color: Theme.border;
+                                        VerticalLayout {
+                                            padding: 10px; spacing: 6px;
+                                            SectionTitle { title: "1:1 NOTES"; detail: root.person-oneonone-notes.length + " notes"; accent: Theme.text2; }
+                                            if root.person-oneonone-notes.length == 0 : Text { text: "No 1:1 notes for this person yet."; color: Theme.text3; font-size: (12px * Z.f); font-italic: true; }
+                                            ListView {
+                                                vertical-stretch: 1;
+                                                for n in root.person-oneonone-notes: NoteRow { note: n; open(id) => { root.select-note(id); root.set-view("notes"); } }
+                                            }
+                                        }
+                                    }
                                 }
                                 if root.selected-person != "": ppsv := ScrollView {
                                     vertical-stretch: 1;
@@ -2293,6 +2355,15 @@ export component AppWindow inherits Window {
                                                 SectionTitle { title: "DELEGATED"; detail: root.person-delegated.length + " items you are waiting on"; accent: #1f7a44; }
                                                 for t in root.person-delegated: AgendaRow { t: t; cycle(id) => { root.cycle-todo(id); } edit(id) => { root.edit-todo(id); } open(id) => { root.open-note(id); } }
                                                 if (root.person-delegated.length == 0): Text { text: "No delegated items waiting."; color: Theme.text3; font-size: (12px * Z.f); font-italic: true; }
+                                            }
+                                        }
+                                        Rectangle {
+                                            background: Theme.surface2; border-radius: 7px;
+                                            VerticalLayout {
+                                                padding: 10px; spacing: 3px;
+                                                SectionTitle { title: "DELEGATED HISTORY"; detail: root.person-delegated-history.length + " past and current items"; accent: #1f7a44; }
+                                                for t in root.person-delegated-history: AgendaRow { t: t; cycle(id) => { root.cycle-todo(id); } edit(id) => { root.edit-todo(id); } open(id) => { root.open-note(id); } }
+                                                if (root.person-delegated-history.length == 0): Text { text: "No delegated history yet."; color: Theme.text3; font-size: (12px * Z.f); font-italic: true; }
                                             }
                                         }
                                         Rectangle {

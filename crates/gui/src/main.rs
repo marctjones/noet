@@ -158,7 +158,7 @@ thread_local! {
 /// and `typed` is what's been entered after the trigger so far. Pure (unit-tested).
 fn ac_detect(prefix: &str) -> Option<(&'static str, String)> {
     // An open wiki-link: the last "[[" with no "]]" / newline after it. The kind
-    // is "person" when preceded by '@' (`@[[`), else "project" (`[[` or `+[[`).
+    // is "person" when preceded by '@' (`@[[`), else "project" (`[[`).
     if let Some(pos) = prefix.rfind("[[") {
         let seg = &prefix[pos + 2..];
         if !seg.contains(']') && !seg.contains('\n') {
@@ -745,6 +745,8 @@ fn to_note_item(n: &backend::Note) -> NoteItem {
     }
 }
 
+const PERSON_ONEONONE_TAG: &str = "meeting/one-on-one";
+
 // ---- Sample / rendering-test note --------------------------------------------
 
 const SAMPLE_TITLE: &str = "Markdown rendering test";
@@ -774,10 +776,10 @@ Plain, **bold**, *italic*, ***bold italic***, `inline code`, ~~strikethrough~~, 
    2. Sub two
 3. Third
 
-## Typed todos
-TODO(do) draft the kickoff agenda [#A] due:2026-06-10
-DOING(do) wire up the API +[[Platform]]
-DONE(do) set up the repo
+## Task list items
+- [ ] draft the kickoff agenda priority:A due:2026-06-10
+- [/] wire up the API [[Platform]]
+- [x] set up the repo
 
 ## Blockquote
 > A quoted line.
@@ -1238,6 +1240,15 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
         } else {
             b.query_todos(&pf).unwrap_or_default()
         };
+        let person_history_todos = if f.person.is_empty() {
+            Vec::new()
+        } else {
+            b.query_todos(&Filter {
+                person: f.person.clone(),
+                ..Default::default()
+            })
+            .unwrap_or_default()
+        };
         let pick = |keep: &dyn Fn(&str) -> bool| -> ModelRc<TodoItem> {
             ModelRc::new(VecModel::from(
                 ptodos
@@ -1249,9 +1260,49 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
         };
         ui.set_person_discuss(pick(&|k| k == "todelegate" || k == "followup"));
         ui.set_person_delegated(pick(&|k| k == "delegated"));
+        ui.set_person_delegated_history(ModelRc::new(VecModel::from(
+            person_history_todos
+                .iter()
+                .filter(|t| t.kind == "delegated" || t.kind == "followup" || t.kind == "todelegate")
+                .map(to_todo_item)
+                .collect::<Vec<_>>(),
+        )));
         ui.set_person_other(pick(&|k| {
             k != "todelegate" && k != "followup" && k != "delegated"
         }));
+        let oneonone_notes = if f.person.is_empty() {
+            Vec::new()
+        } else {
+            b.query_notes(&Filter {
+                person: f.person.clone(),
+                tag: PERSON_ONEONONE_TAG.into(),
+                ..Default::default()
+            })
+            .unwrap_or_default()
+        };
+        let current_oneonone = if f.person.is_empty() {
+            None
+        } else {
+            let current_id = ui.get_current_id().to_string();
+            oneonone_notes
+                .iter()
+                .find(|n| n.id == current_id)
+                .or_else(|| oneonone_notes.first())
+        };
+        if let Some(n) = current_oneonone {
+            ui.set_person_current_oneonone_id(n.id.clone().into());
+            ui.set_person_current_oneonone_title(n.title.clone().into());
+            if ui.get_current_id().to_string() != n.id {
+                open_in_editor(ui, b, &n.id);
+                ui.set_view("people".into());
+            }
+        } else {
+            ui.set_person_current_oneonone_id("".into());
+            ui.set_person_current_oneonone_title("".into());
+        }
+        ui.set_person_oneonone_notes(ModelRc::new(VecModel::from(
+            oneonone_notes.iter().map(to_note_item).collect::<Vec<_>>(),
+        )));
         let pnotes = if f.person.is_empty() {
             Vec::new()
         } else {
@@ -1722,13 +1773,13 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             "Noet keeps plain markdown files as the source of truth. #welcome\n\n\
              - [[Acme Onboarding]] links this note to a project/workstream.\n\
              - #tags label notes — filter by them in the left rail.\n\n\
-             Typed todos (TODO / DOING / DONE), filter & group them on the Board:\n\
-             TODO(do) draft the kickoff agenda +[[Acme Onboarding]] start:2026-06-04 due:2026-06-10 #urgent\n\
-             DOING(do) set up the repo +[[Acme Onboarding]] due:2026-06-06\n\
-             TODO(followup) check pricing with Jane @[[Jane]] +[[Acme Onboarding]]\n\
-             TODO(delegated) send NDA @[[Sam]] +[[Acme Onboarding]] due:2026-06-12\n\
-             TODO(reading) skim the Rust async book\n\
-             TODO(do) wire up the API jira:PROJ-12 +[[Platform]] due:2026-06-20\n\n\
+             Task list items filter & group on the Board:\n\
+             - [ ] draft the kickoff agenda [[Acme Onboarding]] start:2026-06-04 due:2026-06-10 #urgent\n\
+             - [/] set up the repo [[Acme Onboarding]] due:2026-06-06\n\
+             - [ ] check pricing with Jane @[[Jane]] [[Acme Onboarding]] #followup\n\
+             - [ ] send NDA @[[Sam]] [[Acme Onboarding]] #delegated due:2026-06-12\n\
+             - [ ] skim the Rust async book #reading\n\
+             - [ ] wire up the API [[Platform]] jira:PROJ-12 due:2026-06-20\n\n\
              Try: the Board tab (group by status/kind/project/person), the Gantt tab,\n\
              and the search box + Projects/Tags/People filters on the left.\n",
         )?;
@@ -3054,6 +3105,17 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         });
     }
 
+    {
+        let ui_w = ui.as_weak();
+        ui.on_note_title_edited(move |title: SharedString| {
+            let ui = ui_w.unwrap();
+            let body = backend::set_markdown_title(&ui.get_current_body(), &title);
+            ui.set_current_body(body.clone().into());
+            rich_load(&ui, &body);
+            ui.invoke_note_edited();
+        });
+    }
+
     let live = Rc::new(slint::Timer::default());
     {
         let ui_w = ui.as_weak();
@@ -3072,6 +3134,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                         let Some(ui) = ui_w.upgrade() else { return };
                         let body = ui.get_current_body().to_string();
                         let kind = ui.get_current_kind().to_string();
+                        ui.set_current_title(backend::markdown_title(&body).into());
                         set_doc_counts(&ui, &body);
                         let (projects, people, tags) = backend::Backend::note_entities(&body);
                         ui.set_current_projects(str_model(&projects));
@@ -3343,9 +3406,26 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
             if let Ok(n) = s.backend.new_from_template(&t) {
-                open_in_editor(&ui, &s.backend, &n.id);
+                let mut id = n.id.clone();
+                if t.as_str() == "oneonone" {
+                    let person = s.filter.person.trim().to_string();
+                    if !person.is_empty() {
+                        let title = format!("1:1 — {person}");
+                        let body = format!(
+                            "# {title}\n\n#meeting/one-on-one\n@[[{person}]]\n\n## Updates\n\n## To discuss\n- [ ]  @[[{person}]] #followup\n\n## Delegated / awaiting\n- [ ]  @[[{person}]] #delegated\n"
+                        );
+                        if s.backend.save_note(&n.id, &title, &body).is_ok() {
+                            id = n.id.clone();
+                        }
+                    }
+                }
+                open_in_editor(&ui, &s.backend, &id);
                 ui.set_editing(true);
-                ui.set_view("notes".into());
+                ui.set_view(if t.as_str() == "oneonone" && !s.filter.person.is_empty() {
+                    "people".into()
+                } else {
+                    "notes".into()
+                });
                 ui.set_status_text("New note from template".into());
             }
             refresh(&ui, &s);

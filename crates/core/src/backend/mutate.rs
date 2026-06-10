@@ -3,7 +3,7 @@
 //! visible immediately without a full rebuild.
 
 use super::parse::{advance_date, format_todo_line, parse_links, parse_tags, set_marker_kind};
-use super::vault::{read_note, write_note};
+use super::vault::{markdown_title, read_note, write_note};
 use super::{Backend, Filter, NamedFilter, Note, TodoFields, KINDS, STATUSES};
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -14,15 +14,16 @@ impl Backend {
         let id = ulid::Ulid::new().to_string();
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string();
         let date = Utc::now().format("%Y-%m-%d").to_string();
-        let note = Note {
+        let mut note = Note {
             id: id.clone(),
             title: format!("Note {date}"),
             created: now.clone(),
             updated: now,
             kind: "markdown".into(),
-            body: String::new(),
+            body: format!("# Note {date}\n\n"),
             path: self.vault.join("notes").join(format!("{id}.md")),
         };
+        note.title = markdown_title(&note.body);
         write_note(&note)?;
         let tx = self.conn.transaction()?;
         Self::index_note(&tx, &note, self.fts)?;
@@ -39,7 +40,7 @@ impl Backend {
         let id = ulid::Ulid::new().to_string();
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string();
         let date = Utc::now().format("%Y-%m-%d").to_string();
-        let mut body = String::new();
+        let mut body = format!("# {} — {date}\n\n", src.title);
         if !src.title.is_empty() {
             body += &format!("(continues [[{}]])\n", src.title);
         }
@@ -65,10 +66,10 @@ impl Backend {
         Ok(note)
     }
 
-    pub fn save_note(&mut self, id: &str, title: &str, body: &str) -> Result<()> {
+    pub fn save_note(&mut self, id: &str, _title: &str, body: &str) -> Result<()> {
         let mut note = self.load_note(id)?;
-        note.title = title.to_string();
         note.body = body.to_string();
+        note.title = markdown_title(&note.body);
         note.updated = Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string();
         if note.created.is_empty() {
             note.created = note.updated.clone();
@@ -106,19 +107,19 @@ impl Backend {
     /// Cycle a todo done <-> not-done (the list checkbox).
     pub fn toggle_todo(&mut self, todo_id: &str) -> Result<()> {
         self.rewrite_line(todo_id, |line| {
-            if line.contains("DONE(") {
-                set_marker_kind(line, Some("TODO"), None)
+            if line.contains("[x]") || line.contains("[X]") {
+                set_marker_kind(line, Some(" "), None)
             } else {
-                set_marker_kind(line, Some("DONE"), None)
+                set_marker_kind(line, Some("x"), None)
             }
         })
     }
 
     pub fn set_todo_status(&mut self, todo_id: &str, status: &str) -> Result<()> {
         let marker = match status {
-            "doing" => "DOING",
-            "done" => "DONE",
-            _ => "TODO",
+            "doing" => "/",
+            "done" => "x",
+            _ => " ",
         };
         self.rewrite_line(todo_id, |line| set_marker_kind(line, Some(marker), None))
     }
@@ -237,15 +238,15 @@ impl Backend {
         let (title, body): (String, &str) = match template {
             "meeting" => (
                 format!("Meeting — {date}"),
-                "## Attendees\n@\n\n## Notes\n- \n\n## Action items\nTODO(do) \n",
+                "# Meeting\n\n#meeting\n\n## Attendees\n@\n\n## Notes\n\n## Action items\n- [ ] \n",
             ),
             "oneonone" => (
                 format!("1:1 — {date}"),
-                "## Updates\n\n## To discuss\nTODO(followup) ask about ... @[[ ]]\n\n## Delegated / awaiting\nTODO(delegated) ... @[[ ]]\n",
+                "# 1:1\n\n#meeting/one-on-one\n@[[ ]]\n\n## Updates\n\n## To discuss\n- [ ] ask about ... @[[ ]] #followup\n\n## Delegated / awaiting\n- [ ] ... @[[ ]] #delegated\n",
             ),
             "decision" => (
                 format!("Decision — {date}"),
-                "## Context\n\n## Decision\n\n## Owner & next steps\nTODO(do) \n",
+                "# Decision\n\n#decision\n\n## Context\n\n## Decision\n\n## Owner & next steps\n- [ ] \n",
             ),
             _ => (format!("Note {date}"), ""),
         };
@@ -397,10 +398,12 @@ impl Backend {
 
     /// Write a note to disk and reindex it in one shot.
     fn persist(&mut self, note: &Note) -> Result<()> {
-        write_note(note)?;
+        let mut note = note.clone();
+        note.title = markdown_title(&note.body);
+        write_note(&note)?;
         let fts = self.fts;
         let tx = self.conn.transaction()?;
-        Self::index_note(&tx, note, fts)?;
+        Self::index_note(&tx, &note, fts)?;
         tx.commit()?;
         Ok(())
     }

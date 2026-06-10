@@ -1,0 +1,281 @@
+# Noet Markdown
+
+Noet Markdown is CommonMark-style Markdown with a small set of visible, readable
+extensions for notes, people, links, tasks, and planning metadata. It is not a
+compatibility layer for older Noet syntax. Earlier `TODO(kind)` syntax should be
+migrated out and removed.
+
+The purpose is to keep the vault useful as plain files while giving Noet enough
+structure to replace manual OneNote-style organization. Meeting notes, tasks,
+people, labels, and follow-up context should live in normal Markdown and be
+reorganized dynamically by the app.
+
+## Principles
+
+- Plain text remains useful outside Noet.
+- Prefer familiar Markdown and PKM conventions before inventing syntax.
+- Extensions must be visible in the document, not hidden magic.
+- Labels are labels; special behavior comes from scope and known label values.
+- Properties use one general `key:value` token system.
+- Parsing is structural: Noet extensions are not interpreted inside code fences
+  or inline code.
+- Generated Markdown should be easy to read in any editor on Windows, macOS, or
+  Linux.
+- Noet may add convenience autocomplete while typing, but saved documents should
+  use the canonical forms below.
+
+## Core Syntax
+
+### Title
+
+The note title is the first Markdown H1:
+
+```markdown
+# 1:1 with Jane
+```
+
+If no H1 exists, Noet may display the first non-empty line as a fallback. Titles
+are not stored as separate frontmatter metadata.
+
+### Labels
+
+Labels use hash tags. Nested labels use `/`.
+
+```markdown
+#meeting
+#meeting/one-on-one
+#followup
+#delegated
+```
+
+Nested labels create hierarchy. Filtering `#meeting` includes
+`#meeting/one-on-one`.
+
+Labels are the main dynamic organization layer. A note does not need to live in a
+preselected notebook or section to be useful. The same note can appear in
+meeting, person, project, waiting, and timeline views because it contains
+readable labels and entities.
+
+### People
+
+Canonical people mentions use bracketed links:
+
+```markdown
+@[[Jane Doe]]
+```
+
+Bare `@jane` may be accepted as typing sugar, but generated output should prefer
+`@[[Jane Doe]]`. Emails, URLs, and social handles are separate entity types and
+do not automatically create canonical people.
+
+Examples that are not canonical people mentions:
+
+```markdown
+marc@example.com
+@marctjones
+@marc@example.social
+https://example.com
+```
+
+These may be detected as contact or URL entities, but they should not be merged
+into a person unless the user explicitly links them to a canonical person.
+
+### Links
+
+Workstreams and note links use wiki links:
+
+```markdown
+[[Acme Onboarding]]
+```
+
+Noet should not need both `[[...]]` and `+[[...]]` long term. Use one canonical
+link form.
+
+### Tasks
+
+Inline tasks use GitHub-style task list items:
+
+```markdown
+- [ ] Ask Jane about launch risks @[[Jane]] #followup due:2026-06-17
+- [x] Send NDA @[[Sam]] #delegated
+```
+
+Noet may support an in-progress marker:
+
+```markdown
+- [/] Draft onboarding checklist #mine
+```
+
+Task state mapping:
+
+- `- [ ]` is open.
+- `- [/]` is doing.
+- `- [x]` is done.
+
+Task labels describe workflow:
+
+- `#followup`: bring this up with the referenced person.
+- `#delegated`: someone else owns it; Noet should track it.
+- `#mine`: I own it.
+- `#someday`: not active.
+- `#waiting`: waiting for an external event or response.
+
+If no workflow label is present, the task defaults to normal active work.
+
+This keeps capture light during meetings. The user can type a normal Markdown
+task immediately, then add only the labels or properties that matter.
+
+### Properties
+
+Properties are general `key:value` tokens.
+
+```markdown
+due:2026-06-17
+start:2026-06-10
+repeat:1w
+priority:A
+src:gmail:18abc
+jira:PROJ-12
+ref:https://example.com/item
+```
+
+Properties attach by scope:
+
+- On a task line, properties attach to that task.
+- In the top note metadata area, properties attach to the note.
+- In a task note, top-level properties attach to the task note.
+
+Noet should avoid creating separate one-off syntaxes for due dates, priorities,
+external sources, or connector references. New structured metadata should fit
+this same property system unless there is a strong reason it cannot.
+
+## Scope
+
+Noet recognizes two simple scopes.
+
+### Note Metadata Area
+
+The note metadata area starts after the H1 and continues until the first section
+heading or ordinary prose paragraph. It is intended for labels, people, links,
+and note-level properties.
+
+```markdown
+# 1:1 with Jane
+
+#meeting/one-on-one
+@[[Jane]]
+[[Acme Onboarding]]
+date:2026-06-10
+
+## Notes
+Discussed launch risks.
+```
+
+### Task Line
+
+Labels, people, links, and properties on a task line attach to that task.
+
+```markdown
+- [ ] Ask Jane about launch risks @[[Jane]] #followup due:2026-06-17
+```
+
+Noet should not infer arbitrary associations from normal prose lines. Same-line
+association only matters for recognized structured lines such as tasks.
+
+## 1:1 Workflow
+
+A 1:1 note is just a meeting note with a nested meeting label and participant:
+
+```markdown
+# 1:1 with Jane
+
+#meeting/one-on-one
+@[[Jane]]
+
+## Follow-ups
+- [ ] Ask Jane about launch risks @[[Jane]] #followup due:2026-06-17
+- [ ] Draft onboarding checklist #mine due:2026-06-12
+- [ ] Ask Sam about NDA @[[Sam]] #delegated
+```
+
+The People view should surface open tasks involving a person even if those tasks
+came from old meeting notes. The user does not need to copy every follow-up into
+the next 1:1 note; Noet should collect and present them automatically.
+
+This is the central workflow:
+
+1. Take notes in the current meeting.
+2. Capture follow-ups inline as normal task-list items.
+3. Let Noet index people, labels, links, dates, and source location.
+4. Later, review all active follow-ups for that person even if they came from a
+   previous meeting, an email, or a promoted task note.
+5. Close, defer, or promote tasks without losing the source meeting context.
+
+## Promoting Inline Tasks
+
+Inline tasks can be promoted to full task notes when they need more context.
+
+Original note:
+
+```markdown
+- [ ] Ask Jane about launch risks @[[Jane]] #followup due:2026-06-17
+```
+
+Promoted task note:
+
+```markdown
+# Ask Jane about launch risks
+
+#task
+@[[Jane]]
+#followup
+source:[[1:1 with Jane#^launch-risks]]
+due:2026-06-17
+
+- [ ] Ask Jane about launch risks
+
+## Context
+Captured during 1:1 with Jane.
+```
+
+Original note after promotion:
+
+```markdown
+- [ ] [[Ask Jane about launch risks]] @[[Jane]] #followup due:2026-06-17 ^launch-risks
+```
+
+The promoted task note and original meeting line should stay linked.
+
+Promotion should be an explicit command, not magical content detection. The
+inline item remains understandable Markdown, and the full task note becomes a
+normal note with richer context.
+
+## Parser Architecture
+
+Noet should parse Markdown into a typed document model:
+
+- Markdown blocks: headings, paragraphs, lists, code blocks.
+- Noet entities: labels, people, links, URLs, emails, social handles.
+- Tasks: task marker, text, labels, people, links, properties, source span.
+- Properties: key, value, scope, validation result.
+
+Indexing, rendering, autocomplete, and rewrite commands should all consume this
+typed model. Avoid adding unrelated regex scans for each new feature.
+
+The parser should be platform-neutral core logic. macOS, Windows, and GNOME
+builds should all index the same vault the same way.
+
+## Migration
+
+Backward compatibility is not a product goal for this redesign. A one-time
+migration command may be provided for existing vaults, but the runtime grammar
+should be clean:
+
+- Convert `TODO(kind)` lines to `- [ ] ... #kind-equivalent`.
+- Convert `DOING(kind)` to `- [/] ...`.
+- Convert `DONE(kind)` to `- [x] ...`.
+- Convert `+[[Workstream]]` to `[[Workstream]]`.
+- Convert old 1:1 note markers to `#meeting/one-on-one`.
+
+After migration, the old syntax should not be emitted and should not shape the
+architecture.

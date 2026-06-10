@@ -1,7 +1,7 @@
 //! Todoist connector. Read tasks via the REST v2 API using a **personal API
 //! token** (Settings → Integrations → Developer in Todoist) — no OAuth, no IT.
 //! Tasks map naturally onto Noet's typed todos: priority → `[#A/B/C]`, project →
-//! `+[[Workstream]]`, labels → `#tags`, due → `due:`, plus a `src:todoist:` ref.
+//! `[[Workstream]]`, labels -> `#tags`, due -> `due:`, plus a `src:todoist:` ref.
 //!
 //! Pure parts (config, parsing, note shaping) are unit-tested; HTTP is thin IO.
 //! Tokens live in macOS Keychain on macOS, or in a private JSON fallback elsewhere.
@@ -203,8 +203,8 @@ fn urlencode(s: &str) -> String {
 }
 
 /// Render a Todoist task into a Noet note `(title, body)`: description as text,
-/// then a typed todo with priority, project (`+[[…]]`), labels (`#…`), due, and a
-/// `src:todoist:` back-link.
+/// then a task-list item with priority, project (`[[...]]`), labels (`#...`),
+/// due, and a `src:todoist:` back-link.
 pub fn task_to_note(task: &TodoistTask) -> (String, String) {
     let title = if task.content.trim().is_empty() {
         "Task".to_string()
@@ -216,14 +216,11 @@ pub fn task_to_note(task: &TodoistTask) -> (String, String) {
         body.push_str(task.description.trim());
         body.push_str("\n\n");
     }
-    let mut todo = String::from("TODO(do) ");
+    let mut todo = String::from("- [ ] ");
     let prio = priority_letter(task.priority);
-    if !prio.is_empty() {
-        todo.push_str(&format!("[#{prio}] "));
-    }
     todo.push_str(&title);
     if !task.project_name.trim().is_empty() {
-        todo.push_str(&format!(" +[[{}]]", task.project_name.trim()));
+        todo.push_str(&format!(" [[{}]]", task.project_name.trim()));
     }
     for label in &task.labels {
         if !label.trim().is_empty() {
@@ -232,6 +229,9 @@ pub fn task_to_note(task: &TodoistTask) -> (String, String) {
     }
     if !task.due.trim().is_empty() {
         todo.push_str(&format!(" due:{}", task.due.trim()));
+    }
+    if !prio.is_empty() {
+        todo.push_str(&format!(" priority:{prio}"));
     }
     if !task.id.trim().is_empty() {
         todo.push_str(&format!(" {TODOIST_REF_PREFIX}{}", task.id.trim()));
@@ -297,7 +297,7 @@ mod tests {
         let (title, body) = task_to_note(&t);
         assert_eq!(title, "Draft Q3 plan");
         assert!(body.contains("with the leads"));
-        assert!(body.contains("TODO(do) [#A] Draft Q3 plan +[[Planning]] #work #urgent due:2026-07-01 src:todoist:678"));
+        assert!(body.contains("- [ ] Draft Q3 plan [[Planning]] #work #urgent due:2026-07-01 priority:A src:todoist:678"));
     }
 
     #[test]

@@ -80,8 +80,8 @@ pub fn list_tasks(cfg: &GmailConfig, max_per_list: u32) -> Result<Vec<GoogleTask
 }
 
 /// Render a Google Task into a Noet note `(title, body)`: the task notes as text,
-/// then a todo filed under the list (`+[[List]]`) with the due date and a
-/// `src:gtask:` back-link.
+/// then a task-list item filed under the list (`[[List]]`) with the due date and
+/// a `src:gtask:` back-link.
 pub fn task_to_note(task: &GoogleTask) -> (String, String) {
     let title = if task.title.trim().is_empty() {
         "Task".to_string()
@@ -93,9 +93,9 @@ pub fn task_to_note(task: &GoogleTask) -> (String, String) {
         body.push_str(task.notes.trim());
         body.push_str("\n\n");
     }
-    let mut todo = format!("TODO(do) {title}");
+    let mut todo = format!("- [ ] {title}");
     if !task.list_title.trim().is_empty() {
-        todo.push_str(&format!(" +[[{}]]", task.list_title.trim()));
+        todo.push_str(&format!(" [[{}]]", task.list_title.trim()));
     }
     if !task.due.trim().is_empty() {
         todo.push_str(&format!(" due:{}", task.due.trim()));
@@ -143,6 +143,6 @@ mod tests {
         let (title, body) = task_to_note(&t);
         assert_eq!(title, "Renew domain");
         assert!(body.contains("via registrar"));
-        assert!(body.contains("TODO(do) Renew domain +[[Work]] due:2026-07-01 src:gtask:T1"));
+        assert!(body.contains("- [ ] Renew domain [[Work]] due:2026-07-01 src:gtask:T1"));
     }
 }

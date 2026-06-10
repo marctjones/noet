@@ -117,7 +117,7 @@ impl Backend {
         let mut binds: Vec<String> = Vec::new();
         if !f.tag.is_empty() {
             sql.push_str(
-                " JOIN tags tg ON tg.note_id = t.note_id AND (tg.tag = ? OR tg.tag LIKE ?)",
+                " JOIN task_tags tg ON tg.task_id = t.id AND (tg.tag = ? OR tg.tag LIKE ?)",
             );
             binds.push(f.tag.clone());
             binds.push(format!("{}/%", f.tag));
@@ -127,12 +127,14 @@ impl Backend {
             binds.push(Filter::like(&f.search));
         }
         if !f.project.is_empty() {
-            where_.push("(t.project = ? OR t.project LIKE ?)".into());
+            sql.push_str(
+                " JOIN task_links tl ON tl.task_id = t.id AND (tl.target = ? OR tl.target LIKE ?)",
+            );
             binds.push(f.project.clone());
             binds.push(format!("{}/%", f.project));
         }
         if !f.person.is_empty() {
-            where_.push("t.person = ?".into());
+            sql.push_str(" JOIN task_mentions tm ON tm.task_id = t.id AND tm.person = ?");
             binds.push(f.person.clone());
         }
         if !f.kind.is_empty() {

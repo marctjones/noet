@@ -27,11 +27,11 @@ pub use model::{
     Filter, MdBlock, Note, Project, RelatedNote, Segment, Todo, TodoFields, KINDS, STATUSES,
 };
 pub use parse::{
-    clean_inline, line_segments, markdown_blocks, parse_links, parse_mentions, parse_tags,
-    parse_todos,
+    clean_inline, line_segments, markdown_blocks, parse_links, parse_mentions, parse_properties,
+    parse_tags, parse_todos,
 };
 pub use settings::Settings;
-pub use vault::{detect_kind, effective_kind};
+pub use vault::{detect_kind, effective_kind, markdown_title, set_markdown_title};
 
 // Crate-internal types that submodules reach for via `super::`.
 pub(crate) use model::NamedFilter;

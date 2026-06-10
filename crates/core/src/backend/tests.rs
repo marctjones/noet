@@ -11,9 +11,9 @@ use std::path::Path;
 fn parses_typed_todos_and_tokens() {
     let body = "\
 - meeting notes\n\
-TODO(do) draft agenda +[[Acme]] due:2026-06-10 jira:PROJ-12\n\
-TODO(followup) check pricing @[[Jane]]\n\
-DONE(reading) skim the rust book\n";
+- [ ] draft agenda [[Acme]] due:2026-06-10 jira:PROJ-12\n\
+- [ ] check pricing @[[Jane]] #followup\n\
+- [x] skim the rust book #reading\n";
     let todos = parse_todos("N1", body);
     assert_eq!(todos.len(), 3);
 
@@ -54,7 +54,7 @@ fn kind_detection() {
 
 #[test]
 fn markdown_blocks_structure() {
-    let md = "# Title\n\nA para line\nsecond line.\n\n- one\n- two\n\n```\ncode here\n```\n> a quote\nTODO(do) ship it +[[X]]\n---\n";
+    let md = "# Title\n\nA para line\nsecond line.\n\n- one\n- two\n\n```\ncode here\n```\n> a quote\n- [ ] ship it [[X]]\n---\n";
     let b = markdown_blocks(md);
     let kinds: Vec<&str> = b.iter().map(|x| x.kind.as_str()).collect();
     assert_eq!(b[0].kind, "h1");
@@ -73,7 +73,7 @@ fn markdown_blocks_structure() {
 
 #[test]
 fn typst_fence_and_wikilink_cleanup() {
-    let md = "See [[Acme Onboarding]] and +[[Roadmap]] with @[[Jane Doe]] at https://x.io\n\n```typst\n#set page()\n= Hi\n```\n";
+    let md = "See [[Acme Onboarding]] and [[Roadmap]] with @[[Jane Doe]] at https://x.io\n\n```typst\n#set page()\n= Hi\n```\n";
     let b = markdown_blocks(md);
     // backend stores raw; cleaning + segmenting happen at render time
     let para = b.iter().find(|x| x.kind == "para").unwrap();
@@ -97,7 +97,7 @@ fn typst_fence_and_wikilink_cleanup() {
 
 #[test]
 fn extracts_wikilinks() {
-    let links = parse_links("see [[Acme Onboarding]] and +[[Acme Onboarding]] and [[Roadmap]]");
+    let links = parse_links("see [[Acme Onboarding]] and [[Acme Onboarding]] and [[Roadmap]]");
     assert_eq!(links, vec!["Acme Onboarding", "Roadmap"]); // deduped + sorted
 }
 
@@ -113,7 +113,7 @@ fn backend_roundtrip_and_toggle() {
     b.save_note(
         &note.id,
         "Kickoff",
-        "TODO(do) ship it +[[Acme]] due:2026-07-01\nlinked [[Roadmap]]\n",
+        "# Kickoff\n\n- [ ] ship it [[Acme]] due:2026-07-01\nlinked [[Roadmap]]\n",
     )
     .unwrap();
 
@@ -134,8 +134,8 @@ fn backend_roundtrip_and_toggle() {
     let todos = b.list_todos("all").unwrap();
     assert!(todos[0].done);
     let on_disk = std::fs::read_to_string(&note.path).unwrap();
-    assert!(on_disk.contains("DONE(do)"));
-    assert!(!on_disk.contains("TODO(do)"));
+    assert!(on_disk.contains("- [x] ship it"));
+    assert!(!on_disk.contains("- [ ] ship it"));
 
     // reindex from files reproduces the same state (index is disposable)
     b.reindex_all().unwrap();
@@ -153,15 +153,15 @@ fn people_stale_and_project_filters() {
     // A note last touched long ago, with a follow-up tied to Jane.
     std::fs::write(
         notes_dir.join("old.md"),
-        "---\nid: OLD\ntitle: Old\nupdated: 2000-01-01T00:00:00\nkind: markdown\n---\n\
-             TODO(followup) chase Jane on contract @[[Jane]] +[[Acme]]\n",
+        "---\nupdated: 2000-01-01T00:00:00\nkind: markdown\n---\n\
+             # Old\n\n- [ ] chase Jane on contract @[[Jane]] [[Acme]] #followup\n",
     )
     .unwrap();
     // A fresh note with a do-item tied to the same project.
     std::fs::write(
         notes_dir.join("new.md"),
         format!(
-            "---\nid: NEW\ntitle: New\nupdated: {}\nkind: markdown\n---\nTODO(do) ship +[[Acme]]\n",
+            "---\nupdated: {}\nkind: markdown\n---\n# New\n\n- [ ] ship [[Acme]]\n",
             Utc::now().format("%Y-%m-%dT%H:%M:%S")
         ),
     )
@@ -181,7 +181,7 @@ fn people_stale_and_project_filters() {
     // stale view: only the old follow-up qualifies (fresh do-item excluded)
     let stale = b.list_todos("stale").unwrap();
     assert_eq!(stale.len(), 1);
-    assert_eq!(stale[0].note_id, "OLD");
+    assert_eq!(stale[0].note_id, "old");
 
     // project view: Acme has both todos
     assert_eq!(b.list_todos("project:Acme").unwrap().len(), 2);
@@ -208,13 +208,10 @@ fn incremental_reindex_only_touches_changed_files() {
             .unwrap();
     };
 
-    write(
-        "a.md",
-        "---\nid: A\ntitle: Alpha\nkind: markdown\n---\nbody a\n",
-    );
+    write("a.md", "---\nkind: markdown\n---\n# Alpha\n\nbody a\n");
     write(
         "b.md",
-        "---\nid: B\ntitle: Beta\nkind: markdown\n---\nTODO(do) bee +[[P]]\n",
+        "---\nkind: markdown\n---\n# Beta\n\n- [ ] bee [[P]]\n",
     );
     set_mtime("a.md", 1000);
     set_mtime("b.md", 1000);
@@ -233,7 +230,7 @@ fn incremental_reindex_only_touches_changed_files() {
     // Edit a.md (new title + a todo) and advance its mtime; b.md untouched.
     write(
         "a.md",
-        "---\nid: A\ntitle: Alpha2\nkind: markdown\n---\nTODO(do) ay +[[P]]\n",
+        "---\nkind: markdown\n---\n# Alpha2\n\n- [ ] ay [[P]]\n",
     );
     set_mtime("a.md", 2000);
     assert_eq!(
@@ -268,10 +265,7 @@ fn incremental_reindex_only_touches_changed_files() {
     assert_eq!(b.list_todos("project:P").unwrap().len(), 1, "b's todo gone");
 
     // Add c.md → indexed; exactly one file re-parsed.
-    write(
-        "c.md",
-        "---\nid: C\ntitle: Gamma\nkind: markdown\n---\nbody c\n",
-    );
+    write("c.md", "---\nkind: markdown\n---\n# Gamma\n\nbody c\n");
     set_mtime("c.md", 3000);
     assert_eq!(b.reindex_incremental().unwrap(), 1, "new file indexed");
     assert_eq!(b.query_notes(&Filter::default()).unwrap().len(), 2);
@@ -283,8 +277,8 @@ fn incremental_reindex_only_touches_changed_files() {
 fn pdf_export_renders_noet_markup() {
     use super::export::markdown_to_typst;
     let body = "Notes about [[Acme]] and @[[Jane]] #urgent\n\
-                TODO(do) ship it +[[Acme]] @[[Sam]] due:2026-07-01 [#A]\n\
-                DONE(reading) old thing\n";
+                - [ ] ship it [[Acme]] @[[Sam]] due:2026-07-01 priority:A\n\
+                - [x] old thing #reading\n";
     let typ = markdown_to_typst("My note", body);
     // Inline entities become colored chips, not escaped literals.
     assert!(
@@ -297,11 +291,11 @@ fn pdf_export_renders_noet_markup() {
     assert!(typ.contains("due 2026-07-01"), "due chip rendered");
     assert!(typ.contains("strike"), "done todo struck through");
     assert!(
-        !typ.contains("TODO(do)"),
+        !typ.contains("- [ ] ship it"),
         "todo marker not dumped as literal text"
     );
     assert!(
-        !typ.contains("DONE(reading)"),
+        !typ.contains("- [x] old thing"),
         "done marker not dumped as literal text"
     );
 }
@@ -314,10 +308,10 @@ fn waiting_on_lists_open_delegated_by_person() {
     b.save_note(
         &n.id,
         "Delegations",
-        "TODO(delegated) ship NDA @[[Sam]]\n\
-         DONE(delegated) old thing @[[Sam]]\n\
-         TODO(delegated) review deck @[[Jane]]\n\
-         TODO(do) my own task\n",
+        "# Delegations\n\n- [ ] ship NDA @[[Sam]] #delegated\n\
+         - [x] old thing @[[Sam]] #delegated\n\
+         - [ ] review deck @[[Jane]] #delegated\n\
+         - [ ] my own task\n",
     )
     .unwrap();
 
@@ -377,9 +371,9 @@ fn status_tags_board_and_moves() {
         &note.id,
         "Sprint",
         "Sprint planning #urgent #q3\n\
-             TODO(do) build api +[[Platform]] start:2026-06-01 due:2026-06-10\n\
-             DOING(do) write tests +[[Platform]]\n\
-             TODO(followup) ask Sam @[[Sam]] #urgent\n",
+             - [ ] build api [[Platform]] start:2026-06-01 due:2026-06-10\n\
+             - [/] write tests [[Platform]]\n\
+             - [ ] ask Sam @[[Sam]] #followup #urgent\n",
     )
     .unwrap();
 
@@ -411,7 +405,7 @@ fn status_tags_board_and_moves() {
             ..Default::default()
         })
         .unwrap();
-    assert_eq!(urgent.len(), 3); // all todos live in the #urgent note
+    assert_eq!(urgent.len(), 1);
 
     // board grouped by status has 3 columns; build-api in "todo"
     let cols = b.board("status", &Filter::default()).unwrap();
@@ -430,7 +424,7 @@ fn status_tags_board_and_moves() {
     b.board_move(&id, "status", 1).unwrap();
     assert_eq!(b.get_todo(&id).unwrap().status, "doing");
     let on_disk = std::fs::read_to_string(&note.path).unwrap();
-    assert!(on_disk.contains("DOING(do) build api"));
+    assert!(on_disk.contains("- [/] build api"));
 
     std::fs::remove_dir_all(&dir).ok();
 }
@@ -462,7 +456,7 @@ fn add_update_and_drop_via_form() {
     assert_eq!(t.project, "Q3");
     assert_eq!(t.due, "2026-07-01");
     let disk = std::fs::read_to_string(&note.path).unwrap();
-    assert!(disk.contains("TODO(followup) ping vendor @[[Dana]] +[[Q3]] due:2026-07-01"));
+    assert!(disk.contains("- [ ] ping vendor @[[Dana]] [[Q3]] #followup due:2026-07-01"));
 
     // edit it: change kind + status + add a start date
     let mut f = TodoFields::from_todo(&b.get_todo(&id).unwrap());
@@ -494,7 +488,7 @@ fn priority_repeat_cycle_recurrence() {
     b.save_note(
         &note.id,
         "x",
-        "TODO(do) [#A] water plants +[[Home]] due:2026-06-10 repeat:1w\n",
+        "# x\n\n- [ ] water plants [[Home]] due:2026-06-10 priority:A repeat:1w\n",
     )
     .unwrap();
     let t = b.query_todos(&Filter::default()).unwrap()[0].clone();
@@ -587,8 +581,12 @@ fn related_notes_and_filing() {
     let dir = std::env::temp_dir().join(format!("noet-test-{}", ulid::Ulid::new()));
     let mut b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();
     let a = b.new_note().unwrap();
-    b.save_note(&a.id, "Acme kickoff", "minutes [[Client Acme]]\n")
-        .unwrap();
+    b.save_note(
+        &a.id,
+        "Acme kickoff",
+        "# Acme kickoff\n\nminutes [[Client Acme]]\n",
+    )
+    .unwrap();
 
     // a related note inherits the topic and back-links to the source
     let r = b.new_related_note(&a.id).unwrap();
@@ -606,7 +604,7 @@ fn related_notes_and_filing() {
 
     // filing an unfiled note adds it to the cluster
     let c = b.new_note().unwrap();
-    b.save_note(&c.id, "loose", "idea\n").unwrap();
+    b.save_note(&c.id, "loose", "# loose\n\nidea\n").unwrap();
     b.add_link(&c.id, "Client Acme").unwrap();
     let cluster2 = b
         .query_notes(&Filter {
@@ -725,7 +723,7 @@ fn typst_escape_covers_markup_chars() {
     // each special char gets a leading backslash
     assert_eq!(typst_escape("a#b"), r"a\#b");
     assert_eq!(typst_escape("[#A]"), r"\[\#A\]");
-    assert_eq!(typst_escape("@x +[[P]]"), r"\@x +\[\[P\]\]");
+    assert_eq!(typst_escape("@x [[P]]"), r"\@x \[\[P\]\]");
     assert_eq!(typst_escape("3 < 4 > 2 = 1"), r"3 \< 4 \> 2 \= 1");
     assert_eq!(
         typst_escape("*b* _i_ `c` $x$ ~ \\"),

@@ -102,7 +102,7 @@ fn gen_note(rng: &mut Lcg, i: usize) -> String {
         };
         let due = format!(" due:2026-{:02}-{:02}", rng.range(1, 12), rng.range(1, 28));
         s.push_str(&format!(
-            "TODO({kind}) Follow up on item with @{person} [[{ws}]] #{}{pstr}{due}\n",
+            "- [ ] Follow up on item with @{person} [[{ws}]] #{kind} #{}{pstr}{due}\n",
             rng.pick(TAGS),
         ));
     }

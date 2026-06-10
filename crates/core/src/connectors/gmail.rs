@@ -389,10 +389,11 @@ pub fn message_to_note(msg: &GmailMessage) -> (String, String) {
     } else {
         format!("\"{subject}\"")
     };
-    let mut todo = format!("TODO(followup) Follow up: {subj_for_todo}");
+    let mut todo = format!("- [ ] Follow up: {subj_for_todo}");
     if !who.is_empty() {
         todo.push_str(&format!(" @[[{who}]]"));
     }
+    todo.push_str(" #followup");
     if !msg.id.trim().is_empty() {
         todo.push_str(&format!(" {GMAIL_REF_PREFIX}{}", msg.id.trim()));
     }
@@ -490,9 +491,8 @@ mod tests {
             !body.contains("preview…"),
             "full body should win over the snippet"
         );
-        assert!(
-            body.contains(r#"TODO(followup) Follow up: "Q3 budget" @[[Jane Doe]] src:gmail:18abc"#)
-        );
+        assert!(body
+            .contains(r#"- [ ] Follow up: "Q3 budget" @[[Jane Doe]] #followup src:gmail:18abc"#));
         // with no body, the snippet is the fallback
         let m2 = GmailMessage {
             body: String::new(),

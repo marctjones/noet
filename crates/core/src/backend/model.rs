@@ -58,15 +58,8 @@ pub struct MdBlock {
     pub indent: i32,
 }
 
-/// The six todo kinds, in board-column order.
-pub const KINDS: [&str; 6] = [
-    "do",
-    "followup",
-    "delegated",
-    "todelegate",
-    "someday",
-    "reading",
-];
+/// Task workflow labels, in board-column order.
+pub const KINDS: [&str; 6] = ["do", "mine", "followup", "delegated", "waiting", "someday"];
 /// The three statuses, in board-column order.
 pub const STATUSES: [&str; 3] = ["todo", "doing", "done"];
 

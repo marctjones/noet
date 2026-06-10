@@ -10,8 +10,6 @@ use std::sync::OnceLock;
 
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 struct FrontMatter {
-    id: String,
-    title: String,
     #[serde(default)]
     created: String,
     #[serde(default)]
@@ -61,19 +59,10 @@ pub(crate) fn read_note(path: &Path) -> Result<Note> {
     } else {
         serde_yaml::from_str(&fm).unwrap_or_default()
     };
-    let id = if fm.id.is_empty() {
-        // derive a stable-ish id from the filename for legacy/hand-made files
-        path.file_stem().unwrap().to_string_lossy().to_string()
-    } else {
-        fm.id
-    };
+    let id = path.file_stem().unwrap().to_string_lossy().to_string();
     Ok(Note {
         id,
-        title: if fm.title.is_empty() {
-            first_line_title(&body)
-        } else {
-            fm.title
-        },
+        title: markdown_title(&body),
         created: fm.created,
         updated: fm.updated,
         kind: fm.kind,
@@ -93,18 +82,56 @@ fn split_frontmatter(raw: &str) -> (String, String) {
     (String::new(), raw.to_string())
 }
 
-fn first_line_title(body: &str) -> String {
+pub fn markdown_title(body: &str) -> String {
+    for line in body.lines() {
+        let trimmed = line.trim();
+        if let Some(title) = trimmed.strip_prefix("# ") {
+            let title = title.trim();
+            if !title.is_empty() {
+                return title.chars().take(80).collect();
+            }
+        }
+    }
     body.lines()
-        .map(|l| l.trim_start_matches(['#', '-', '*', ' ']))
-        .find(|l| !l.trim().is_empty())
-        .map(|l| l.chars().take(60).collect())
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .map(|l| {
+            l.trim_start_matches(['#', '-', '*', ' '])
+                .chars()
+                .take(80)
+                .collect()
+        })
         .unwrap_or_else(|| "Untitled".into())
+}
+
+pub fn set_markdown_title(body: &str, title: &str) -> String {
+    let title = title.trim();
+    let mut out = Vec::new();
+    let mut replaced = false;
+    for line in body.lines() {
+        if !replaced && line.trim_start().starts_with("# ") {
+            if !title.is_empty() {
+                out.push(format!("# {title}"));
+            }
+            replaced = true;
+        } else {
+            out.push(line.to_string());
+        }
+    }
+    if !replaced && !title.is_empty() {
+        let mut s = format!("# {title}\n\n");
+        s.push_str(body.trim_start_matches('\n'));
+        return s;
+    }
+    let mut s = out.join("\n");
+    if body.ends_with('\n') && !s.ends_with('\n') {
+        s.push('\n');
+    }
+    s
 }
 
 pub(crate) fn write_note(note: &Note) -> Result<()> {
     let fm = FrontMatter {
-        id: note.id.clone(),
-        title: note.title.clone(),
         created: note.created.clone(),
         updated: note.updated.clone(),
         kind: note.kind.clone(),

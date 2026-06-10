@@ -26,19 +26,19 @@ pub struct OutlookMail {
     /// (`src:outlook:<entry_id>`) and reopen it via COM. Empty if unknown.
     #[serde(default)]
     pub entry_id: String,
-    /// The flag's due date, if any (YYYY-MM-DD); maps to the review todo's `due:`.
+    /// The flag's due date, if any (YYYY-MM-DD); maps to the review task's `due:`.
     #[serde(default)]
     pub due: String,
-    /// Outlook categories (comma-separated). `Noet: <kind>` sets the review todo's
-    /// kind; `Noet/<Workstream>` (or `Noet: <Workstream>`) files it under a
-    /// workstream. See [`parse_categories`].
+    /// Outlook categories (comma-separated). `Noet: <workflow>` adds a review
+    /// task workflow label; `Noet/<Workstream>` files it under a workstream.
+    /// See [`parse_categories`].
     #[serde(default)]
     pub categories: String,
 }
 
-/// Map an item's Outlook categories to a review-todo `(kind, workstream)`.
+/// Map an item's Outlook categories to a review-task `(workflow, workstream)`.
 /// Recognises `Noet: <kind>` (a valid todo kind) and `Noet/<X>` / `Noet: <X>`
-/// (anything else → a `+[[X]]` workstream). A bare `Noet` (the opt-in marker)
+/// (anything else -> a `[[X]]` workstream). A bare `Noet` (the opt-in marker)
 /// and non-`Noet` categories are ignored. Pure + tested.
 pub(crate) fn parse_categories(categories: &str) -> (Option<String>, Option<String>) {
     let mut kind = None;
@@ -139,7 +139,7 @@ pub fn import_selected() -> Result<OutlookMail> {
 }
 
 /// Render an imported email into a Noet note: a `(title, body)` pair. The sender
-/// becomes an `@[[Person]]` mention and a `TODO(followup)` is seeded so the email
+/// becomes an `@[[Person]]` mention and a `#followup` task is seeded so the email
 /// lands as an actionable note. Pure + tested.
 pub fn mail_to_note(mail: &OutlookMail) -> (String, String) {
     let subject = mail.subject.trim();
@@ -184,12 +184,15 @@ pub fn mail_to_note(mail: &OutlookMail) -> (String, String) {
     } else {
         format!("\"{subject}\"")
     };
-    let mut todo = format!("TODO({kind}) Follow up: {subj_for_todo}");
+    let mut todo = format!("- [ ] Follow up: {subj_for_todo}");
     if !who.is_empty() {
         todo.push_str(&format!(" @[[{who}]]"));
     }
     if let Some(ws) = workstream {
-        todo.push_str(&format!(" +[[{ws}]]"));
+        todo.push_str(&format!(" [[{ws}]]"));
+    }
+    if kind != "do" {
+        todo.push_str(&format!(" #{kind}"));
     }
     if !mail.due.trim().is_empty() {
         todo.push_str(&format!(" due:{}", mail.due.trim()));
@@ -573,14 +576,14 @@ mod tests {
         assert!(body.contains("**From:** Jane Doe <jane@x.com>"));
         assert!(body.contains("**Received:** 2026-06-04T09:00:00"));
         assert!(body.contains("Numbers attached."));
-        assert!(body.contains(r#"TODO(followup) Follow up: "Budget review" @[[Jane Doe]]"#));
+        assert!(body.contains(r#"- [ ] Follow up: "Budget review" @[[Jane Doe]] #followup"#));
     }
 
     #[test]
     fn mail_to_note_degrades_when_fields_missing() {
         let (title, body) = mail_to_note(&OutlookMail::default());
         assert_eq!(title, "Email"); // empty subject -> fallback title
-        assert!(body.contains("TODO(followup) Follow up: this item"));
+        assert!(body.contains("- [ ] Follow up: this item #followup"));
         assert!(!body.contains("@[[")); // no sender -> no mention
         assert!(!body.contains("**From:**"));
         assert!(!body.contains("src:outlook:")); // no entry id -> no back-link
@@ -624,16 +627,15 @@ mod tests {
             ..Default::default()
         };
         let (_t, body) = mail_to_note(&mail);
-        assert!(body.contains("TODO(delegated) Follow up: \"NDA\""));
-        assert!(body.contains("+[[Legal]]"));
+        assert!(body.contains("- [ ] Follow up: \"NDA\" [[Legal]] #delegated"));
         assert!(body.contains("src:outlook:X1"));
         // no category -> defaults to followup, no workstream
         let (_t2, body2) = mail_to_note(&OutlookMail {
             subject: "Hi".into(),
             ..Default::default()
         });
-        assert!(body2.contains("TODO(followup) Follow up: \"Hi\""));
-        assert!(!body2.contains("+[["));
+        assert!(body2.contains("- [ ] Follow up: \"Hi\" #followup"));
+        assert!(!body2.contains("[["));
     }
 
     #[test]

@@ -326,7 +326,8 @@ fn headless_ui_smoke() {
     // through the same `rich-special` callback the component invokes, on a fresh
     // note so the list line is isolated. Indent prepends two spaces per level.
     ui.invoke_new_note();
-    ui.invoke_rich_insert_text("- item".into());
+    ui.invoke_rich_special("end".into());
+    ui.invoke_rich_insert_text("\n\n- item".into());
     let typed = ui.get_current_body().to_string();
     assert!(typed.contains("- item"), "list line typed: {typed:?}");
     assert!(
@@ -355,7 +356,7 @@ fn headless_ui_smoke() {
         let mut st = ctx.state.borrow_mut();
         let n = st.backend.new_note().unwrap();
         st.backend
-            .save_note(&n.id, "Seed", "seed +[[Acme]] @[[Jane]] #urgent\n")
+            .save_note(&n.id, "Seed", "# Seed\n\nseed [[Acme]] @[[Jane]] #urgent\n")
             .unwrap();
     }
     ctx.state.borrow_mut().backend.reindex_all().unwrap();
@@ -417,11 +418,19 @@ fn headless_ui_smoke() {
         let mut st = ctx.state.borrow_mut();
         let a = st.backend.new_note().unwrap();
         st.backend
-            .save_note(&a.id, "Acme kickoff", "[[Acme]] @[[Jane]]\n")
+            .save_note(
+                &a.id,
+                "Acme kickoff",
+                "# Acme kickoff\n\n[[Acme]] @[[Jane]]\n",
+            )
             .unwrap();
         let cur = st.backend.new_note().unwrap();
         st.backend
-            .save_note(&cur.id, "Acme sync today", "[[Acme]]\n")
+            .save_note(
+                &cur.id,
+                "Acme sync today",
+                "# Acme sync today\n\n[[Acme]]\n",
+            )
             .unwrap();
         cur_id = cur.id.clone();
     }
@@ -495,7 +504,7 @@ fn headless_ui_smoke() {
     );
 
     // ----- Level 7: open a todo → land on its line in the note (edit mode) -----
-    let nav_body = "# Meeting\n\nnotes\nTODO(do) follow up with @[[Jane]]\n";
+    let nav_body = "# Meeting\n\nnotes\n- [ ] follow up with @[[Jane]]\n";
     let nav_id;
     {
         let mut st = ctx.state.borrow_mut();
@@ -538,7 +547,11 @@ fn headless_ui_smoke() {
         let mut st = ctx.state.borrow_mut();
         let n = st.backend.new_note().unwrap();
         st.backend
-            .save_note(&n.id, "Deleg", "TODO(delegated) ship it @[[Sam]]\n")
+            .save_note(
+                &n.id,
+                "Deleg",
+                "# Deleg\n\n- [ ] ship it @[[Sam]] #delegated\n",
+            )
             .unwrap();
     }
     ctx.state.borrow_mut().backend.reindex_all().unwrap();
@@ -554,7 +567,11 @@ fn headless_ui_smoke() {
         let mut st = ctx.state.borrow_mut();
         let n = st.backend.new_note().unwrap();
         st.backend
-            .save_note(&n.id, "Acme work", "TODO(do) build it +[[Acme]]\n")
+            .save_note(
+                &n.id,
+                "Acme work",
+                "# Acme work\n\n- [ ] build it [[Acme]]\n",
+            )
             .unwrap();
     }
     ctx.state.borrow_mut().backend.reindex_all().unwrap();
@@ -605,11 +622,11 @@ fn headless_ui_smoke() {
         let mut st = ctx.state.borrow_mut();
         let a = st.backend.new_note().unwrap();
         st.backend
-            .save_note(&a.id, "Split A", "# A\nbody a\n")
+            .save_note(&a.id, "Split A", "# Split A\n\nbody a\n")
             .unwrap();
         let b = st.backend.new_note().unwrap();
         st.backend
-            .save_note(&b.id, "Split B", "# B\nbody b\n")
+            .save_note(&b.id, "Split B", "# Split B\n\nbody b\n")
             .unwrap();
         note_a = a.id.clone();
         note_b = b.id.clone();
@@ -650,12 +667,8 @@ fn headless_ui_smoke() {
 /// as a second test in this process since it never initializes the toolkit).
 #[test]
 fn ac_detect_grammar() {
-    // Workstream / project: `[[` or `+[[`, kind "project".
+    // Workstream / project: `[[`, kind "project".
     assert_eq!(ac_detect("see [[Ac"), Some(("project", "Ac".into())));
-    assert_eq!(
-        ac_detect("do +[[Acme Co"),
-        Some(("project", "Acme Co".into()))
-    );
     assert_eq!(ac_detect("x [["), Some(("project", "".into())));
     // Person: `@[[`, kind "person".
     assert_eq!(ac_detect("ping @[[Ja"), Some(("person", "Ja".into())));
@@ -676,14 +689,14 @@ fn ac_detect_grammar() {
 /// Char offset for "jump to a todo's line" when opening its note from a task/card.
 #[test]
 fn line_char_offset_lands_on_the_right_line() {
-    let body = "# Title\n\nTODO(do) first\nTODO(followup) second\n";
+    let body = "# Title\n\n- [ ] first\n- [ ] second #followup\n";
     assert_eq!(line_char_offset(body, 0), 0);
     assert_eq!(line_char_offset(body, 1), 8, "after '# Title\\n'");
     assert_eq!(line_char_offset(body, 2), 9, "after the blank line");
-    // line 3 starts right after "TODO(do) first\n"
+    // line 3 starts right after "- [ ] first\n"
     assert_eq!(
         line_char_offset(body, 3),
-        9 + "TODO(do) first\n".chars().count()
+        9 + "- [ ] first\n".chars().count()
     );
     // past the end clamps to total length (no panic)
     assert_eq!(line_char_offset(body, 99), body.chars().count());

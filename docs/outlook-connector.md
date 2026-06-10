@@ -6,8 +6,9 @@
 > reconciliation (create / resolve+archive / **re-flag→reopen** / push-back+archive),
 > and push-back via `MarkComplete`. The pure logic (reconcile, parsing, note
 > shaping) is unit-tested on every OS; the COM calls run only on Windows. Semantic
-> categories are mapped too: `Noet: <kind>` sets the review todo's kind and
-> `Noet/<Workstream>` (or `Noet: <Workstream>`) files it under a workstream. Not
+> categories are mapped too: `Noet: Followup` / `Noet: Delegated` add workflow
+> labels such as `#followup`, and `Noet/<Workstream>` files it under a
+> `[[Workstream]]` link. Not
 > yet: the `kind: outlook` review type + dedicated "Needs review" inbox,
 > Calendar/Task items, sync-on-app-open, and the opt-in periodic poll (today it's
 > the File ▸ "Sync flagged Outlook mail" action).
@@ -25,8 +26,8 @@ emails the user has marked in Outlook:
 
 - a **follow-up Flag**, or
 - a **Category** named `Noet` (optionally semantic: `Noet: Followup`,
-  `Noet/Platform` mirroring a workstream — the category can encode the todo kind
-  or target workstream).
+  `Noet: Delegated`, or `Noet/Platform` mirroring a workstream — the category can
+  encode the workflow label or target workstream).
 
 This keeps it intentional and low-noise. The same mechanism works for Calendar
 items and Tasks (categories exist there too).
@@ -38,8 +39,8 @@ On each sync, for every newly-marked email, Noet creates:
 1. A **review note** — `kind: outlook` (a special note type that reads as "needs
    review"), carrying the email's **subject, sender, received date**, and a
    stable **`src:outlook:<EntryID>`** link back to the message.
-2. An auto-created **review todo** inside it:
-   `TODO(followup) Review: <subject> src:outlook:<EntryID>`
+2. An auto-created **review task** inside it:
+   `- [ ] Review: <subject> #followup src:outlook:<EntryID>`
    — if the Outlook flag has a **due date**, it maps to the todo's `due:`.
 
 These surface in the **"Needs review" inbox** and in Tasks / Agenda.
@@ -57,12 +58,12 @@ two sets of `EntryID`:
 | Case | Action |
 |---|---|
 | in A, not in B | create the review note + todo |
-| in B, not in A (flag cleared, category removed, email deleted/moved) | mark the review todo **DONE** and **archive** the note — never delete it (you may have added your own content); re-flagging later **reopens / un-archives** it |
+| in B, not in A (flag cleared, category removed, email deleted/moved) | mark the review task `- [x]` and **archive** the note — never delete it (you may have added your own content); re-flagging later **reopens / un-archives** it |
 | in both | leave it; optionally refresh the snapshot (subject/due changed) |
 
 ## Push-back (Noet → Outlook)
 
-Symmetric. When you **complete the review todo in Noet**, Noet writes back via
+Symmetric. When you **complete the review task in Noet**, Noet writes back via
 COM — **mark the follow-up flag complete** (or swap category `Noet → Noet ✓`) —
 so it stops re-importing and Outlook shows you handled it. Finish in *either*
 place; the *other* catches up on the next sync.

@@ -2,7 +2,7 @@
 //! lifecycle. Markdown files are the source of truth — every table here is
 //! rebuilt from them and can be thrown away.
 
-use super::parse::{parse_links, parse_mentions, parse_tags, parse_todos};
+use super::parse::{parse_links, parse_mentions, parse_properties, parse_tags, parse_todos};
 use super::vault::read_note;
 use super::{Backend, Note};
 use anyhow::Result;
@@ -33,6 +33,10 @@ fn delete_note_rows(tx: &rusqlite::Transaction, id: &str, fts: bool) -> Result<(
     tx.execute("DELETE FROM tags WHERE note_id=?", [id])?;
     tx.execute("DELETE FROM mentions WHERE note_id=?", [id])?;
     tx.execute("DELETE FROM todos WHERE note_id=?", [id])?;
+    tx.execute("DELETE FROM task_links WHERE note_id=?", [id])?;
+    tx.execute("DELETE FROM task_tags WHERE note_id=?", [id])?;
+    tx.execute("DELETE FROM task_mentions WHERE note_id=?", [id])?;
+    tx.execute("DELETE FROM task_properties WHERE note_id=?", [id])?;
     Ok(())
 }
 
@@ -55,7 +59,7 @@ pub(crate) fn fts_query(s: &str) -> String {
 /// and the background reindex (live/manual). Files remain the source of truth.
 pub fn reindex_connection(conn: &mut Connection, vault: &Path, fts: bool) -> Result<()> {
     let tx = conn.transaction()?;
-    tx.execute_batch("DELETE FROM notes; DELETE FROM links; DELETE FROM tags; DELETE FROM mentions; DELETE FROM todos;")?;
+    tx.execute_batch("DELETE FROM notes; DELETE FROM links; DELETE FROM tags; DELETE FROM mentions; DELETE FROM todos; DELETE FROM task_links; DELETE FROM task_tags; DELETE FROM task_mentions; DELETE FROM task_properties;")?;
     if fts {
         let _ = tx.execute_batch("DELETE FROM notes_fts;");
     }
@@ -222,6 +226,10 @@ impl Backend {
             DROP TABLE IF EXISTS tags;
             DROP TABLE IF EXISTS mentions;
             DROP TABLE IF EXISTS todos;
+            DROP TABLE IF EXISTS task_links;
+            DROP TABLE IF EXISTS task_tags;
+            DROP TABLE IF EXISTS task_mentions;
+            DROP TABLE IF EXISTS task_properties;
             CREATE TABLE notes(
                 id TEXT PRIMARY KEY, title TEXT, path TEXT,
                 created TEXT, updated TEXT, kind TEXT, body TEXT, archived INTEGER,
@@ -233,10 +241,18 @@ impl Backend {
                 id TEXT PRIMARY KEY, note_id TEXT, kind TEXT, status TEXT, text TEXT,
                 project TEXT, person TEXT, start TEXT, due TEXT, external TEXT,
                 priority TEXT, repeat TEXT, done INTEGER, line_no INTEGER);
+            CREATE TABLE task_links(task_id TEXT, note_id TEXT, target TEXT);
+            CREATE TABLE task_tags(task_id TEXT, note_id TEXT, tag TEXT);
+            CREATE TABLE task_mentions(task_id TEXT, note_id TEXT, person TEXT);
+            CREATE TABLE task_properties(task_id TEXT, note_id TEXT, key TEXT, value TEXT);
             CREATE INDEX idx_todos_note ON todos(note_id);
             CREATE INDEX idx_links_note ON links(note_id);
             CREATE INDEX idx_tags_note ON tags(note_id);
             CREATE INDEX idx_mentions_note ON mentions(note_id);
+            CREATE INDEX idx_task_links_task ON task_links(task_id);
+            CREATE INDEX idx_task_tags_task ON task_tags(task_id);
+            CREATE INDEX idx_task_mentions_task ON task_mentions(task_id);
+            CREATE INDEX idx_task_properties_task ON task_properties(task_id);
             "#,
         )?;
         // FTS5 full-text index for note search; gracefully skip if unavailable.
@@ -352,6 +368,11 @@ impl Backend {
             )?;
         }
         tx.execute("DELETE FROM todos WHERE note_id=?", [&note.id])?;
+        tx.execute("DELETE FROM task_links WHERE note_id=?", [&note.id])?;
+        tx.execute("DELETE FROM task_tags WHERE note_id=?", [&note.id])?;
+        tx.execute("DELETE FROM task_mentions WHERE note_id=?", [&note.id])?;
+        tx.execute("DELETE FROM task_properties WHERE note_id=?", [&note.id])?;
+        let lines: Vec<&str> = note.body.lines().collect();
         for t in parse_todos(&note.id, &note.body) {
             tx.execute(
                 "INSERT OR REPLACE INTO todos(id,note_id,kind,status,text,project,person,start,due,external,priority,repeat,done,line_no)
@@ -361,6 +382,31 @@ impl Backend {
                     t.start, t.due, t.external, t.priority, t.repeat, t.done as i64, t.line_no as i64
                 ],
             )?;
+            let line = lines.get(t.line_no).copied().unwrap_or("");
+            for target in parse_links(line) {
+                tx.execute(
+                    "INSERT INTO task_links(task_id,note_id,target) VALUES(?,?,?)",
+                    rusqlite::params![t.id, note.id, target],
+                )?;
+            }
+            for tag in parse_tags(line) {
+                tx.execute(
+                    "INSERT INTO task_tags(task_id,note_id,tag) VALUES(?,?,?)",
+                    rusqlite::params![t.id, note.id, tag],
+                )?;
+            }
+            for person in parse_mentions(line) {
+                tx.execute(
+                    "INSERT INTO task_mentions(task_id,note_id,person) VALUES(?,?,?)",
+                    rusqlite::params![t.id, note.id, person],
+                )?;
+            }
+            for (key, value) in parse_properties(line) {
+                tx.execute(
+                    "INSERT INTO task_properties(task_id,note_id,key,value) VALUES(?,?,?,?)",
+                    rusqlite::params![t.id, note.id, key, value],
+                )?;
+            }
         }
         Ok(())
     }
