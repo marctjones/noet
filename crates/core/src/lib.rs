@@ -11,4 +11,9 @@ pub mod backend;
 
 // Re-export the common types so frontends can `use noet_core::{Backend, Filter, …}`
 // without reaching into module paths.
-pub use backend::{Backend, Filter, Note, Project, Segment, Todo, TodoFields};
+pub use backend::{
+    Backend, BoardColumn, BoardModel, Filter, LabelContext, LabelReview, LabelSummary, Note,
+    NoteContext, NoteFacts, NoteSummary, OneOnOneContext, ParsedNote, Project, PropertyFact,
+    Segment, TaskFact, TaskReview, TaskSource, TaskStatus, TaskWorkflow, Todo, TodoFields,
+    WaitingGroup, WaitingReview,
+};

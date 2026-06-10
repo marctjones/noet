@@ -35,6 +35,8 @@ Implemented foundation:
   `noet-gui`.
 - Workspaces, panes, surfaces, selection state, navigation state, app commands,
   and workspace presets are implemented and unit tested.
+- `noet-core` exposes workflow read models for parsed note facts, note context,
+  1:1 context, task review, waiting review, board columns, and label review.
 - The current GUI is still being migrated to this model.
 
 ## Core Ideas

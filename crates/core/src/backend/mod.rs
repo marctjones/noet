@@ -8,6 +8,7 @@
 //! - [`index`] — the disposable SQLite schema, (re)indexing, open lifecycle.
 //! - [`query`] — read-only queries that power every view.
 //! - [`mutate`] — every operation that changes the vault.
+//! - [`workflow`] — typed read models for workspaces and reviews.
 //! - [`render`] — Typst rendering for the read view.
 //! - [`export`] — per-note Markdown / PDF export.
 
@@ -20,6 +21,7 @@ mod query;
 mod render;
 mod settings;
 mod vault;
+mod workflow;
 
 // The public surface frontends consume as `noet_core::backend::*`.
 pub use index::{background_reindex, reindex_connection};
@@ -32,6 +34,11 @@ pub use parse::{
 };
 pub use settings::Settings;
 pub use vault::{detect_kind, effective_kind, markdown_title, set_markdown_title};
+pub use workflow::{
+    BoardColumn, BoardModel, LabelContext, LabelReview, LabelSummary, NoteContext, NoteFacts,
+    NoteSummary, OneOnOneContext, ParsedNote, PropertyFact, TaskFact, TaskReview, TaskSource,
+    TaskStatus, TaskWorkflow, WaitingGroup, WaitingReview,
+};
 
 // Crate-internal types that submodules reach for via `super::`.
 pub(crate) use model::NamedFilter;

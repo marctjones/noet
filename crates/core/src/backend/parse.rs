@@ -429,8 +429,8 @@ pub fn parse_todos(note_id: &str, body: &str) -> Vec<Todo> {
 
             // Clean display text: drop the tokens we lifted into fields.
             let mut text = rest.clone();
-            text = link_re().replace_all(&text, "").to_string();
             text = person_re().replace_all(&text, " ").to_string();
+            text = link_re().replace_all(&text, "").to_string();
             text = tag_re().replace_all(&text, " ").to_string();
             text = property_re().replace_all(&text, " ").to_string();
             let text = text.split_whitespace().collect::<Vec<_>>().join(" ");

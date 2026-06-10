@@ -931,3 +931,165 @@ fn index_lives_outside_vault_and_migrates_legacy() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn parsed_note_exposes_markdown_facts_and_primary_task() {
+    let dir = std::env::temp_dir().join(format!("noet-test-{}", ulid::Ulid::new()));
+    let notes_dir = dir.join("notes");
+    std::fs::create_dir_all(&notes_dir).unwrap();
+    std::fs::write(
+        notes_dir.join("task-note.md"),
+        "---\nupdated: 2026-06-10T09:00:00\nkind: markdown\n---\n\
+         - [ ] Draft proposal @[[Jane Smith]] [[Client/Acme]] #mine due:2026-06-20 priority:A\n\
+         Supporting context #meeting/one-on-one\n",
+    )
+    .unwrap();
+
+    let b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();
+    let parsed = b.parsed_note("task-note").unwrap();
+
+    assert_eq!(parsed.facts.tasks.len(), 1);
+    let task = parsed.facts.primary_task.as_ref().unwrap();
+    assert_eq!(task.text, "Draft proposal");
+    assert_eq!(task.status, TaskStatus::Todo);
+    assert_eq!(task.workflow, TaskWorkflow::Mine);
+    assert_eq!(task.people, vec!["Jane Smith"]);
+    assert_eq!(task.workstreams, vec!["Client/Acme"]);
+    assert_eq!(task.property("due"), Some("2026-06-20"));
+    assert_eq!(task.property("priority"), Some("A"));
+    assert!(parsed
+        .facts
+        .labels
+        .iter()
+        .any(|label| label == "meeting/one-on-one"));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn one_on_one_context_tracks_history_and_open_followups() {
+    let dir = std::env::temp_dir().join(format!("noet-test-{}", ulid::Ulid::new()));
+    let notes_dir = dir.join("notes");
+    std::fs::create_dir_all(&notes_dir).unwrap();
+    std::fs::write(
+        notes_dir.join("jane-old.md"),
+        "---\nupdated: 2026-06-01T09:00:00\nkind: markdown\n---\n\
+         # Jane 1:1 old\n\n#meeting/one-on-one\n@[[Jane Smith]]\n\
+         - [ ] Revisit hiring plan @[[Jane Smith]] #followup\n",
+    )
+    .unwrap();
+    std::fs::write(
+        notes_dir.join("jane-new.md"),
+        "---\nupdated: 2026-06-08T09:00:00\nkind: markdown\n---\n\
+         # Jane 1:1 current\n\n#meeting/one-on-one\n@[[Jane Smith]]\n\
+         - [ ] Ask about launch risks @[[Jane Smith]] #followup due:2026-06-17 priority:A\n\
+         - [ ] Send onboarding notes @[[Jane Smith]] #delegated\n\
+         - [ ] Waiting for budget answer @[[Jane Smith]] #waiting\n\
+         - [ ] My unrelated item #mine\n",
+    )
+    .unwrap();
+    std::fs::write(
+        notes_dir.join("sam-new.md"),
+        "---\nupdated: 2026-06-08T10:00:00\nkind: markdown\n---\n\
+         # Sam 1:1 current\n\n#meeting/one-on-one\n@[[Sam Lee]]\n\
+         - [ ] Sam task @[[Sam Lee]] #followup\n",
+    )
+    .unwrap();
+
+    let b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();
+    let ctx = b.one_on_one_context("Jane Smith").unwrap();
+
+    assert_eq!(ctx.history.len(), 2);
+    assert_eq!(ctx.previous_notes.len(), 1);
+    assert_eq!(
+        ctx.current_note.as_ref().unwrap().note.title,
+        "Jane 1:1 current"
+    );
+    assert_eq!(
+        ctx.followups.len(),
+        2,
+        "current and previous follow-ups carry forward"
+    );
+    assert_eq!(ctx.delegated.len(), 1);
+    assert_eq!(ctx.waiting.len(), 1);
+    assert_eq!(
+        ctx.open_items
+            .iter()
+            .filter(|task| task.people.iter().any(|person| person == "Jane Smith"))
+            .count(),
+        ctx.open_items.len(),
+        "1:1 open items are scoped to the selected person"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn task_waiting_board_and_label_reviews_group_indexed_facts() {
+    let dir = std::env::temp_dir().join(format!("noet-test-{}", ulid::Ulid::new()));
+    let notes_dir = dir.join("notes");
+    std::fs::create_dir_all(&notes_dir).unwrap();
+    std::fs::write(
+        notes_dir.join("review.md"),
+        "---\nupdated: 2026-06-10T09:00:00\nkind: markdown\n---\n\
+         # Review\n\n#project/acme\n\
+         - [ ] Draft checklist #mine #project/acme due:2000-01-01\n\
+         - [ ] Ask Jane @[[Jane Smith]] #followup #project/acme\n\
+         - [ ] Send NDA @[[Sam Lee]] #delegated #project/acme\n\
+         - [ ] Waiting for security review @[[Jane Smith]] #waiting #security\n\
+         - [ ] Someday cleanup #someday\n\
+         - [x] Done item #mine #project/acme\n",
+    )
+    .unwrap();
+
+    let b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();
+    let review = b.task_review().unwrap();
+    assert_eq!(review.open.len(), 5);
+    assert_eq!(review.overdue.len(), 1);
+    assert_eq!(review.mine.len(), 1);
+    assert_eq!(review.followups.len(), 1);
+    assert_eq!(review.delegated.len(), 1);
+    assert_eq!(review.waiting.len(), 1);
+    assert_eq!(review.someday.len(), 1);
+
+    let waiting = b.waiting_review().unwrap();
+    assert_eq!(waiting.groups.len(), 2);
+    assert!(waiting
+        .groups
+        .iter()
+        .any(|group| group.person == "Jane Smith"));
+    assert!(waiting.groups.iter().any(|group| group.person == "Sam Lee"));
+
+    let board = b
+        .board_model(
+            "kind",
+            &Filter {
+                status: "open".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert!(board
+        .columns
+        .iter()
+        .any(|column| column.key == "followup" && column.tasks.len() == 1));
+    assert!(board
+        .columns
+        .iter()
+        .any(|column| column.key == "delegated" && column.tasks.len() == 1));
+
+    let label_review = b.label_review().unwrap();
+    let acme = label_review
+        .labels
+        .iter()
+        .find(|label| label.name == "project/acme")
+        .unwrap();
+    assert_eq!(acme.note_count, 1);
+    assert_eq!(acme.open_task_count, 3);
+
+    let acme_context = b.label_context("project/acme").unwrap();
+    assert_eq!(acme_context.notes.len(), 1);
+    assert_eq!(acme_context.open_tasks.len(), 3);
+
+    std::fs::remove_dir_all(&dir).ok();
+}
