@@ -43,6 +43,9 @@ Implemented foundation:
   ad hoc GUI todo queries.
 - Inline tasks can be promoted into full task notes while leaving a linked
   source-line reference behind in the original note.
+- The 1:1 Focus workspace can show prior 1:1 history, navigate between 1:1
+  notes, and resolve or carry forward unresolved follow-ups from the previous
+  1:1.
 - Daily workflow screens are still being migrated onto the new workspace shell;
   the 1:1, task, board, and review flows are the active MVP path.
 
@@ -132,6 +135,9 @@ For a selected person, Noet should show:
 
 The People browser is navigation. It should not be required after the person is
 selected.
+
+The current workspace lets unresolved follow-ups from the previous 1:1 remain
+visible until they are resolved or carried into the current 1:1 note.
 
 ### Tasks
 

@@ -569,6 +569,22 @@ fn headless_ui_smoke() {
                 "# Alice 1:1\n\n- [ ] follow up @[[Alice]] #followup\n- [ ] delegate back to @[[Alice]] #delegated\n",
             )
             .unwrap();
+        let previous = st.backend.new_note().unwrap();
+        st.backend
+            .save_note(
+                &previous.id,
+                "Alice previous 1:1",
+                "# Alice previous 1:1\n\n#meeting/one-on-one\n@[[Alice]]\n\n- [ ] review budget @[[Alice]] #followup\n",
+            )
+            .unwrap();
+        let current = st.backend.new_note().unwrap();
+        st.backend
+            .save_note(
+                &current.id,
+                "Alice current 1:1",
+                "# Alice current 1:1\n\n#meeting/one-on-one\n@[[Alice]]\n\nCurrent notes.\n",
+            )
+            .unwrap();
     }
     ctx.state.borrow_mut().backend.reindex_all().unwrap();
     refresh(ui, &ctx.state.borrow());
@@ -617,6 +633,47 @@ fn headless_ui_smoke() {
     assert!(
         !ui.get_workspace_left_open(),
         "selecting a person closes the navigation drawer, not the workspace"
+    );
+    assert!(
+        ui.get_person_oneonone_count() >= 2,
+        "1:1 focus exposes historical 1:1 notes"
+    );
+    assert!(
+        !ui.get_person_next_oneonone_id().is_empty(),
+        "current 1:1 can navigate to the previous meeting"
+    );
+    assert!(
+        ui.get_person_last_followups().row_count() >= 1,
+        "unresolved prior follow-ups are surfaced for carryover"
+    );
+    let carryover = ui.get_person_last_followups().row_data(0).unwrap();
+    ui.invoke_carry_followup(carryover.id.clone());
+    assert!(
+        ui.get_current_body().contains("review budget"),
+        "carryover copies the prior follow-up into the current 1:1"
+    );
+    ui.invoke_resolve_followup(carryover.id.clone());
+    assert!(
+        ctx.state
+            .borrow()
+            .backend
+            .get_todo(&carryover.id)
+            .unwrap()
+            .done,
+        "resolve marks the prior follow-up done"
+    );
+    let current_title = ui.get_current_title().to_string();
+    let next_oneonone = ui.get_person_next_oneonone_id();
+    ui.invoke_select_note(next_oneonone.clone());
+    assert_ne!(
+        ui.get_current_title(),
+        current_title,
+        "history navigation opens a different 1:1 note"
+    );
+    assert_eq!(
+        ui.get_person_oneonone_index(),
+        1,
+        "history navigation updates the 1:1 index"
     );
 
     // ----- Level 13: workspace prototype keeps navigation separate from work -----

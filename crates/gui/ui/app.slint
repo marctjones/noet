@@ -489,10 +489,13 @@ component CommitmentRow inherits Rectangle {
 // A compact todo row used by the Agenda view.
 component AgendaRow inherits Rectangle {
     in property <TodoItem> t;
+    in property <bool> followup-actions: false;
     callback cycle(string);
     callback edit(string);
     callback open(string);
     callback promote(string);
+    callback resolve(string);
+    callback carry(string);
     height: 38px;
     border-radius: 5px;
     background: ar.has-hover ? Theme.surface3 : transparent;
@@ -519,6 +522,8 @@ component AgendaRow inherits Rectangle {
         }
         Chip { text: t.due; tint: #fde7ea; ink: #9a1b33; }
         Chip { text: t.project; tint: #e7f7ec; ink: #1f7a44; }
+        if root.followup-actions: MiniBtn { icon: Icons.check; a11y: "Resolve follow-up"; clicked => { root.resolve(t.id); } }
+        if root.followup-actions: MiniBtn { icon: Icons.copy; a11y: "Carry into current 1:1"; clicked => { root.carry(t.id); } }
         MiniBtn { icon: Icons.notes; a11y: "Promote task to note"; clicked => { root.promote(t.id); } }
         MiniBtn { icon: Icons.edit; a11y: "Edit task"; clicked => { root.edit(t.id); } }
         MiniBtn { icon: Icons.external; a11y: "Open source note"; clicked => { root.open(t.id); } }
@@ -1187,6 +1192,8 @@ export component AppWindow inherits Window {
                                                     }
                                                     HorizontalLayout {
                                                         spacing: 6px;
+                                                        if root.person-prev-oneonone-id != "": ActionButton { icon: Icons.panel-left; label: "Previous"; clicked => { root.select-note(root.person-prev-oneonone-id); } }
+                                                        if root.person-next-oneonone-id != "": ActionButton { icon: Icons.panel-right; label: "Next"; clicked => { root.select-note(root.person-next-oneonone-id); } }
                                                         ActionButton { icon: Icons.meeting; label: "New 1:1"; primary: true; clicked => { root.new-from-template("oneonone"); } }
                                                         ActionButton { icon: Icons.check; label: "Add task"; clicked => { root.open-add-todo(); } }
                                                     }
@@ -1477,32 +1484,64 @@ export component AppWindow inherits Window {
                                         SectionTitle { title: "QUEUE"; detail: "follow-up work"; accent: #b8742e; horizontal-stretch: 1; }
                                         CloseX { a11y: "Close queue pane"; closed => { root.workspace-close-pane(root.workspace-bottom-pane-id); } }
                                     }
-                                    HorizontalLayout {
-                                        spacing: 8px;
-                                        PaneSection {
-                                            horizontal-stretch: 1;
-                                            title: "Follow-ups";
-                                            detail: root.person-discuss.length + " open";
-                                            accent: #b8742e;
-                                            for t in root.person-discuss: AgendaRow {
-                                                t: t;
-                                                cycle(id) => { root.cycle-todo(id); }
-                                                edit(id) => { root.edit-todo(id); }
-                                                open(id) => { root.open-note(id); }
-                                                promote(id) => { root.promote-task(id); }
+                                    ScrollView {
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            PaneSection {
+                                                width: 300px;
+                                                title: "From last 1:1";
+                                                detail: root.person-last-followups.length + " unresolved";
+                                                accent: #9a5b1b;
+                                                if root.person-last-followups.length == 0: EmptyState { glyph: "✓"; title: "No carryover"; hint: "Unresolved prior follow-ups will appear here."; }
+                                                for t in root.person-last-followups: AgendaRow {
+                                                    t: t;
+                                                    followup-actions: true;
+                                                    cycle(id) => { root.cycle-todo(id); }
+                                                    edit(id) => { root.edit-todo(id); }
+                                                    open(id) => { root.open-note(id); }
+                                                    promote(id) => { root.promote-task(id); }
+                                                    resolve(id) => { root.resolve-followup(id); }
+                                                    carry(id) => { root.carry-followup(id); }
+                                                }
                                             }
-                                        }
-                                        PaneSection {
-                                            horizontal-stretch: 1;
-                                            title: "Delegated";
-                                            detail: root.person-delegated.length + " open";
-                                            accent: #3a8c63;
-                                            for t in root.person-delegated: AgendaRow {
-                                                t: t;
-                                                cycle(id) => { root.cycle-todo(id); }
-                                                edit(id) => { root.edit-todo(id); }
-                                                open(id) => { root.open-note(id); }
-                                                promote(id) => { root.promote-task(id); }
+                                            PaneSection {
+                                                width: 300px;
+                                                title: "Follow-ups";
+                                                detail: root.person-discuss.length + " open";
+                                                accent: #b8742e;
+                                                for t in root.person-discuss: AgendaRow {
+                                                    t: t;
+                                                    cycle(id) => { root.cycle-todo(id); }
+                                                    edit(id) => { root.edit-todo(id); }
+                                                    open(id) => { root.open-note(id); }
+                                                    promote(id) => { root.promote-task(id); }
+                                                }
+                                            }
+                                            PaneSection {
+                                                width: 300px;
+                                                title: "Delegated";
+                                                detail: root.person-delegated.length + " open";
+                                                accent: #3a8c63;
+                                                for t in root.person-delegated: AgendaRow {
+                                                    t: t;
+                                                    cycle(id) => { root.cycle-todo(id); }
+                                                    edit(id) => { root.edit-todo(id); }
+                                                    open(id) => { root.open-note(id); }
+                                                    promote(id) => { root.promote-task(id); }
+                                                }
+                                            }
+                                            PaneSection {
+                                                width: 300px;
+                                                title: "Other";
+                                                detail: root.person-other.length + " tasks";
+                                                accent: #6b7280;
+                                                for t in root.person-other: AgendaRow {
+                                                    t: t;
+                                                    cycle(id) => { root.cycle-todo(id); }
+                                                    edit(id) => { root.edit-todo(id); }
+                                                    open(id) => { root.open-note(id); }
+                                                    promote(id) => { root.promote-task(id); }
+                                                }
                                             }
                                         }
                                     }
