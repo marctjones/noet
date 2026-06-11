@@ -179,6 +179,15 @@ Current UX contract:
 - [ ] Labels/workstreams support cleanup and review.
 - [x] Inline task promotion creates task notes with source links.
 
+Current 1:1 Focus progress:
+
+- [x] Meeting mode closes navigation, context, and queue panes while preserving
+  the selected person and current 1:1 note.
+- [x] Meeting mode starts rich editing so the current note can be used during a
+  live meeting.
+- [ ] Manual review scrolling, resizing, history browsing, resolve, carry, and
+  defer behavior in the running GUI.
+
 Daily-use quality means:
 
 - keyboard and pointer actions work without raw Markdown leaks outside source mode

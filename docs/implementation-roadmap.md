@@ -205,6 +205,14 @@ Each workflow should have:
 - a GUI smoke test
 - coverage in the [Manual Review Checklist](manual-review-checklist.md)
 
+Current 1:1 Focus progress:
+
+- [x] Meeting mode closes supporting panes, preserves the selected person and
+  current 1:1 note, and starts rich editing.
+- [x] App-model and GUI smoke tests cover meeting-mode pane closure.
+- [ ] Manual review still needs to verify scrolling, resizing, history browsing,
+  follow-up resolution, and carry-forward in the running GUI.
+
 ## Release Gate
 
 Do not cut a release just because the app compiles.

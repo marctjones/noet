@@ -48,6 +48,10 @@ NOET_VAULT=/tmp/noet-review-vault cargo run -p noet-gui
 - Pick a person from the People drawer.
 - The People drawer closes after selection; the 1:1 workspace stays open.
 - Current 1:1 note title and body are editable.
+- Meeting mode closes navigation, context, and queue panes; starts rich editing;
+  and keeps the selected person and current 1:1 note active.
+- Exiting meeting mode leaves the meeting active and pane toggle controls can
+  reopen the supporting panes.
 - Previous and Next navigate through 1:1 history.
 - Prior unresolved follow-ups appear in the queue.
 - Resolve marks a prior follow-up done.

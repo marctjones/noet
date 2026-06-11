@@ -760,6 +760,36 @@ fn headless_ui_smoke() {
         !ui.get_workspace_left_open(),
         "selecting a person closes the navigation drawer, not the workspace"
     );
+    ui.invoke_workspace_open_pane(ui.get_workspace_left_pane_id());
+    ui.invoke_workspace_open_pane(ui.get_workspace_right_pane_id());
+    ui.invoke_workspace_open_pane(ui.get_workspace_bottom_pane_id());
+    assert!(ui.get_workspace_left_open());
+    assert!(ui.get_workspace_right_open());
+    assert!(ui.get_workspace_bottom_open());
+    let meeting_mode = ElementHandle::find_by_accessible_label(ui, "Meeting mode")
+        .find(|e| e.accessible_role() == Some(AccessibleRole::Button))
+        .expect("1:1 workspace exposes meeting mode");
+    meeting_mode.invoke_accessible_default_action();
+    itest::mock_elapsed_time(std::time::Duration::from_millis(16));
+    assert!(ui.get_focus_mode(), "meeting mode enters focus mode");
+    assert!(ui.get_editing(), "meeting mode starts editing the 1:1 note");
+    assert!(!ui.get_source_mode(), "meeting mode uses the rich editor");
+    assert_eq!(ui.get_selected_person(), "Alice");
+    assert_eq!(ui.get_workspace_primary(), "oneonone");
+    assert!(
+        !ui.get_workspace_left_open()
+            && !ui.get_workspace_right_open()
+            && !ui.get_workspace_bottom_open(),
+        "meeting mode closes navigation, context, and queue panes"
+    );
+    let exit_meeting = ElementHandle::find_by_accessible_label(ui, "Exit meeting mode")
+        .find(|e| e.accessible_role() == Some(AccessibleRole::Button))
+        .expect("1:1 workspace exposes an exit meeting mode action");
+    exit_meeting.invoke_accessible_default_action();
+    assert!(
+        !ui.get_focus_mode(),
+        "exit meeting mode leaves pane state closed"
+    );
     assert!(
         ui.get_person_oneonone_count() >= 2,
         "1:1 focus exposes historical 1:1 notes"

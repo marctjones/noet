@@ -1372,6 +1372,23 @@ export component AppWindow inherits Window {
         }
     }
 
+    function enter-oneonone-meeting-mode() {
+        root.workspace-close-pane(root.workspace-left-pane-id);
+        root.workspace-close-pane(root.workspace-right-pane-id);
+        root.workspace-close-pane(root.workspace-bottom-pane-id);
+        root.source-mode = false;
+        root.editing = true;
+        root.focus-mode = true;
+    }
+
+    function toggle-oneonone-meeting-mode() {
+        if (root.focus-mode) {
+            root.focus-mode = false;
+        } else {
+            root.enter-oneonone-meeting-mode();
+        }
+    }
+
     shell-keys := FocusScope {
         KeyBinding { keys: @keys(Control + N); activated => { root.workspace-switch("notes"); root.new-note(); } }
         KeyBinding { keys: @keys(Control + Q); activated => { root.quit(); } }
@@ -1687,6 +1704,7 @@ export component AppWindow inherits Window {
                                                         if root.person-prev-oneonone-id != "": ActionButton { icon: Icons.panel-left; label: "Previous"; clicked => { root.select-note(root.person-prev-oneonone-id); } }
                                                         if root.person-next-oneonone-id != "": ActionButton { icon: Icons.panel-right; label: "Next"; clicked => { root.select-note(root.person-next-oneonone-id); } }
                                                         ActionButton { icon: Icons.meeting; label: "New 1:1"; primary: true; clicked => { root.new-from-template("oneonone"); } }
+                                                        ActionButton { icon: Icons.focus; label: root.focus-mode ? "Exit meeting" : "Meeting mode"; a11y: root.focus-mode ? "Exit meeting mode" : "Meeting mode"; clicked => { root.toggle-oneonone-meeting-mode(); } }
                                                         ActionButton { icon: Icons.check; label: "Add task"; clicked => { root.open-add-todo(); } }
                                                         ActionButton { icon: Icons.edit; label: root.editing ? "Done" : "Edit"; clicked => { if (root.editing) { root.stop-editing(); } else { root.source-mode = false; root.editing = true; } } }
                                                         ActionButton { icon: Icons.textsize; label: (root.editing && root.source-mode) ? "Preview" : "Source"; clicked => { if (root.editing && root.source-mode) { root.source-mode = false; } else { root.source-mode = true; root.editing = true; } } }

@@ -222,6 +222,46 @@ mod tests {
     }
 
     #[test]
+    fn one_on_one_meeting_can_close_supporting_panes() {
+        let mut model = AppModel::new();
+        assert!(
+            model
+                .apply(AppCommand::SelectPerson("Jane Smith".into()))
+                .accepted
+        );
+        assert!(model.apply(AppCommand::OpenPane("people".into())).accepted);
+        assert!(model.apply(AppCommand::OpenPane("history".into())).accepted);
+        assert!(
+            model
+                .apply(AppCommand::OpenPane("followups".into()))
+                .accepted
+        );
+
+        assert!(model.apply(AppCommand::ClosePane("people".into())).accepted);
+        assert!(
+            model
+                .apply(AppCommand::ClosePane("history".into()))
+                .accepted
+        );
+        assert!(
+            model
+                .apply(AppCommand::ClosePane("followups".into()))
+                .accepted
+        );
+
+        let workspace = model.workspaces.active().unwrap();
+        assert!(!workspace.pane("people").unwrap().open);
+        assert!(!workspace.pane("history").unwrap().open);
+        assert!(!workspace.pane("followups").unwrap().open);
+        assert!(workspace.pane("current-1on1").unwrap().open);
+        assert!(matches!(
+            &workspace.pane("current-1on1").unwrap().surface,
+            Surface::OneOnOne { person } if person.as_deref() == Some("Jane Smith")
+        ));
+        assert!(model.active_workspace_has_open_work());
+    }
+
+    #[test]
     fn pane_resize_is_clamped_through_command_dispatch() {
         let mut model = AppModel::new();
         assert!(
