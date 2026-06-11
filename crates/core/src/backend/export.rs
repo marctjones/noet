@@ -2,6 +2,7 @@
 //! (compile via the Typst CLI — typst notes natively, markdown through a
 //! lightweight converter).
 
+use super::parse::{parse_inline_entities, InlineEntityKind};
 use super::vault::{effective_kind, safe_filename};
 use super::Backend;
 use anyhow::Result;
@@ -50,68 +51,40 @@ fn kind_color(kind: &str) -> &'static str {
 /// as colored chips, escaping the text between them. Plain prose comes through
 /// escaped (verbatim layout).
 fn render_inline(s: &str) -> String {
-    let c: Vec<char> = s.chars().collect();
     let mut out = String::new();
-    let mut buf = String::new();
-    let flush = |buf: &mut String, out: &mut String| {
-        if !buf.is_empty() {
-            out.push_str(&typst_escape(buf));
-            buf.clear();
+    let mut last = 0usize;
+
+    for entity in parse_inline_entities(s) {
+        if entity.span.byte_start > last {
+            out.push_str(&typst_escape(&s[last..entity.span.byte_start]));
         }
-    };
-    let is_word = |ch: char| ch.is_alphanumeric() || ch == '_' || ch == '-' || ch == '.';
-    let mut i = 0;
-    while i < c.len() {
-        // @[[Person]] / [[Workstream]]
-        let marker = c[i] == '@';
-        let br = if marker { i + 1 } else { i };
-        if br + 1 < c.len() && c[br] == '[' && c[br + 1] == '[' {
-            if let Some(rel) = c[br + 2..].windows(2).position(|w| w == [']', ']']) {
-                let end = br + 2 + rel;
-                let name: String = c[br + 2..end].iter().collect();
-                flush(&mut buf, &mut out);
-                if c[i] == '@' {
-                    out.push_str(&chip(&name, "fdeede", "9a5b1b")); // person
-                } else {
-                    out.push_str(&chip(&format!("▸ {name}"), "e7f7ec", "1f7a44"));
-                    // workstream
-                }
-                i = end + 2;
-                continue;
+
+        match entity.kind {
+            InlineEntityKind::MarkdownLink | InlineEntityKind::Url => {
+                out.push_str(&chip(&entity.text, "efe7fd", "5b1b9a"));
             }
-        }
-        // #tag (at start or after whitespace)
-        if c[i] == '#' && (i == 0 || c[i - 1].is_whitespace()) {
-            let mut j = i + 1;
-            while j < c.len() && is_word(c[j]) {
-                j += 1;
+            InlineEntityKind::Email => {
+                out.push_str(&chip(&entity.text, "eef6ff", "1f5b89"));
             }
-            if j > i + 1 {
-                let tag: String = c[i + 1..j].iter().collect();
-                flush(&mut buf, &mut out);
-                out.push_str(&chip(&format!("# {tag}"), "f3ecfb", "5b1b9a"));
-                i = j;
-                continue;
+            InlineEntityKind::Social => {
+                out.push_str(&chip(&entity.text, "eef2f7", "475569"));
             }
-        }
-        // @handle contact (not a canonical person)
-        if c[i] == '@' && (i == 0 || c[i - 1].is_whitespace()) {
-            let mut j = i + 1;
-            while j < c.len() && (is_word(c[j]) || c[j] == '@') {
-                j += 1;
+            InlineEntityKind::Project => {
+                out.push_str(&chip(&format!("▸ {}", entity.value), "e7f7ec", "1f7a44"));
             }
-            if j > i + 1 {
-                let handle: String = c[i..j].iter().collect();
-                flush(&mut buf, &mut out);
-                out.push_str(&chip(&handle, "eef2f7", "475569"));
-                i = j;
-                continue;
+            InlineEntityKind::Person => {
+                out.push_str(&chip(&entity.value, "fdeede", "9a5b1b"));
             }
-        }
-        buf.push(c[i]);
-        i += 1;
+            InlineEntityKind::Tag => {
+                out.push_str(&chip(&format!("# {}", entity.value), "f3ecfb", "5b1b9a"));
+            }
+        };
+        last = entity.span.byte_end;
     }
-    flush(&mut buf, &mut out);
+
+    if last < s.len() {
+        out.push_str(&typst_escape(&s[last..]));
+    }
     out
 }
 

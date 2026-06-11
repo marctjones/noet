@@ -59,10 +59,14 @@ fn is_word_char(c: char) -> bool {
     c.is_alphabetic() || c == '\''
 }
 
+fn char_ranges_overlap(a: (usize, usize), b: (usize, usize)) -> bool {
+    a.0 < b.1 && b.0 < a.1
+}
+
 /// Misspelled-word char ranges for sred's spellchecker. Skips code fences, and
-/// `#tag` / canonical people / `[[link]]` / URL / markdown-marker tokens; flags only
-/// dictionary-unknown words (≥2 chars, with a lowercase letter so ALLCAPS/acronyms
-/// pass).
+/// parsed Noet inline entities such as tags, canonical people, links, URLs,
+/// emails, and social handles; flags only dictionary-unknown words (≥2 chars,
+/// with a lowercase letter so ALLCAPS/acronyms pass).
 fn spell_misspellings(dict: &spellbook::Dictionary, text: &str) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
     let mut base = 0usize; // char offset of the current line
@@ -75,6 +79,10 @@ fn spell_misspellings(dict: &spellbook::Dictionary, text: &str) -> Vec<(usize, u
             continue;
         }
         if !in_fence {
+            let entity_ranges: Vec<(usize, usize)> = backend::parse_inline_entities(line)
+                .into_iter()
+                .map(|entity| (entity.char_start, entity.char_end))
+                .collect();
             let chars: Vec<char> = line.chars().collect();
             let mut i = 0;
             while i < chars.len() {
@@ -88,13 +96,10 @@ fn spell_misspellings(dict: &spellbook::Dictionary, text: &str) -> Vec<(usize, u
                 while i < chars.len() && !chars[i].is_whitespace() {
                     i += 1;
                 }
-                let tok: String = chars[tok_start..i].iter().collect();
-                let skip = tok.starts_with('#')
-                    || tok.starts_with('@')
-                    || tok.starts_with("[[")
-                    || tok.starts_with('`')
-                    || tok.contains("://")
-                    || tok.contains("](");
+                let skip = entity_ranges
+                    .iter()
+                    .any(|range| char_ranges_overlap((tok_start, i), *range))
+                    || chars[tok_start] == '`';
                 if !skip {
                     // word runs within the token
                     let t = &chars[tok_start..i];
@@ -109,6 +114,11 @@ fn spell_misspellings(dict: &spellbook::Dictionary, text: &str) -> Vec<(usize, u
                         let ws = j;
                         while j < t.len() && is_word_char(t[j]) {
                             j += 1;
+                        }
+                        if entity_ranges.iter().any(|range| {
+                            char_ranges_overlap((tok_start + ws, tok_start + j), *range)
+                        }) {
+                            continue;
                         }
                         let word: String = t[ws..j].iter().collect();
                         let trimmed = word.trim_matches('\'');

@@ -189,8 +189,10 @@ Daily-use quality means:
 - [x] Resolve anchored task ids before falling back to line-number write-back.
 - [x] Move read-mode inline rendering and editor token highlighting onto typed
   inline entity facts.
-- [ ] Continue moving export, spellcheck, and autocomplete edge scanners onto
-  structured parsed facts where practical.
+- [x] Move PDF export and spellcheck entity skipping onto typed inline entity
+  facts.
+- [ ] Keep autocomplete trigger detection isolated as an editor-only scanner for
+  incomplete in-progress tokens.
 - [x] Add parser diagnostics for invalid properties, ambiguous people, duplicate
   anchors, and unsupported old syntax.
 - [x] Detect URLs, emails, and social handles as contact facts without promoting

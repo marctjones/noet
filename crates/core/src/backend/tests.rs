@@ -494,6 +494,7 @@ fn incremental_reindex_only_touches_changed_files() {
 fn pdf_export_renders_noet_markup() {
     use super::export::markdown_to_typst;
     let body = "Notes about [[Acme]] and @[[Jane]] #urgent\n\
+                Contact [Site](https://example.com) marc@joneslaw.io @marctjones https://joneslaw.io.\n\
                 - [ ] ship it [[Acme]] @[[Sam]] due:2026-07-01 priority:A\n\
                 - [x] old thing #reading\n";
     let typ = markdown_to_typst("My note", body);
@@ -504,6 +505,11 @@ fn pdf_export_renders_noet_markup() {
     );
     assert!(typ.contains("rgb(\"fdeede\")"), "person chip color present");
     assert!(typ.contains("rgb(\"f3ecfb\")"), "tag chip color present");
+    assert!(typ.contains("rgb(\"efe7fd\")"), "URL chip color present");
+    assert!(typ.contains("rgb(\"eef6ff\")"), "email chip color present");
+    assert!(typ.contains("rgb(\"eef2f7\")"), "social chip color present");
+    assert!(typ.contains("Site"), "markdown link label rendered");
+    assert!(typ.contains(r"marc\@joneslaw.io"), "email rendered");
     // Todo lines render structurally (due chip + done strike), markers stripped.
     assert!(typ.contains("due 2026-07-01"), "due chip rendered");
     assert!(typ.contains("strike"), "done todo struck through");

@@ -1075,6 +1075,14 @@ fn editor_token_matchers_use_core_inline_entities() {
     assert_eq!(urls[0].value, "https://joneslaw.io");
 }
 
+#[test]
+fn spellchecker_skips_core_inline_entities() {
+    let dict = spellbook::Dictionary::new(DICT_AFF, DICT_DIC).expect("test dictionary loads");
+    let text = "qzxqzx @marctjones marc@joneslaw.io https://qzxqzx.test [[Qzxqzx Project]] @[[Qzxqzx Person]] #qzxqzx\n";
+
+    assert_eq!(spell_misspellings(&dict, text), vec![(0, 6)]);
+}
+
 /// Char offset for "jump to a todo's line" when opening its note from a task/card.
 #[test]
 fn line_char_offset_lands_on_the_right_line() {

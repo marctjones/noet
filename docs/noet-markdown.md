@@ -299,10 +299,11 @@ gets a stable internal task id based on the anchor. Write-back commands resolve
 that anchor before falling back to line numbers, so completing or editing the
 task still works after lines are inserted above it.
 
-Indexing, workflow read models, read-mode inline rendering, and editor token
-highlighting consume typed parse results. Export, spellcheck, and autocomplete
-trigger detection should continue moving toward the same model where it is
-practical. Avoid adding unrelated regex scans for each new feature.
+Indexing, workflow read models, read-mode inline rendering, editor token
+highlighting, PDF export, and spellcheck entity skipping consume typed parse
+results. Autocomplete trigger detection remains an editor-only scanner because
+it operates on incomplete in-progress tokens. Avoid adding unrelated regex scans
+for each new feature.
 
 Current parser diagnostics are warnings. They are intended to drive editor
 nudges and migration tools, not to make a plain Markdown note unreadable or
