@@ -270,15 +270,28 @@ normal note with richer context.
 
 ## Parser Architecture
 
-Noet should parse Markdown into a typed document model:
+Noet parses Markdown into a typed document model for core indexing, workflow
+read models, source links, and task write-back:
 
 - Markdown blocks: headings, paragraphs, lists, code blocks.
 - Noet entities: labels, people, links, URLs, emails, social handles.
 - Tasks: task marker, text, labels, people, links, properties, source span.
 - Properties: key, value, scope, validation result.
 
-Indexing, rendering, autocomplete, and rewrite commands should all consume this
-typed model. Avoid adding unrelated regex scans for each new feature.
+Task source spans include the source line number, byte range, and optional block
+anchor. A task line with a block anchor:
+
+```markdown
+- [ ] Ask Jane about launch risks @[[Jane]] #followup ^launch-risks
+```
+
+gets a stable internal task id based on the anchor. Write-back commands resolve
+that anchor before falling back to line numbers, so completing or editing the
+task still works after lines are inserted above it.
+
+Indexing and workflow read models consume the typed parse result. Rendering and
+autocomplete should continue moving toward the same model as the editor layer is
+hardened. Avoid adding unrelated regex scans for each new feature.
 
 The parser should be platform-neutral core logic. macOS, Windows, and GNOME
 builds should all index the same vault the same way.

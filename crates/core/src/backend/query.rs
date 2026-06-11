@@ -5,7 +5,7 @@
 use super::index::fts_query;
 use super::parse::{parse_links, parse_mentions, parse_tags};
 use super::vault::read_note;
-use super::{Backend, Filter, Note, Project, RelatedNote, Todo, KINDS, STATUSES};
+use super::{Backend, Filter, Note, Project, RelatedNote, SourceSpan, Todo, KINDS, STATUSES};
 use anyhow::Result;
 use chrono::Utc;
 use std::path::{Path, PathBuf};
@@ -32,6 +32,12 @@ impl Backend {
             repeat: r.get(11)?,
             done: r.get::<_, i64>(12)? != 0,
             line_no: r.get::<_, i64>(13)? as usize,
+            anchor: r.get(14)?,
+            span: SourceSpan {
+                line_no: r.get::<_, i64>(13)? as usize,
+                byte_start: r.get::<_, i64>(15)? as usize,
+                byte_end: r.get::<_, i64>(16)? as usize,
+            },
         })
     }
 
@@ -50,8 +56,23 @@ impl Backend {
     /// Canonical todo columns, with the given alias prefix (e.g. "t." or "").
     fn todo_cols(prefix: &str) -> String {
         let f = [
-            "id", "note_id", "kind", "status", "text", "project", "person", "start", "due",
-            "external", "priority", "repeat", "done", "line_no",
+            "id",
+            "note_id",
+            "kind",
+            "status",
+            "text",
+            "project",
+            "person",
+            "start",
+            "due",
+            "external",
+            "priority",
+            "repeat",
+            "done",
+            "line_no",
+            "anchor",
+            "span_start",
+            "span_end",
         ];
         f.iter()
             .map(|c| format!("{prefix}{c}"))

@@ -2,7 +2,7 @@
 //! lifecycle. Markdown files are the source of truth — every table here is
 //! rebuilt from them and can be thrown away.
 
-use super::parse::{parse_links, parse_mentions, parse_properties, parse_tags, parse_todos};
+use super::parse::parse_markdown;
 use super::vault::read_note;
 use super::{Backend, Note};
 use anyhow::Result;
@@ -232,7 +232,8 @@ impl Backend {
             CREATE TABLE todos(
                 id TEXT PRIMARY KEY, note_id TEXT, kind TEXT, status TEXT, text TEXT,
                 project TEXT, person TEXT, start TEXT, due TEXT, external TEXT,
-                priority TEXT, repeat TEXT, done INTEGER, line_no INTEGER);
+                priority TEXT, repeat TEXT, done INTEGER, line_no INTEGER,
+                anchor TEXT, span_start INTEGER, span_end INTEGER);
             CREATE TABLE task_links(task_id TEXT, note_id TEXT, target TEXT);
             CREATE TABLE task_tags(task_id TEXT, note_id TEXT, tag TEXT);
             CREATE TABLE task_mentions(task_id TEXT, note_id TEXT, person TEXT);
@@ -338,22 +339,24 @@ impl Backend {
                 file_mtime(&note.path)
             ],
         )?;
+        let parsed = parse_markdown(&note.id, &note.body);
+
         tx.execute("DELETE FROM links WHERE note_id=?", [&note.id])?;
-        for target in parse_links(&note.body) {
+        for target in &parsed.workstreams {
             tx.execute(
                 "INSERT INTO links(note_id,target) VALUES(?,?)",
                 rusqlite::params![note.id, target],
             )?;
         }
         tx.execute("DELETE FROM tags WHERE note_id=?", [&note.id])?;
-        for tag in parse_tags(&note.body) {
+        for tag in &parsed.labels {
             tx.execute(
                 "INSERT INTO tags(note_id,tag) VALUES(?,?)",
                 rusqlite::params![note.id, tag],
             )?;
         }
         tx.execute("DELETE FROM mentions WHERE note_id=?", [&note.id])?;
-        for person in parse_mentions(&note.body) {
+        for person in &parsed.people {
             tx.execute(
                 "INSERT INTO mentions(note_id,person) VALUES(?,?)",
                 rusqlite::params![note.id, person],
@@ -364,36 +367,36 @@ impl Backend {
         tx.execute("DELETE FROM task_tags WHERE note_id=?", [&note.id])?;
         tx.execute("DELETE FROM task_mentions WHERE note_id=?", [&note.id])?;
         tx.execute("DELETE FROM task_properties WHERE note_id=?", [&note.id])?;
-        let lines: Vec<&str> = note.body.lines().collect();
-        for t in parse_todos(&note.id, &note.body) {
+        for parsed_todo in &parsed.todos {
+            let t = &parsed_todo.todo;
             tx.execute(
-                "INSERT OR REPLACE INTO todos(id,note_id,kind,status,text,project,person,start,due,external,priority,repeat,done,line_no)
-                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT OR REPLACE INTO todos(id,note_id,kind,status,text,project,person,start,due,external,priority,repeat,done,line_no,anchor,span_start,span_end)
+                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 rusqlite::params![
                     t.id, t.note_id, t.kind, t.status, t.text, t.project, t.person,
-                    t.start, t.due, t.external, t.priority, t.repeat, t.done as i64, t.line_no as i64
+                    t.start, t.due, t.external, t.priority, t.repeat, t.done as i64,
+                    t.line_no as i64, t.anchor, t.span.byte_start as i64, t.span.byte_end as i64
                 ],
             )?;
-            let line = lines.get(t.line_no).copied().unwrap_or("");
-            for target in parse_links(line) {
+            for target in &parsed_todo.workstreams {
                 tx.execute(
                     "INSERT INTO task_links(task_id,note_id,target) VALUES(?,?,?)",
                     rusqlite::params![t.id, note.id, target],
                 )?;
             }
-            for tag in parse_tags(line) {
+            for tag in &parsed_todo.labels {
                 tx.execute(
                     "INSERT INTO task_tags(task_id,note_id,tag) VALUES(?,?,?)",
                     rusqlite::params![t.id, note.id, tag],
                 )?;
             }
-            for person in parse_mentions(line) {
+            for person in &parsed_todo.people {
                 tx.execute(
                     "INSERT INTO task_mentions(task_id,note_id,person) VALUES(?,?,?)",
                     rusqlite::params![t.id, note.id, person],
                 )?;
             }
-            for (key, value) in parse_properties(line) {
+            for (key, value) in &parsed_todo.properties {
                 tx.execute(
                     "INSERT INTO task_properties(task_id,note_id,key,value) VALUES(?,?,?,?)",
                     rusqlite::params![t.id, note.id, key, value],

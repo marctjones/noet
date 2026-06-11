@@ -180,7 +180,7 @@ pub fn active_summary(f: &Filter) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use backend::{PropertyFact, TaskFact, TaskSource, TaskStatus, TaskWorkflow};
+    use backend::{PropertyFact, SourceSpan, TaskFact, TaskSource, TaskStatus, TaskWorkflow};
     use std::path::PathBuf;
 
     #[test]
@@ -214,6 +214,12 @@ mod tests {
             repeat: String::new(),
             done: false,
             line_no: 3,
+            anchor: String::new(),
+            span: SourceSpan {
+                line_no: 3,
+                byte_start: 10,
+                byte_end: 72,
+            },
         };
         let row = todo_item(&todo);
         assert_eq!(row.id.to_string(), "n1:3");
@@ -231,6 +237,12 @@ mod tests {
                 note_title: "Note".into(),
                 note_updated: "2026-06-11T10:30:00".into(),
                 line_no: 4,
+                anchor: "send-draft".into(),
+                span: SourceSpan {
+                    line_no: 4,
+                    byte_start: 100,
+                    byte_end: 140,
+                },
             },
             text: "Send draft".into(),
             status: TaskStatus::Doing,
@@ -312,6 +324,12 @@ mod tests {
                 repeat: String::new(),
                 done: false,
                 line_no: 1,
+                anchor: String::new(),
+                span: SourceSpan {
+                    line_no: 1,
+                    byte_start: 0,
+                    byte_end: 60,
+                },
             },
             backend::Todo {
                 id: "n1:2".into(),
@@ -328,6 +346,12 @@ mod tests {
                 repeat: String::new(),
                 done: false,
                 line_no: 2,
+                anchor: String::new(),
+                span: SourceSpan {
+                    line_no: 2,
+                    byte_start: 61,
+                    byte_end: 121,
+                },
             },
         ];
 

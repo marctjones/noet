@@ -1,9 +1,45 @@
 //! Parsing — the file-first grammar. Notes are plain markdown; tasks are
 //! GitHub-style task list items plus Noet labels, people, links, and properties.
 
-use super::{MdBlock, Segment, Todo, TodoFields};
+use super::{MdBlock, Segment, SourceSpan, Todo, TodoFields};
 use regex::Regex;
 use std::sync::OnceLock;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceLink {
+    pub target: String,
+    pub title: String,
+    pub anchor: String,
+    pub span: SourceSpan,
+}
+
+#[derive(Debug, Clone)]
+pub struct ParsedTodoLine {
+    pub todo: Todo,
+    pub raw_line: String,
+    pub labels: Vec<String>,
+    pub people: Vec<String>,
+    pub workstreams: Vec<String>,
+    pub properties: Vec<(String, String)>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ParsedMarkdown {
+    pub labels: Vec<String>,
+    pub people: Vec<String>,
+    pub workstreams: Vec<String>,
+    pub properties: Vec<(String, String)>,
+    pub todos: Vec<ParsedTodoLine>,
+    pub source_links: Vec<SourceLink>,
+}
+
+#[derive(Clone, Copy)]
+struct TextLine<'a> {
+    line_no: usize,
+    line: &'a str,
+    byte_start: usize,
+    byte_end: usize,
+}
 
 // A task line: - [ ] text @[[Person]] [[Project]] #followup due:2026-06-10
 // Marker is [ ] / [/] / [x] -> status.
@@ -60,15 +96,80 @@ fn text_lines(body: &str) -> impl Iterator<Item = (usize, &str)> {
     })
 }
 
+fn text_line_spans(body: &str) -> Vec<TextLine<'_>> {
+    let mut out = Vec::new();
+    let mut in_code = false;
+    let mut byte_start = 0usize;
+
+    for (line_no, raw) in body.split_inclusive('\n').enumerate() {
+        let line = raw.trim_end_matches(['\r', '\n']);
+        let byte_end = byte_start + line.len();
+        if line.trim_start().starts_with("```") {
+            in_code = !in_code;
+            byte_start += raw.len();
+            continue;
+        }
+        if !in_code {
+            out.push(TextLine {
+                line_no,
+                line,
+                byte_start,
+                byte_end,
+            });
+        }
+        byte_start += raw.len();
+    }
+
+    out
+}
+
+fn sorted_dedup(mut values: Vec<String>) -> Vec<String> {
+    values.sort();
+    values.dedup();
+    values
+}
+
+fn entity_tags(text: &str) -> Vec<String> {
+    tag_re()
+        .captures_iter(text)
+        .map(|c| c["t"].to_string())
+        .collect()
+}
+
+fn entity_mentions(text: &str) -> Vec<String> {
+    person_re()
+        .captures_iter(text)
+        .map(|c| person_name(&c))
+        .collect()
+}
+
+fn entity_links(text: &str) -> Vec<String> {
+    link_re()
+        .captures_iter(text)
+        .filter(|c| {
+            c.get(0).is_some_and(|m| {
+                let before = &text[..m.start()];
+                !before.ends_with('@') && !before.ends_with('+') && !before.ends_with("source:")
+            })
+        })
+        .map(|c| c["t"].trim().to_string())
+        .collect()
+}
+
+fn entity_properties(text: &str) -> Vec<(String, String)> {
+    property_re()
+        .captures_iter(text)
+        .map(|m| (m["key"].to_string(), m["val"].to_string()))
+        .collect()
+}
+
 /// `#tag` labels anywhere in a note body.
 pub fn parse_tags(body: &str) -> Vec<String> {
-    let mut v: Vec<String> = text_lines(body)
-        .flat_map(|(_, line)| tag_re().captures_iter(line))
-        .map(|c| c["t"].to_string())
-        .collect();
-    v.sort();
-    v.dedup();
-    v
+    sorted_dedup(
+        text_lines(body)
+            .flat_map(|(_, line)| entity_tags(line))
+            .collect(),
+    )
 }
 
 // A person mention is either bracketed `@[[Jane Smith]]` (allows spaces) or a
@@ -89,13 +190,11 @@ fn person_name(c: &regex::Captures) -> String {
 
 /// Every `@person` / `@[[Person]]` mention anywhere in a note (not just todos).
 pub fn parse_mentions(body: &str) -> Vec<String> {
-    let mut v: Vec<String> = text_lines(body)
-        .flat_map(|(_, line)| person_re().captures_iter(line))
-        .map(|c| person_name(&c))
-        .collect();
-    v.sort();
-    v.dedup();
-    v
+    sorted_dedup(
+        text_lines(body)
+            .flat_map(|(_, line)| entity_mentions(line))
+            .collect(),
+    )
 }
 
 /// Strip inline markdown markers to readable text (Slint Text is single-style,
@@ -363,14 +462,19 @@ fn property_re() -> &'static Regex {
 
 fn block_anchor_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"(?:^|\s)\^[A-Za-z0-9_-]+").unwrap())
+    RE.get_or_init(|| Regex::new(r"(?:^|\s)\^(?P<a>[A-Za-z0-9_-]+)(?:\s|$)").unwrap())
 }
 
 pub fn parse_properties(text: &str) -> Vec<(String, String)> {
-    property_re()
+    entity_properties(text)
+}
+
+fn line_anchor(text: &str) -> String {
+    block_anchor_re()
         .captures_iter(text)
-        .map(|m| (m["key"].to_string(), m["val"].to_string()))
-        .collect()
+        .filter_map(|m| m.name("a").map(|a| a.as_str().to_string()))
+        .last()
+        .unwrap_or_default()
 }
 
 fn first_wikilink(rest: &str) -> String {
@@ -379,7 +483,7 @@ fn first_wikilink(rest: &str) -> String {
         .find(|c| {
             c.get(0).is_some_and(|m| {
                 let before = &rest[..m.start()];
-                !before.ends_with('@') && !before.ends_with('+')
+                !before.ends_with('@') && !before.ends_with('+') && !before.ends_with("source:")
             })
         })
         .map(|c| c["t"].trim().to_string())
@@ -398,62 +502,69 @@ fn task_kind(labels: &[String]) -> String {
     "do".into()
 }
 
-/// Extract todos from a note body. line_no is 0-based for stable ids.
-pub fn parse_todos(note_id: &str, body: &str) -> Vec<Todo> {
-    let mut out = Vec::new();
-    for (line_no, line) in text_lines(body) {
-        if let Some(c) = todo_re().captures(line) {
-            let status = marker_to_status(&c["marker"]);
-            let rest = c["rest"].to_string();
-            let labels: Vec<String> = tag_re()
+fn parse_todo_text_line(note_id: &str, source: TextLine<'_>) -> Option<ParsedTodoLine> {
+    let line = source.line;
+    if let Some(c) = todo_re().captures(line) {
+        let status = marker_to_status(&c["marker"]);
+        let rest = c["rest"].to_string();
+        let labels = entity_tags(&rest);
+        let kind = task_kind(&labels);
+        let project = first_wikilink(&rest);
+        let person = person_re()
+            .captures(&rest)
+            .map(|m| person_name(&m))
+            .unwrap_or_default();
+        let prop = |key: &str| {
+            property_re()
                 .captures_iter(&rest)
-                .map(|m| m["t"].to_string())
-                .collect();
-            let kind = task_kind(&labels);
-            let project = first_wikilink(&rest);
-            let person = person_re()
-                .captures(&rest)
-                .map(|m| person_name(&m))
-                .unwrap_or_default();
-            let prop = |key: &str| {
-                property_re()
-                    .captures_iter(&rest)
-                    .find(|m| &m["key"] == key)
-                    .map(|m| m["val"].to_string())
-                    .unwrap_or_default()
-            };
-            let due = prop("due");
-            let start = prop("start");
-            let priority = prop("priority");
-            let repeat = prop("repeat");
-            let external = property_re()
-                .captures_iter(&rest)
-                .find(|m| matches!(&m["key"], "gh" | "ref"))
-                .map(|m| format!("{}:{}", &m["key"], &m["val"]))
-                .unwrap_or_default();
+                .find(|m| &m["key"] == key)
+                .map(|m| m["val"].to_string())
+                .unwrap_or_default()
+        };
+        let due = prop("due");
+        let start = prop("start");
+        let priority = prop("priority");
+        let repeat = prop("repeat");
+        let external = property_re()
+            .captures_iter(&rest)
+            .find(|m| matches!(&m["key"], "gh" | "ref"))
+            .map(|m| format!("{}:{}", &m["key"], &m["val"]))
+            .unwrap_or_default();
+        let anchor = line_anchor(&rest);
+        let span = SourceSpan {
+            line_no: source.line_no,
+            byte_start: source.byte_start,
+            byte_end: source.byte_end,
+        };
 
-            // Clean display text: drop the tokens we lifted into fields.
-            let mut text = rest.clone();
-            text = person_re().replace_all(&text, " ").to_string();
-            text = link_re().replace_all(&text, "").to_string();
-            text = tag_re().replace_all(&text, " ").to_string();
-            text = property_re().replace_all(&text, " ").to_string();
-            text = block_anchor_re().replace_all(&text, " ").to_string();
-            let mut text = text.split_whitespace().collect::<Vec<_>>().join(" ");
-            if text.is_empty() {
-                let mut fallback = rest.clone();
-                fallback = person_re().replace_all(&fallback, " ").to_string();
-                fallback = tag_re().replace_all(&fallback, " ").to_string();
-                fallback = property_re().replace_all(&fallback, " ").to_string();
-                fallback = block_anchor_re().replace_all(&fallback, " ").to_string();
-                text = clean_inline(&fallback)
-                    .split_whitespace()
-                    .collect::<Vec<_>>()
-                    .join(" ");
-            }
+        // Clean display text: drop the tokens we lifted into fields.
+        let mut text = rest.clone();
+        text = person_re().replace_all(&text, " ").to_string();
+        text = link_re().replace_all(&text, "").to_string();
+        text = tag_re().replace_all(&text, " ").to_string();
+        text = property_re().replace_all(&text, " ").to_string();
+        text = block_anchor_re().replace_all(&text, " ").to_string();
+        let mut text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        if text.is_empty() {
+            let mut fallback = rest.clone();
+            fallback = person_re().replace_all(&fallback, " ").to_string();
+            fallback = tag_re().replace_all(&fallback, " ").to_string();
+            fallback = property_re().replace_all(&fallback, " ").to_string();
+            fallback = block_anchor_re().replace_all(&fallback, " ").to_string();
+            text = clean_inline(&fallback)
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+        }
 
-            out.push(Todo {
-                id: format!("{note_id}:{line_no}"),
+        let id = if anchor.is_empty() {
+            format!("{}:{}", note_id, source.line_no)
+        } else {
+            format!("{note_id}:^{anchor}")
+        };
+        Some(ParsedTodoLine {
+            todo: Todo {
+                id,
                 note_id: note_id.to_string(),
                 done: status == "done",
                 status,
@@ -466,29 +577,108 @@ pub fn parse_todos(note_id: &str, body: &str) -> Vec<Todo> {
                 external,
                 priority,
                 repeat,
-                line_no,
-            });
-        }
+                line_no: source.line_no,
+                anchor: anchor.clone(),
+                span,
+            },
+            raw_line: line.to_string(),
+            labels,
+            people: entity_mentions(&rest),
+            workstreams: entity_links(&rest),
+            properties: entity_properties(&rest),
+        })
+    } else {
+        None
     }
-    out
+}
+
+/// Extract todos from a note body. line_no is 0-based for unanchored ids;
+/// anchored task lines use the stable id form `<note_id>:^<anchor>`.
+pub fn parse_todo_lines(note_id: &str, body: &str) -> Vec<ParsedTodoLine> {
+    text_line_spans(body)
+        .into_iter()
+        .filter_map(|line| parse_todo_text_line(note_id, line))
+        .collect()
+}
+
+/// Extract todos from a note body. Prefer `parse_todo_lines` when source spans
+/// or task-local entities are needed.
+pub fn parse_todos(note_id: &str, body: &str) -> Vec<Todo> {
+    parse_todo_lines(note_id, body)
+        .into_iter()
+        .map(|line| line.todo)
+        .collect()
 }
 
 /// All `[[wikilink]]` targets in a body (projects / workstreams / pages).
 pub fn parse_links(body: &str) -> Vec<String> {
-    let mut v: Vec<String> = text_lines(body)
-        .flat_map(|(_, line)| {
-            link_re().captures_iter(line).filter(move |c| {
-                c.get(0).is_some_and(|m| {
-                    let before = &line[..m.start()];
-                    !before.ends_with('@') && !before.ends_with('+')
-                })
-            })
-        })
-        .map(|c| c["t"].trim().to_string())
-        .collect();
-    v.sort();
-    v.dedup();
-    v
+    sorted_dedup(
+        text_lines(body)
+            .flat_map(|(_, line)| entity_links(line))
+            .collect(),
+    )
+}
+
+pub fn parse_source_links(body: &str) -> Vec<SourceLink> {
+    let mut links = Vec::new();
+    for line in text_line_spans(body) {
+        let trimmed = line.line.trim_start();
+        let leading = line.line.len() - trimmed.len();
+        let Some(rest) = trimmed.strip_prefix("source:[[") else {
+            continue;
+        };
+        let Some(target) = rest.split("]]").next().map(str::trim) else {
+            continue;
+        };
+        if target.is_empty() {
+            continue;
+        }
+        let (title, anchor) = match target.split_once("#^") {
+            Some((title, anchor)) => (title.trim().to_string(), anchor.trim().to_string()),
+            None => (target.trim().to_string(), String::new()),
+        };
+        let byte_start = line.byte_start + leading;
+        links.push(SourceLink {
+            target: target.to_string(),
+            title,
+            anchor,
+            span: SourceSpan {
+                line_no: line.line_no,
+                byte_start,
+                byte_end: line.byte_end,
+            },
+        });
+    }
+    links
+}
+
+pub fn parse_markdown(note_id: &str, body: &str) -> ParsedMarkdown {
+    let mut labels = Vec::new();
+    let mut people = Vec::new();
+    let mut workstreams = Vec::new();
+    let mut properties = Vec::new();
+    for line in text_line_spans(body) {
+        labels.extend(entity_tags(line.line));
+        people.extend(entity_mentions(line.line));
+        workstreams.extend(entity_links(line.line));
+        properties.extend(entity_properties(line.line));
+    }
+    let mut source_links = parse_source_links(body);
+    source_links.sort_by(|a, b| {
+        a.span
+            .line_no
+            .cmp(&b.span.line_no)
+            .then(a.target.cmp(&b.target))
+    });
+
+    ParsedMarkdown {
+        labels: sorted_dedup(labels),
+        people: sorted_dedup(people),
+        workstreams: sorted_dedup(workstreams),
+        properties,
+        todos: parse_todo_lines(note_id, body),
+        source_links,
+    }
 }
 
 /// Render structured fields back into a canonical todo line.

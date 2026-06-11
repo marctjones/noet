@@ -40,10 +40,42 @@ fn promoted_task_link_stays_readable_as_todo_text() {
     let todos = parse_todos("N1", body);
 
     assert_eq!(todos.len(), 1);
+    assert_eq!(todos[0].id, "N1:^launch-risks");
     assert_eq!(todos[0].text, "Ask Jane about launch risks");
     assert_eq!(todos[0].person, "Jane");
     assert_eq!(todos[0].kind, "followup");
     assert_eq!(todos[0].due, "2026-06-17");
+    assert_eq!(todos[0].anchor, "launch-risks");
+    assert_eq!(todos[0].span.line_no, 0);
+    assert_eq!(todos[0].span.byte_start, 0);
+    assert_eq!(todos[0].span.byte_end, body.trim_end().len());
+}
+
+#[test]
+fn parsed_markdown_exposes_task_spans_and_source_links() {
+    let body = "# Task\n\nsource:[[Meeting Note#^launch-risks]]\n\n- [ ] Follow up @[[Jane]] [[Acme]] #followup due:2026-06-17 ^launch-risks\n";
+    let parsed = parse_markdown("N1", body);
+
+    assert_eq!(parsed.todos.len(), 1);
+    let task = &parsed.todos[0];
+    assert_eq!(task.todo.id, "N1:^launch-risks");
+    assert_eq!(task.todo.anchor, "launch-risks");
+    assert_eq!(task.people, vec!["Jane"]);
+    assert_eq!(task.workstreams, vec!["Acme"]);
+    assert_eq!(task.labels, vec!["followup"]);
+    assert!(task
+        .properties
+        .iter()
+        .any(|(key, value)| key == "due" && value == "2026-06-17"));
+    assert!(task.todo.span.byte_end > task.todo.span.byte_start);
+
+    assert_eq!(parsed.source_links.len(), 1);
+    assert_eq!(parsed.source_links[0].title, "Meeting Note");
+    assert_eq!(parsed.source_links[0].anchor, "launch-risks");
+    assert!(!parsed
+        .workstreams
+        .iter()
+        .any(|workstream| workstream == "Meeting Note#^launch-risks"));
 }
 
 #[test]
@@ -522,6 +554,55 @@ fn add_update_and_drop_via_form() {
     // drag onto a status column
     b.drop_card(&id, "status", "done").unwrap();
     assert!(b.get_todo(&id).unwrap().done);
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn anchored_todo_writeback_survives_line_number_changes() {
+    let dir = std::env::temp_dir().join(format!("noet-test-{}", ulid::Ulid::new()));
+    let mut b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();
+    let note = b.new_note().unwrap();
+    b.save_note(
+        &note.id,
+        "Anchored",
+        "# Anchored\n\n- [ ] follow up with Jane @[[Jane]] #followup ^jane-followup\n",
+    )
+    .unwrap();
+
+    let id = b
+        .query_todos(&Filter {
+            search: "follow up".into(),
+            ..Default::default()
+        })
+        .unwrap()[0]
+        .id
+        .clone();
+    assert_eq!(id, format!("{}:^jane-followup", note.id));
+
+    b.save_note(
+        &note.id,
+        "Anchored",
+        "# Anchored\n\nInserted context above the task.\n\n- [ ] follow up with Jane @[[Jane]] #followup ^jane-followup\n",
+    )
+    .unwrap();
+
+    b.set_todo_status(&id, "done").unwrap();
+    let updated = b.get_todo(&id).unwrap();
+    assert!(updated.done);
+    assert_eq!(updated.line_no, 4);
+    assert_eq!(updated.anchor, "jane-followup");
+
+    let disk = std::fs::read_to_string(&note.path).unwrap();
+    assert!(disk.contains("- [x] follow up with Jane @[[Jane]] #followup ^jane-followup"));
+
+    let mut fields = TodoFields::from_todo(&updated);
+    fields.status = "todo".into();
+    fields.due = "2026-06-30".into();
+    b.update_todo(&id, &fields).unwrap();
+    let disk = std::fs::read_to_string(&note.path).unwrap();
+    assert!(disk
+        .contains("- [ ] follow up with Jane @[[Jane]] #followup due:2026-06-30 ^jane-followup"));
 
     std::fs::remove_dir_all(&dir).ok();
 }
@@ -1062,6 +1143,9 @@ fn parsed_note_exposes_markdown_facts_and_primary_task() {
     assert_eq!(task.workstreams, vec!["Client/Acme"]);
     assert_eq!(task.property("due"), Some("2026-06-20"));
     assert_eq!(task.property("priority"), Some("A"));
+    assert_eq!(task.source.line_no, 0);
+    assert_eq!(task.source.span.line_no, 0);
+    assert!(task.source.span.byte_end > task.source.span.byte_start);
     assert!(parsed
         .facts
         .labels

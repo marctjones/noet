@@ -2,7 +2,9 @@
 //! file (the source of truth) and then reindexes incrementally so the change is
 //! visible immediately without a full rebuild.
 
-use super::parse::{advance_date, format_todo_line, parse_links, parse_tags, set_marker_kind};
+use super::parse::{
+    advance_date, format_todo_line, parse_links, parse_tags, parse_todo_lines, set_marker_kind,
+};
 use super::vault::{markdown_title, read_note, write_note};
 use super::{Backend, Filter, NamedFilter, Note, Todo, TodoFields, KINDS, STATUSES};
 use anyhow::{Context, Result};
@@ -81,11 +83,13 @@ impl Backend {
         Ok(())
     }
 
-    /// Load the note owning `todo_id`, transform the todo's line, save + reindex.
+    /// Load the note owning `todo_id`, transform the resolved task line, save +
+    /// reindex. Anchored ids (`note:^anchor`) resolve by block anchor first so
+    /// write-back survives line insertions above the task.
     fn rewrite_line<F: Fn(&str) -> String>(&mut self, todo_id: &str, transform: F) -> Result<()> {
-        let (note_id, line_no) = todo_id.rsplit_once(':').context("bad todo id")?;
-        let line_no: usize = line_no.parse()?;
+        let (note_id, _) = todo_id.rsplit_once(':').context("bad todo id")?;
         let mut note = self.load_note(note_id)?;
+        let line_no = resolve_todo_line(&note, todo_id)?;
         let mut lines: Vec<String> = note.body.lines().map(|s| s.to_string()).collect();
         if let Some(line) = lines.get_mut(line_no) {
             *line = transform(line);
@@ -162,7 +166,11 @@ impl Backend {
         let todo = self.get_todo(todo_id)?;
         let source = self.load_note(&todo.note_id)?;
         let title = todo_title(&todo);
-        let anchor = block_anchor(&title);
+        let anchor = if todo.anchor.is_empty() {
+            block_anchor(&title)
+        } else {
+            todo.anchor.clone()
+        };
         let source_ref = format!("[[{}#^{}]]", source.title, anchor);
 
         let mut fields = TodoFields::from_todo(&todo);
@@ -447,7 +455,11 @@ impl Backend {
 
     /// Replace a todo's line wholesale from form fields.
     pub fn update_todo(&mut self, todo_id: &str, fields: &TodoFields) -> Result<()> {
-        let line = format_todo_line(fields);
+        let existing = self.get_todo(todo_id)?;
+        let mut line = format_todo_line(fields);
+        if !existing.anchor.is_empty() {
+            line.push_str(&format!(" ^{}", existing.anchor));
+        }
         self.rewrite_line(todo_id, |_old| line.clone())
     }
 
@@ -532,5 +544,28 @@ fn block_anchor(title: &str) -> String {
         format!("task-{}", ulid::Ulid::new().to_string().to_lowercase())
     } else {
         out.chars().take(48).collect()
+    }
+}
+
+fn resolve_todo_line(note: &Note, todo_id: &str) -> Result<usize> {
+    let (note_id, key) = todo_id.rsplit_once(':').context("bad todo id")?;
+    if note_id != note.id {
+        anyhow::bail!("todo id {todo_id} does not belong to note {}", note.id);
+    }
+    let parsed = parse_todo_lines(&note.id, &note.body);
+    if let Some(anchor) = key.strip_prefix('^') {
+        if let Some(task) = parsed
+            .iter()
+            .find(|task| task.todo.anchor == anchor || task.todo.id == todo_id)
+        {
+            return Ok(task.todo.line_no);
+        }
+        anyhow::bail!("task anchor ^{anchor} not found in {}", note.title);
+    }
+    let line_no: usize = key.parse()?;
+    if parsed.iter().any(|task| task.todo.line_no == line_no) {
+        Ok(line_no)
+    } else {
+        anyhow::bail!("task line {line_no} not found in {}", note.title);
     }
 }

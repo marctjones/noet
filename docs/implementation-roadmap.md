@@ -32,8 +32,14 @@ Remaining core work:
 
 - [ ] Define a typed parsed-note model that all queries, mutations, rendering,
   autocomplete, and indexing consume.
-- [ ] Ensure task source spans are stable enough for write-back and promotion.
+- [x] Use the typed parsed-note model for indexing and workflow read models.
+- [x] Ensure task source spans are stable enough for anchored write-back and
+  promotion.
 - [x] Promote inline task to task note while preserving source context.
+- [ ] Move rendering and autocomplete onto the typed parsed-note model where
+  practical.
+- [ ] Add parser diagnostics for invalid properties, ambiguous people, and
+  unsupported old syntax.
 
 ## Phase 2 - Add The App Model
 

@@ -4,8 +4,8 @@
 //! workspaces. They keep the GUI from re-deriving 1:1, review, board, and label
 //! state from ad hoc note/todo queries.
 
-use super::parse::{parse_links, parse_mentions, parse_properties, parse_tags, parse_todos};
-use super::{Backend, Filter, Note, Todo};
+use super::parse::parse_markdown;
+use super::{Backend, Filter, Note, SourceSpan, Todo};
 use anyhow::Result;
 use chrono::Local;
 use std::collections::{BTreeMap, HashMap};
@@ -92,6 +92,8 @@ pub struct TaskSource {
     pub note_title: String,
     pub note_updated: String,
     pub line_no: usize,
+    pub anchor: String,
+    pub span: SourceSpan,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -444,8 +446,9 @@ impl Backend {
             ..Default::default()
         })?;
         let mut out = Vec::new();
-        for source in source_link_targets(body) {
-            let (title, anchor) = split_source_target(&source);
+        for source in parse_markdown(note_id, body).source_links {
+            let title = source.title;
+            let anchor = source.anchor;
             let Some(note) = all_notes
                 .iter()
                 .find(|note| note.id != note_id && note.title == title)
@@ -456,7 +459,7 @@ impl Backend {
                 out.push(SourceRef {
                     id: note.id.clone(),
                     title: note.title.clone(),
-                    anchor: anchor.clone(),
+                    anchor,
                 });
             }
         }
@@ -497,38 +500,15 @@ impl Backend {
     }
 }
 
-fn source_link_targets(body: &str) -> Vec<String> {
-    body.lines()
-        .filter_map(|line| {
-            let trimmed = line.trim();
-            let rest = trimmed.strip_prefix("source:[[")?;
-            let target = rest.split("]]").next()?.trim();
-            if target.is_empty() {
-                None
-            } else {
-                Some(target.to_string())
-            }
-        })
-        .collect()
-}
-
-fn split_source_target(target: &str) -> (String, String) {
-    match target.split_once("#^") {
-        Some((title, anchor)) => (title.trim().to_string(), anchor.trim().to_string()),
-        None => (target.trim().to_string(), String::new()),
-    }
-}
-
 fn parsed_note_from_note(note: Note) -> ParsedNote {
     let title = note.title.clone();
-    let labels = parse_tags(&note.body);
-    let people = parse_mentions(&note.body);
-    let workstreams = parse_links(&note.body);
-    let properties = parse_properties(&note.body)
+    let parsed = parse_markdown(&note.id, &note.body);
+    let properties = parsed
+        .properties
         .into_iter()
         .map(|(key, value)| PropertyFact { key, value })
         .collect();
-    let tasks = task_facts_from_note(&note);
+    let tasks = task_facts_from_note(&note, &parsed.todos);
     let primary_task = first_content_line(&note.body).and_then(|(line_no, _)| {
         tasks
             .iter()
@@ -540,9 +520,9 @@ fn parsed_note_from_note(note: Note) -> ParsedNote {
         note,
         title,
         facts: NoteFacts {
-            labels,
-            people,
-            workstreams,
+            labels: parsed.labels,
+            people: parsed.people,
+            workstreams: parsed.workstreams,
             properties,
             tasks,
             primary_task,
@@ -550,12 +530,11 @@ fn parsed_note_from_note(note: Note) -> ParsedNote {
     }
 }
 
-fn task_facts_from_note(note: &Note) -> Vec<TaskFact> {
-    let line_by_no: HashMap<usize, &str> = note.body.lines().enumerate().collect();
-    parse_todos(&note.id, &note.body)
-        .into_iter()
-        .map(|todo| {
-            let raw_line = line_by_no.get(&todo.line_no).copied().unwrap_or("");
+fn task_facts_from_note(note: &Note, todos: &[super::ParsedTodoLine]) -> Vec<TaskFact> {
+    todos
+        .iter()
+        .map(|parsed_todo| {
+            let todo = &parsed_todo.todo;
             TaskFact {
                 id: todo.id.clone(),
                 source: TaskSource {
@@ -563,22 +542,26 @@ fn task_facts_from_note(note: &Note) -> Vec<TaskFact> {
                     note_title: note.title.clone(),
                     note_updated: note.updated.clone(),
                     line_no: todo.line_no,
+                    anchor: todo.anchor.clone(),
+                    span: todo.span,
                 },
                 text: todo.text.clone(),
                 status: TaskStatus::from(todo.status.as_str()),
                 workflow: TaskWorkflow::from(todo.kind.as_str()),
-                people: parse_mentions(raw_line),
-                workstreams: parse_links(raw_line),
-                labels: parse_tags(raw_line),
-                properties: parse_properties(raw_line)
+                people: parsed_todo.people.clone(),
+                workstreams: parsed_todo.workstreams.clone(),
+                labels: parsed_todo.labels.clone(),
+                properties: parsed_todo
+                    .properties
+                    .clone()
                     .into_iter()
                     .map(|(key, value)| PropertyFact { key, value })
                     .collect(),
-                start: todo.start,
-                due: todo.due,
-                priority: todo.priority,
-                external: todo.external,
-                repeat: todo.repeat,
+                start: todo.start.clone(),
+                due: todo.due.clone(),
+                priority: todo.priority.clone(),
+                external: todo.external.clone(),
+                repeat: todo.repeat.clone(),
             }
         })
         .collect()

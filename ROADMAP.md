@@ -184,9 +184,11 @@ Daily-use quality means:
 
 - [ ] Make the typed parsed-note model the shared source for indexing,
   rendering, autocomplete, and write-back.
-- [ ] Replace feature-specific regex scans with structured parsed facts where
-  practical.
-- [ ] Track stable task source spans and block anchors for write-back.
+- [x] Use typed parsed facts for indexing and workflow read models.
+- [x] Track stable task source spans and block anchors for write-back.
+- [x] Resolve anchored task ids before falling back to line-number write-back.
+- [ ] Replace remaining feature-specific regex scans in rendering and
+  autocomplete with structured parsed facts where practical.
 - [ ] Add parser diagnostics for invalid properties, ambiguous people, and
   unsupported old syntax.
 - [ ] Detect URLs, emails, and social handles as non-person contact entities.

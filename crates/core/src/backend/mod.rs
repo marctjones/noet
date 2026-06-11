@@ -26,11 +26,13 @@ mod workflow;
 // The public surface frontends consume as `noet_core::backend::*`.
 pub use index::{background_reindex, reindex_connection};
 pub use model::{
-    Filter, MdBlock, Note, Project, RelatedNote, Segment, Todo, TodoFields, KINDS, STATUSES,
+    Filter, MdBlock, Note, Project, RelatedNote, Segment, SourceSpan, Todo, TodoFields, KINDS,
+    STATUSES,
 };
 pub use parse::{
-    clean_inline, line_segments, markdown_blocks, parse_links, parse_mentions, parse_properties,
-    parse_tags, parse_todos,
+    clean_inline, line_segments, markdown_blocks, parse_links, parse_markdown, parse_mentions,
+    parse_properties, parse_source_links, parse_tags, parse_todo_lines, parse_todos,
+    ParsedMarkdown, ParsedTodoLine, SourceLink,
 };
 pub use settings::Settings;
 pub use vault::{detect_kind, effective_kind, markdown_title, set_markdown_title};

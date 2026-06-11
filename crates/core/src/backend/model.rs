@@ -14,9 +14,16 @@ pub struct Note {
     pub path: PathBuf,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SourceSpan {
+    pub line_no: usize,
+    pub byte_start: usize,
+    pub byte_end: usize,
+}
+
 #[derive(Debug, Clone)]
 pub struct Todo {
-    pub id: String, // "<note_id>:<line_no>"
+    pub id: String, // "<note_id>:<line_no>" or "<note_id>:^<anchor>"
     pub note_id: String,
     pub kind: String, // workflow label: do/mine/followup/delegated/waiting/someday/reading
     pub status: String, // todo / doing / done
@@ -30,6 +37,8 @@ pub struct Todo {
     pub repeat: String,   // e.g. "1w" / "3d" / "1m" — recurring interval
     pub done: bool,
     pub line_no: usize,
+    pub anchor: String, // optional Markdown block anchor without the leading ^
+    pub span: SourceSpan,
 }
 
 #[derive(Debug, Clone)]
