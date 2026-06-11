@@ -156,8 +156,9 @@ Covered tests:
 - [x] Extract adapters for note/task list rows, agenda buckets, today extras,
   workstream hubs, trash refs, and active filter chips.
 - [x] Extract calendar month cell assembly into deterministic adapters.
-- [ ] Continue extracting label, history, and rendered Markdown block surface
-  assembly out of renderer refresh code.
+- [x] Extract open-note tab/history strip assembly into deterministic adapters.
+- [ ] Continue extracting label and rendered Markdown block surface assembly out
+  of renderer refresh code.
 
 Current UX contract:
 

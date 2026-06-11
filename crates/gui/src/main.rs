@@ -1424,31 +1424,22 @@ const RECENTS_CAP: usize = 12;
 /// Rebuild the open-notes tab model: pinned (bookmarks) first, then recents
 /// (excluding pinned), each with its current title.
 fn refresh_tabs(ui: &AppWindow, s: &State) {
-    let mut tabs: Vec<NoteTab> = Vec::new();
-    for id in &s.pinned {
-        if let Some(t) = s.backend.note_title(id) {
-            tabs.push(NoteTab {
-                id: id.into(),
-                title: t.into(),
-                pinned: true,
-            });
-        }
-    }
+    let pinned = s
+        .pinned
+        .iter()
+        .filter_map(|id| s.backend.note_title(id).map(|title| (id.clone(), title)))
+        .collect::<Vec<_>>();
+    let mut recents = Vec::new();
     RECENTS.with(|r| {
         for id in r.borrow().iter() {
-            if s.pinned.iter().any(|p| p == id) {
-                continue;
-            }
             if let Some(t) = s.backend.note_title(id) {
-                tabs.push(NoteTab {
-                    id: id.into(),
-                    title: t.into(),
-                    pinned: false,
-                });
+                recents.push((id.clone(), t));
             }
         }
     });
-    ui.set_note_tabs(ModelRc::new(VecModel::from(tabs)));
+    ui.set_note_tabs(ModelRc::new(VecModel::from(surface_adapters::note_tabs(
+        &pinned, &recents,
+    ))));
 }
 
 /// Persist the pinned-notes bookmarks to settings.json (keeps other settings).

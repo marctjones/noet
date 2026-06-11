@@ -4,7 +4,8 @@ use noet_core::backend::Filter;
 use slint::{ModelRc, VecModel};
 
 use crate::{
-    BoardColumn, CalCell, FacetItem, FilterChip, GanttItem, NoteItem, NoteRef, RelatedRef, TodoItem,
+    BoardColumn, CalCell, FacetItem, FilterChip, GanttItem, NoteItem, NoteRef, NoteTab, RelatedRef,
+    TodoItem,
 };
 
 pub fn note_item(n: &backend::Note) -> NoteItem {
@@ -470,6 +471,32 @@ pub fn trash_note_refs(notes: &[(String, String)]) -> Vec<NoteRef> {
         .collect()
 }
 
+pub fn note_tabs(pinned: &[(String, String)], recents: &[(String, String)]) -> Vec<NoteTab> {
+    let pinned_ids = pinned
+        .iter()
+        .map(|(id, _)| id.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    let mut tabs = pinned
+        .iter()
+        .map(|(id, title)| NoteTab {
+            id: id.clone().into(),
+            title: title.clone().into(),
+            pinned: true,
+        })
+        .collect::<Vec<_>>();
+    tabs.extend(
+        recents
+            .iter()
+            .filter(|(id, _)| !pinned_ids.contains(id.as_str()))
+            .map(|(id, title)| NoteTab {
+                id: id.clone().into(),
+                title: title.clone().into(),
+                pinned: false,
+            }),
+    );
+    tabs
+}
+
 fn day(s: &str) -> Option<NaiveDate> {
     NaiveDate::parse_from_str(s, "%Y-%m-%d").ok()
 }
@@ -771,6 +798,24 @@ mod tests {
         let trash = trash_note_refs(&[("old.md".into(), "Deleted note".into())]);
         assert_eq!(trash[0].id.to_string(), "old.md");
         assert_eq!(trash[0].title.to_string(), "Deleted note");
+    }
+
+    #[test]
+    fn note_tabs_put_pins_before_recents_and_skip_duplicate_recents() {
+        let pinned = vec![("n1".into(), "Pinned".into())];
+        let recents = vec![
+            ("n2".into(), "Recent".into()),
+            ("n1".into(), "Pinned duplicate".into()),
+        ];
+
+        let tabs = note_tabs(&pinned, &recents);
+        assert_eq!(tabs.len(), 2);
+        assert_eq!(tabs[0].id.to_string(), "n1");
+        assert_eq!(tabs[0].title.to_string(), "Pinned");
+        assert!(tabs[0].pinned);
+        assert_eq!(tabs[1].id.to_string(), "n2");
+        assert_eq!(tabs[1].title.to_string(), "Recent");
+        assert!(!tabs[1].pinned);
     }
 
     #[test]

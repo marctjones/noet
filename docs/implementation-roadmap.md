@@ -129,13 +129,15 @@ Initial adapter boundary:
 - [x] Dedicated adapters for note/task list rows, agenda buckets, today extras,
   workstream hubs, trash refs, and active filter chips.
 - [x] Dedicated adapter for calendar month cells.
+- [x] Dedicated adapter for the open-note tab/history strip.
 - [x] Deterministic adapter tests for 1:1, board, review, waiting queues,
   backlinks, related notes, and source links.
 - [x] Deterministic adapter tests for agenda, workstream, trash, and filter chip
   surfaces.
 - [x] Deterministic adapter test for calendar month cell placement.
-- [ ] Continue extracting label, history, and rendered Markdown block surfaces
-  where GUI code still owns query-specific assembly.
+- [x] Deterministic adapter test for pinned and recent note tabs.
+- [ ] Continue extracting label and rendered Markdown block surfaces where GUI
+  code still owns query-specific assembly.
 
 Rules:
 
