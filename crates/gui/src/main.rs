@@ -1,7 +1,6 @@
 // Noet — native, lightweight notes + typed-todos + projects over plain markdown.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
-use chrono::NaiveDate;
 use noet_app::{AppCommand, AppModel};
 use noet_core::backend;
 use noet_core::backend::{Backend, Filter, TodoFields};
@@ -19,6 +18,7 @@ use std::rc::Rc;
 mod chrome;
 mod ipc;
 mod startup;
+mod surface_adapters;
 mod tray;
 mod workspace_adapter;
 
@@ -695,7 +695,7 @@ fn build_calendar(b: &Backend, f: &Filter, year: i32, month: u32) -> (String, Mo
             by_date
                 .entry(t.due.clone())
                 .or_default()
-                .push(to_todo_item(t));
+                .push(surface_adapters::todo_item(t));
         }
     }
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
@@ -748,24 +748,6 @@ fn resolve_vault() -> PathBuf {
     })
     .save();
     vault
-}
-
-// ---- conversions to Slint types ----
-
-fn to_note_item(n: &backend::Note) -> NoteItem {
-    NoteItem {
-        id: n.id.clone().into(),
-        title: n.title.clone().into(),
-        subtitle: n.updated.replace('T', " ").into(),
-    }
-}
-
-fn to_note_item_from_summary(n: &backend::NoteSummary) -> NoteItem {
-    NoteItem {
-        id: n.id.clone().into(),
-        title: n.title.clone().into(),
-        subtitle: n.updated.replace('T', " ").into(),
-    }
 }
 
 // ---- First-run note -----------------------------------------------------------
@@ -927,140 +909,6 @@ fn palette_activate(ui: &AppWindow, id: &str) {
     }
 }
 
-fn facet(items: &[backend::Project], active: &str) -> ModelRc<FacetItem> {
-    let v: Vec<FacetItem> = items
-        .iter()
-        .map(|p| FacetItem {
-            name: p.name.clone().into(),
-            label: p.name.clone().into(),
-            depth: 0,
-            count: p.count as i32,
-            active: p.name == active,
-        })
-        .collect();
-    ModelRc::new(VecModel::from(v))
-}
-
-/// Expand a flat list of `a/b/c` names into a sorted hierarchy (parent nodes
-/// synthesized; counts rolled up over each subtree).
-fn facet_tree(items: &[backend::Project], active: &str) -> ModelRc<FacetItem> {
-    use std::collections::BTreeSet;
-    let mut nodes: BTreeSet<String> = BTreeSet::new();
-    for p in items {
-        let parts: Vec<&str> = p.name.split('/').collect();
-        for i in 0..parts.len() {
-            nodes.insert(parts[..=i].join("/"));
-        }
-    }
-    let v: Vec<FacetItem> = nodes
-        .iter()
-        .map(|node| {
-            let prefix = format!("{node}/");
-            let count: i64 = items
-                .iter()
-                .filter(|p| &p.name == node || p.name.starts_with(&prefix))
-                .map(|p| p.count)
-                .sum();
-            FacetItem {
-                name: node.clone().into(),
-                label: node.rsplit('/').next().unwrap_or(node).into(),
-                depth: node.matches('/').count() as i32,
-                count: count as i32,
-                active: node == active,
-            }
-        })
-        .collect();
-    ModelRc::new(VecModel::from(v))
-}
-
-fn to_todo_item(t: &backend::Todo) -> TodoItem {
-    TodoItem {
-        id: t.id.clone().into(),
-        note_id: t.note_id.clone().into(),
-        kind: t.kind.clone().into(),
-        status: t.status.clone().into(),
-        text: t.text.clone().into(),
-        project: t.project.clone().into(),
-        person: t.person.clone().into(),
-        due: t.due.clone().into(),
-        external: t.external.clone().into(),
-        priority: t.priority.clone().into(),
-        done: t.done,
-    }
-}
-
-fn to_todo_item_from_fact(t: &backend::TaskFact) -> TodoItem {
-    TodoItem {
-        id: t.id.clone().into(),
-        note_id: t.source.note_id.clone().into(),
-        kind: t.workflow.as_str().into(),
-        status: t.status.as_str().into(),
-        text: t.text.clone().into(),
-        project: t.workstreams.first().cloned().unwrap_or_default().into(),
-        person: t.people.first().cloned().unwrap_or_default().into(),
-        due: t.due.clone().into(),
-        external: t.external.clone().into(),
-        priority: t.priority.clone().into(),
-        done: !t.status.is_open(),
-    }
-}
-
-fn day(s: &str) -> Option<NaiveDate> {
-    NaiveDate::parse_from_str(s, "%Y-%m-%d").ok()
-}
-
-fn build_gantt(todos: &[backend::Todo]) -> Vec<GanttItem> {
-    // Range across all start/due dates.
-    let mut min: Option<NaiveDate> = None;
-    let mut max: Option<NaiveDate> = None;
-    for t in todos {
-        for d in [t.start.as_str(), t.due.as_str()] {
-            if let Some(nd) = day(d) {
-                min = Some(min.map_or(nd, |m| m.min(nd)));
-                max = Some(max.map_or(nd, |m| m.max(nd)));
-            }
-        }
-    }
-    let (Some(min), Some(max)) = (min, max) else {
-        return Vec::new();
-    };
-    let span_days = (max - min).num_days().max(1) as f32;
-    todos
-        .iter()
-        .filter_map(|t| {
-            let due = day(&t.due)?;
-            let start = day(&t.start).unwrap_or(due);
-            let s = (start - min).num_days() as f32 / span_days;
-            let e = (due - min).num_days() as f32 / span_days;
-            Some(GanttItem {
-                id: t.id.clone().into(),
-                text: t.text.clone().into(),
-                date: t.due[5..].to_string().into(), // MM-DD
-                kind: t.kind.clone().into(),
-                start_frac: s.clamp(0.0, 1.0),
-                span_frac: (e - s).clamp(0.0, 1.0),
-            })
-        })
-        .collect()
-}
-
-fn due_display(b: &str) -> &'static str {
-    match b {
-        "overdue" => "overdue",
-        "week" => "this week",
-        "hasdate" => "has date",
-        "nodate" => "no date",
-        _ => "any",
-    }
-}
-
-fn board_group_key(group_by: &str) -> &str {
-    match group_by {
-        "workflow" => "kind",
-        other => other,
-    }
-}
-
 fn resolve_external_url(external: &str) -> Option<String> {
     let ext = external.trim();
     if ext.starts_with("http://") || ext.starts_with("https://") {
@@ -1088,30 +936,6 @@ fn resolve_external_url(external: &str) -> Option<String> {
     None
 }
 
-fn active_summary(f: &Filter) -> String {
-    let mut parts = Vec::new();
-    if !f.project.is_empty() {
-        parts.push(format!("▸{}", f.project));
-    }
-    if !f.tag.is_empty() {
-        parts.push(format!("#{}", f.tag));
-    }
-    if !f.person.is_empty() {
-        parts.push(format!("@{}", f.person));
-    }
-    if !f.search.is_empty() {
-        parts.push(format!("“{}”", f.search));
-    }
-    if !f.status.is_empty() {
-        parts.push(f.status.clone());
-    }
-    if parts.is_empty() {
-        String::new()
-    } else {
-        format!("Filtered: {}", parts.join("  ·  "))
-    }
-}
-
 /// Rebuild every model from the index + current filter.
 pub(crate) fn refresh(ui: &AppWindow, state: &State) {
     let b = &state.backend;
@@ -1128,26 +952,35 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
 
     if view == "notes" || view == "workspace" {
         if let Ok(notes) = b.query_notes(f) {
-            let items: Vec<NoteItem> = notes.iter().map(to_note_item).collect();
+            let items: Vec<NoteItem> = notes.iter().map(surface_adapters::note_item).collect();
             ui.set_notes(ModelRc::new(VecModel::from(items)));
         }
     }
     if let Ok(p) = b.list_projects() {
-        ui.set_projects(facet_tree(&p, &f.project));
+        ui.set_projects(ModelRc::new(VecModel::from(
+            surface_adapters::facet_tree_items(&p, &f.project),
+        )));
     }
     if let Ok(t) = b.list_tags() {
         let maxc = t.iter().map(|x| x.count).max().unwrap_or(1).max(1) as i32;
         ui.set_max_tag_count(maxc);
-        ui.set_tags(facet_tree(&t, &f.tag));
+        ui.set_tags(ModelRc::new(VecModel::from(
+            surface_adapters::facet_tree_items(&t, &f.tag),
+        )));
     }
     if let Ok(p) = b.list_people() {
-        ui.set_people(facet(&p, &f.person));
+        ui.set_people(ModelRc::new(VecModel::from(surface_adapters::facet_items(
+            &p, &f.person,
+        ))));
     }
 
     // flat task list (same filtered todos as the board, ungrouped)
     if surface_visible("tasks") {
         if let Ok(tasks) = b.task_list(f) {
-            let items: Vec<TodoItem> = tasks.iter().map(to_todo_item_from_fact).collect();
+            let items: Vec<TodoItem> = tasks
+                .iter()
+                .map(surface_adapters::todo_item_from_fact)
+                .collect();
             ui.set_tasks(ModelRc::new(VecModel::from(items)));
         }
     }
@@ -1155,7 +988,7 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
     // "Waiting on": open delegated items, clustered by person, oldest first.
     if view == "waiting" {
         if let Ok(todos) = b.waiting_on() {
-            let items: Vec<TodoItem> = todos.iter().map(to_todo_item).collect();
+            let items: Vec<TodoItem> = todos.iter().map(surface_adapters::todo_item).collect();
             ui.set_waiting_todos(ModelRc::new(VecModel::from(items)));
         }
     }
@@ -1169,7 +1002,7 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
             ..Default::default()
         };
         if let Ok(todos) = b.query_todos(&f) {
-            let items: Vec<TodoItem> = todos.iter().map(to_todo_item).collect();
+            let items: Vec<TodoItem> = todos.iter().map(surface_adapters::todo_item).collect();
             ui.set_hub_todos(ModelRc::new(VecModel::from(items)));
         }
         let notes: Vec<NoteRef> = b
@@ -1193,7 +1026,7 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
                 .to_string();
             let (mut overdue, mut td, mut wk, mut later) = (vec![], vec![], vec![], vec![]);
             for t in &items {
-                let it = to_todo_item(t);
+                let it = surface_adapters::todo_item(t);
                 if t.due < today {
                     overdue.push(it);
                 } else if t.due == today {
@@ -1214,7 +1047,7 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
     // inbox: unfiled notes
     if view == "inbox" {
         if let Ok(notes) = b.inbox() {
-            let items: Vec<NoteItem> = notes.iter().map(to_note_item).collect();
+            let items: Vec<NoteItem> = notes.iter().map(surface_adapters::note_item).collect();
             ui.set_inbox_notes(ModelRc::new(VecModel::from(items)));
         }
     }
@@ -1223,11 +1056,18 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
     if view == "today" {
         if let Ok(stale) = b.stale_todos() {
             ui.set_today_stale(ModelRc::new(VecModel::from(
-                stale.iter().map(to_todo_item).collect::<Vec<_>>(),
+                stale
+                    .iter()
+                    .map(surface_adapters::todo_item)
+                    .collect::<Vec<_>>(),
             )));
         }
         if let Ok(recent) = b.query_notes(&Filter::default()) {
-            let items: Vec<NoteItem> = recent.iter().take(8).map(to_note_item).collect();
+            let items: Vec<NoteItem> = recent
+                .iter()
+                .take(8)
+                .map(surface_adapters::note_item)
+                .collect();
             ui.set_today_recent(ModelRc::new(VecModel::from(items)));
         }
     }
@@ -1274,14 +1114,14 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
             ui.set_person_discuss(ModelRc::new(VecModel::from(
                 discuss
                     .iter()
-                    .map(to_todo_item_from_fact)
+                    .map(surface_adapters::todo_item_from_fact)
                     .collect::<Vec<_>>(),
             )));
             ui.set_person_delegated(ModelRc::new(VecModel::from(
                 oneonone_context
                     .delegated
                     .iter()
-                    .map(to_todo_item_from_fact)
+                    .map(surface_adapters::todo_item_from_fact)
                     .collect::<Vec<_>>(),
             )));
             ui.set_person_delegated_history(ModelRc::new(VecModel::from(
@@ -1296,7 +1136,7 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
                                 | backend::TaskWorkflow::Waiting
                         )
                     })
-                    .map(to_todo_item_from_fact)
+                    .map(surface_adapters::todo_item_from_fact)
                     .collect::<Vec<_>>(),
             )));
             ui.set_person_other(ModelRc::new(VecModel::from(
@@ -1311,7 +1151,7 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
                                 | backend::TaskWorkflow::Waiting
                         )
                     })
-                    .map(to_todo_item_from_fact)
+                    .map(surface_adapters::todo_item_from_fact)
                     .collect::<Vec<_>>(),
             )));
             let oneonone_notes = oneonone_context.history.clone();
@@ -1341,7 +1181,7 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
                                     | backend::TaskWorkflow::Waiting
                             )
                     })
-                    .map(to_todo_item_from_fact)
+                    .map(surface_adapters::todo_item_from_fact)
                     .collect::<Vec<_>>()
             } else {
                 Vec::new()
@@ -1383,7 +1223,7 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
             ui.set_person_oneonone_notes(ModelRc::new(VecModel::from(
                 oneonone_notes
                     .iter()
-                    .map(to_note_item_from_summary)
+                    .map(surface_adapters::note_item_from_summary)
                     .collect::<Vec<_>>(),
             )));
             let pnotes = b
@@ -1393,7 +1233,10 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
                 })
                 .unwrap_or_default();
             ui.set_person_notes(ModelRc::new(VecModel::from(
-                pnotes.iter().map(to_note_item).collect::<Vec<_>>(),
+                pnotes
+                    .iter()
+                    .map(surface_adapters::note_item)
+                    .collect::<Vec<_>>(),
             )));
         } else {
             ui.set_person_discuss(empty_todos());
@@ -1415,13 +1258,16 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
 
     if surface_visible("board") {
         let group_by = ui.get_group_by().to_string();
-        if let Ok(board) = b.board_model(board_group_key(&group_by), f) {
+        if let Ok(board) = b.board_model(surface_adapters::board_group_key(&group_by), f) {
             let items: Vec<BoardColumn> = board
                 .columns
                 .into_iter()
                 .map(|col| {
-                    let cards: Vec<TodoItem> =
-                        col.tasks.iter().map(to_todo_item_from_fact).collect();
+                    let cards: Vec<TodoItem> = col
+                        .tasks
+                        .iter()
+                        .map(surface_adapters::todo_item_from_fact)
+                        .collect();
                     BoardColumn {
                         title: col.label.into(),
                         key: col.key.into(),
@@ -1445,13 +1291,13 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
                 .due
                 .iter()
                 .filter(|task| !overdue_ids.contains(task.id.as_str()))
-                .map(to_todo_item_from_fact)
+                .map(surface_adapters::todo_item_from_fact)
                 .collect::<Vec<_>>();
             ui.set_review_overdue(ModelRc::new(VecModel::from(
                 review
                     .overdue
                     .iter()
-                    .map(to_todo_item_from_fact)
+                    .map(surface_adapters::todo_item_from_fact)
                     .collect::<Vec<_>>(),
             )));
             ui.set_review_due(ModelRc::new(VecModel::from(due)));
@@ -1459,21 +1305,21 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
                 review
                     .stale
                     .iter()
-                    .map(to_todo_item_from_fact)
+                    .map(surface_adapters::todo_item_from_fact)
                     .collect::<Vec<_>>(),
             )));
             ui.set_review_followups(ModelRc::new(VecModel::from(
                 review
                     .followups
                     .iter()
-                    .map(to_todo_item_from_fact)
+                    .map(surface_adapters::todo_item_from_fact)
                     .collect::<Vec<_>>(),
             )));
             ui.set_review_someday(ModelRc::new(VecModel::from(
                 review
                     .someday
                     .iter()
-                    .map(to_todo_item_from_fact)
+                    .map(surface_adapters::todo_item_from_fact)
                     .collect::<Vec<_>>(),
             )));
         }
@@ -1482,13 +1328,13 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
                 .groups
                 .into_iter()
                 .flat_map(|group| group.tasks)
-                .map(|task| to_todo_item_from_fact(&task))
+                .map(|task| surface_adapters::todo_item_from_fact(&task))
                 .collect::<Vec<_>>();
             tasks.extend(
                 waiting
                     .unassigned
                     .iter()
-                    .map(to_todo_item_from_fact)
+                    .map(surface_adapters::todo_item_from_fact)
                     .collect::<Vec<_>>(),
             );
             ui.set_review_waiting(ModelRc::new(VecModel::from(tasks.clone())));
@@ -1496,18 +1342,23 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
         }
         if let Ok(notes) = b.inbox() {
             ui.set_review_inbox_notes(ModelRc::new(VecModel::from(
-                notes.iter().map(to_note_item).collect::<Vec<_>>(),
+                notes
+                    .iter()
+                    .map(surface_adapters::note_item)
+                    .collect::<Vec<_>>(),
             )));
         }
     }
 
     if view == "gantt" {
         if let Ok(g) = b.gantt_items(f) {
-            ui.set_gantt_items(ModelRc::new(VecModel::from(build_gantt(&g))));
+            ui.set_gantt_items(ModelRc::new(VecModel::from(surface_adapters::gantt_items(
+                &g,
+            ))));
         }
     }
 
-    ui.set_active_summary(active_summary(f).into());
+    ui.set_active_summary(surface_adapters::active_summary(f).into());
 
     // removable active-filter chips + dropdown display values
     let mut chips: Vec<FilterChip> = Vec::new();
@@ -1533,7 +1384,10 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
         chip(format!("priority {}", f.priority), "priority");
     }
     if !f.due_bucket.is_empty() {
-        chip(format!("due: {}", due_display(&f.due_bucket)), "due");
+        chip(
+            format!("due: {}", surface_adapters::due_display(&f.due_bucket)),
+            "due",
+        );
     }
     if !f.status.is_empty() {
         chip(format!("status: {}", f.status), "status");
@@ -1552,7 +1406,7 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
     } else {
         f.priority.clone().into()
     });
-    ui.set_filter_due(due_display(&f.due_bucket).into());
+    ui.set_filter_due(surface_adapters::due_display(&f.due_bucket).into());
     refresh_tabs(ui, state); // keep the open-notes tab strip in sync
 }
 
@@ -2998,7 +2852,9 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let ui = ui_w.unwrap();
             let group_by = ui.get_group_by().to_string();
             let mut s = state.borrow_mut();
-            let _ = s.backend.board_move(&id, board_group_key(&group_by), dir);
+            let _ = s
+                .backend
+                .board_move(&id, surface_adapters::board_group_key(&group_by), dir);
             let current = ui.get_current_id().to_string();
             if !current.is_empty() && id.starts_with(&format!("{current}:")) {
                 open_in_editor(&ui, &s.backend, &current);
@@ -3044,7 +2900,9 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let ui = ui_w.unwrap();
             let group_by = ui.get_group_by().to_string();
             let mut s = state.borrow_mut();
-            let _ = s.backend.drop_card(&id, board_group_key(&group_by), &key);
+            let _ = s
+                .backend
+                .drop_card(&id, surface_adapters::board_group_key(&group_by), &key);
             let current = ui.get_current_id().to_string();
             if !current.is_empty() && id.starts_with(&format!("{current}:")) {
                 open_in_editor(&ui, &s.backend, &current);
