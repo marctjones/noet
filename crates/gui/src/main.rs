@@ -7,8 +7,8 @@ use noet_core::backend::{Backend, Filter, TodoFields};
 use slint::{Model, ModelRc, SharedString, VecModel};
 use sred_core::editor::SearchOpts as SredSearch;
 use sred_core::{
-    BlockKind as SredBlock, Command as SredCmd, Editor as SredEditor, Format as SredFormat,
-    MarkSet as SredMark, Motion as SredMotion, Theme as SredTheme, TokenMatch as SredMatch,
+    normalize_chord_key, standard_command_for_chord, ClipboardOp, Command as SredCmd,
+    Editor as SredEditor, Format as SredFormat, Theme as SredTheme, TokenMatch as SredMatch,
     TokenSpec as SredToken,
 };
 use std::cell::{Cell, RefCell};
@@ -404,8 +404,8 @@ fn rich_autocomplete_accept(ui: &AppWindow) {
             };
             e.apply(SredCmd::Insert(name));
             if after_close {
-                e.apply(SredCmd::Move(SredMotion::Right));
-                e.apply(SredCmd::Move(SredMotion::Right));
+                e.command("right", None);
+                e.command("right", None);
             } else {
                 e.apply(SredCmd::Insert("]]".to_string()));
             }
@@ -543,91 +543,47 @@ fn rich_register_tokens(dark: bool) {
     });
 }
 
-/// Normalize a Ctrl-chord key to a lowercase letter (control chars U+0001..=U+001A
-/// map back to 'a'..='z'). Mirrors sred-slint's handling.
-fn normalize_chord(key: &str) -> String {
-    let mut chars = key.chars();
-    match (chars.next(), chars.next()) {
-        (Some(c), None) => {
-            let code = c as u32;
-            if (1..=26).contains(&code) {
-                ((b'a' + (code as u8 - 1)) as char).to_string()
-            } else {
-                c.to_lowercase().to_string()
-            }
-        }
-        _ => key.to_string(),
-    }
-}
-
 /// Apply a named command to the sred editor. Returns `(handled, changed_text)`.
 fn rich_named(name: &str) -> (bool, bool) {
-    RICH.with(|r| {
-        let mut e = r.borrow_mut();
-        let cmd = match name {
-            "bold" => Some(SredCmd::ToggleMark(SredMark::BOLD)),
-            "italic" => Some(SredCmd::ToggleMark(SredMark::ITALIC)),
-            "code" => Some(SredCmd::ToggleMark(SredMark::CODE)),
-            "strike" => Some(SredCmd::ToggleMark(SredMark::STRIKE)),
-            "h1" => Some(SredCmd::ToggleBlock(SredBlock::Heading(1))),
-            "h2" => Some(SredCmd::ToggleBlock(SredBlock::Heading(2))),
-            "bullet" => Some(SredCmd::ToggleBlock(SredBlock::Bullet)),
-            "quote" => Some(SredCmd::ToggleBlock(SredBlock::Quote)),
-            "undo" => Some(SredCmd::Undo),
-            "redo" => Some(SredCmd::Redo),
-            _ => None,
-        };
-        if let Some(c) = cmd {
-            e.apply(c); // toggles + undo/redo all mutate the buffer
-            return (true, true);
-        }
-        match name {
-            "selectall" => {
-                e.apply(SredCmd::SelectAll);
-                (true, false)
-            }
-            "copy" => {
-                let t = e.selected_text();
-                if !t.is_empty() {
-                    clip_set(&t);
-                }
-                (true, false)
-            }
-            "cut" => {
-                let t = e.selected_text();
-                let had = !t.is_empty();
-                if had {
-                    clip_set(&t);
-                    e.apply(SredCmd::DeleteSelection);
-                }
-                (true, had)
-            }
-            "paste" => {
-                let t = clip_get();
-                if !t.is_empty() {
-                    e.apply(SredCmd::Insert(t));
+    if matches!(name, "link" | "openlink") {
+        return RICH.with(|r| {
+            let mut e = r.borrow_mut();
+            match name {
+                "link" => {
+                    if e.selected_text().is_empty() {
+                        e.apply(SredCmd::Insert("[text](https://)".into()));
+                    } else {
+                        e.apply(SredCmd::Link("https://".into()));
+                    }
                     (true, true)
-                } else {
+                }
+                "openlink" => {
+                    if let Some(u) = e.link_at_cursor() {
+                        let _ = open::that(u);
+                    }
                     (true, false)
                 }
+                _ => (false, false),
             }
-            "link" => {
-                if e.selected_text().is_empty() {
-                    e.apply(SredCmd::Insert("[text](https://)".into()));
-                } else {
-                    e.apply(SredCmd::Link("https://".into()));
-                }
-                (true, true)
-            }
-            "openlink" => {
-                if let Some(u) = e.link_at_cursor() {
-                    let _ = open::that(u);
-                }
-                (true, false)
-            }
-            _ => (false, false),
+        });
+    }
+
+    let outcome = RICH.with(|r| r.borrow_mut().command(name, None));
+    match outcome.clipboard {
+        ClipboardOp::None => (outcome.handled, outcome.changed),
+        ClipboardOp::SetText(text) => {
+            clip_set(&text);
+            (outcome.handled, outcome.changed)
         }
-    })
+        ClipboardOp::RequestPaste => {
+            let text = clip_get();
+            if text.is_empty() {
+                return (outcome.handled, outcome.changed);
+            }
+            let paste = RICH.with(|r| r.borrow_mut().command(name, Some(&text)));
+            (paste.handled, outcome.changed || paste.changed)
+        }
+    }
 }
 
 /// Backend + the live, unified filter shared by every view.
@@ -1455,7 +1411,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         let ui_w = ui.as_weak();
         ui.on_rich_chord(move |key| {
             let ui = ui_w.unwrap();
-            let chord = normalize_chord(&key);
+            let chord = normalize_chord_key(&key);
             // Ctrl/⌘+K opens the command palette (global "go to…").
             if chord == "k" {
                 ui.set_palette_query("".into());
@@ -1469,17 +1425,8 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 ui.invoke_find_search(ui.get_find_query());
                 return true;
             }
-            let name = match chord.as_str() {
-                "b" => "bold",
-                "i" => "italic",
-                "e" | "`" => "code",
-                "z" => "undo",
-                "y" => "redo",
-                "c" => "copy",
-                "x" => "cut",
-                "v" => "paste",
-                "a" => "selectall",
-                _ => return false,
+            let Some(name) = standard_command_for_chord(&chord) else {
+                return false;
             };
             let (handled, changed) = rich_named(name);
             if handled {
@@ -1497,85 +1444,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         let state = state.clone();
         ui.on_rich_special(move |name| {
             let ui = ui_w.unwrap();
-            let changed = RICH.with(|r| {
-                let mut e = r.borrow_mut();
-                match name.as_str() {
-                    "backspace" => {
-                        e.apply(SredCmd::DeleteBackward);
-                        true
-                    }
-                    "delete" => {
-                        e.apply(SredCmd::DeleteForward);
-                        true
-                    }
-                    "left" => {
-                        e.apply(SredCmd::Move(SredMotion::Left));
-                        false
-                    }
-                    "right" => {
-                        e.apply(SredCmd::Move(SredMotion::Right));
-                        false
-                    }
-                    "home" => {
-                        e.apply(SredCmd::Move(SredMotion::LineStart));
-                        false
-                    }
-                    "end" => {
-                        e.apply(SredCmd::Move(SredMotion::LineEnd));
-                        false
-                    }
-                    "select-left" => {
-                        e.apply(SredCmd::Select(SredMotion::Left));
-                        false
-                    }
-                    "select-right" => {
-                        e.apply(SredCmd::Select(SredMotion::Right));
-                        false
-                    }
-                    "select-up" => {
-                        let anchor = e.carets().first().copied().unwrap_or(0);
-                        e.move_vertical(false);
-                        let target = e.carets().first().copied().unwrap_or(anchor);
-                        e.core_mut().set_cursor(anchor);
-                        e.core_mut().extend_to(target);
-                        false
-                    }
-                    "select-down" => {
-                        let anchor = e.carets().first().copied().unwrap_or(0);
-                        e.move_vertical(true);
-                        let target = e.carets().first().copied().unwrap_or(anchor);
-                        e.core_mut().set_cursor(anchor);
-                        e.core_mut().extend_to(target);
-                        false
-                    }
-                    "select-home" => {
-                        e.apply(SredCmd::Select(SredMotion::LineStart));
-                        false
-                    }
-                    "select-end" => {
-                        e.apply(SredCmd::Select(SredMotion::LineEnd));
-                        false
-                    }
-                    "up" => {
-                        e.move_vertical(false);
-                        false
-                    }
-                    "down" => {
-                        e.move_vertical(true);
-                        false
-                    }
-                    // Tab / Shift-Tab list indent & outdent (sred v0.7.0, #3).
-                    "indent" => {
-                        e.apply(SredCmd::Indent);
-                        true
-                    }
-                    "outdent" => {
-                        e.apply(SredCmd::Outdent);
-                        true
-                    }
-                    _ => false,
-                }
-            });
+            let (_handled, changed) = rich_named(&name);
             if changed {
                 rich_after_edit(&ui)
             } else {
