@@ -543,6 +543,14 @@ fn promote_inline_todo_creates_task_note_and_links_source_line() {
     assert!(promoted_tasks
         .iter()
         .any(|task| task.note_id == promoted.id && task.text == "Ask Jane about launch risks"));
+    let promoted_context = b.note_context(&promoted.id).unwrap();
+    assert_eq!(promoted_context.sources.len(), 1);
+    assert_eq!(promoted_context.sources[0].id, meeting.id);
+    assert_eq!(promoted_context.sources[0].title, "1:1 with Jane");
+    assert_eq!(
+        promoted_context.sources[0].anchor,
+        "ask-jane-about-launch-risks"
+    );
 
     std::fs::remove_dir_all(&dir).ok();
 }

@@ -148,6 +148,20 @@ Noet should avoid creating separate one-off syntaxes for due dates, priorities,
 or external references. New structured metadata should fit this same property
 system unless there is a strong reason it cannot.
 
+### Source Links
+
+Promoted task notes use an explicit source-link property:
+
+```markdown
+source:[[1:1 with Jane#^launch-risks]]
+```
+
+This is a note-scoped `source:` property whose value is a wikilink to the note
+and block anchor where the task was captured. Unlike ordinary single-token
+properties, the wikilink target may contain spaces. Noet resolves this into
+source context in the Notes workspace, and the original source line keeps the
+same block anchor.
+
 ## Scope
 
 Noet recognizes two simple scopes.
@@ -245,6 +259,10 @@ Original note after promotion:
 ```
 
 The promoted task note and original meeting line should stay linked.
+
+In the Notes workspace, the promoted task note shows its source note in the
+context pane so the standalone task can be traced back to the meeting where it
+was captured.
 
 Promotion should be an explicit command, not magical content detection. The
 inline item remains understandable Markdown, and the full task note becomes a

@@ -636,6 +636,7 @@ export component AppWindow inherits Window {
     in property <[NoteItem]> inbox-notes;
     in property <[NoteRef]> current-backlinks;
     in property <[RelatedRef]> current-related; // prior notes to link this one to
+    in property <[RelatedRef]> current-sources; // explicit source:[[note#^anchor]] links
     callback link-related(string);             // insert [[title]] into the editor
     in property <[TodoItem]> today-stale;
     in property <[NoteItem]> today-recent;
@@ -1431,6 +1432,23 @@ export component AppWindow inherits Window {
                                                         for n in root.person-oneonone-notes: NoteRow {
                                                             note: n;
                                                             open(id) => { root.workspace-switch("one-on-one-focus"); root.select-note(id); }
+                                                        }
+                                                    }
+                                                    PaneSection {
+                                                        title: "Source";
+                                                        detail: root.current-sources.length + " notes";
+                                                        accent: #9a5b1b;
+                                                        if root.current-sources.length == 0: EmptyState { glyph: "[]"; title: "No source links"; hint: "Promoted task notes show their source here."; }
+                                                        for r in root.current-sources: Rectangle {
+                                                            height: 38px;
+                                                            border-radius: 5px;
+                                                            background: srcrow.has-hover ? Theme.surface3 : transparent;
+                                                            HorizontalLayout {
+                                                                padding: 6px; spacing: 6px;
+                                                                Text { text: r.title; font-size: (12px * Z.f); font-weight: 650; color: Theme.text; horizontal-stretch: 1; overflow: elide; }
+                                                                Chip { text: r.via; tint: #fdeede; ink: #9a5b1b; }
+                                                            }
+                                                            srcrow := TouchArea { clicked => { root.workspace-switch("notes"); root.select-note(r.id); } }
                                                         }
                                                     }
                                                     PaneSection {

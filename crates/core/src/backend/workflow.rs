@@ -152,11 +152,19 @@ pub struct NoteSummary {
     pub workstreams: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceRef {
+    pub id: String,
+    pub title: String,
+    pub anchor: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct NoteContext {
     pub note: ParsedNote,
     pub backlinks: Vec<NoteSummary>,
     pub related: Vec<NoteSummary>,
+    pub sources: Vec<SourceRef>,
 }
 
 #[derive(Debug, Clone)]
@@ -247,10 +255,12 @@ impl Backend {
             .filter(|related| related.id != note_id)
             .map(|related| self.note_summary_by_id(&related.id))
             .collect::<Result<Vec<_>>>()?;
+        let sources = self.source_refs_for_note(&note.note.id, &note.note.body)?;
         Ok(NoteContext {
             note,
             backlinks,
             related,
+            sources,
         })
     }
 
@@ -428,6 +438,31 @@ impl Backend {
         self.note_summary(self.load_note(note_id)?)
     }
 
+    fn source_refs_for_note(&self, note_id: &str, body: &str) -> Result<Vec<SourceRef>> {
+        let all_notes = self.query_notes(&Filter {
+            show_archived: true,
+            ..Default::default()
+        })?;
+        let mut out = Vec::new();
+        for source in source_link_targets(body) {
+            let (title, anchor) = split_source_target(&source);
+            let Some(note) = all_notes
+                .iter()
+                .find(|note| note.id != note_id && note.title == title)
+            else {
+                continue;
+            };
+            if !out.iter().any(|src: &SourceRef| src.id == note.id) {
+                out.push(SourceRef {
+                    id: note.id.clone(),
+                    title: note.title.clone(),
+                    anchor: anchor.clone(),
+                });
+            }
+        }
+        Ok(out)
+    }
+
     fn note_summary(&self, note: Note) -> Result<NoteSummary> {
         let parsed = parsed_note_from_note(note);
         Ok(NoteSummary {
@@ -459,6 +494,28 @@ impl Backend {
             }
         }
         Ok(out)
+    }
+}
+
+fn source_link_targets(body: &str) -> Vec<String> {
+    body.lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            let rest = trimmed.strip_prefix("source:[[")?;
+            let target = rest.split("]]").next()?.trim();
+            if target.is_empty() {
+                None
+            } else {
+                Some(target.to_string())
+            }
+        })
+        .collect()
+}
+
+fn split_source_target(target: &str) -> (String, String) {
+    match target.split_once("#^") {
+        Some((title, anchor)) => (title.trim().to_string(), anchor.trim().to_string()),
+        None => (target.trim().to_string(), String::new()),
     }
 }
 

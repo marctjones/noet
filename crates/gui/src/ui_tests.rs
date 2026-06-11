@@ -757,6 +757,15 @@ fn headless_ui_smoke() {
         "promoted note carries task type and source link: {:?}",
         ui.get_current_body()
     );
+    let sources = ui.get_current_sources();
+    assert_eq!(
+        sources.row_count(),
+        1,
+        "promoted task note exposes one source context item"
+    );
+    let source_ref = sources.row_data(0).unwrap();
+    assert_eq!(source_ref.title, "Promotion source");
+    assert_eq!(source_ref.via, "^draft-promotion-test");
     let source = ctx
         .state
         .borrow()

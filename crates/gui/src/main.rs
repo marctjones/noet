@@ -1909,6 +1909,25 @@ fn render_read(ui: &AppWindow, b: &Backend, note: &backend::Note) {
         })
         .collect();
     ui.set_current_related(ModelRc::new(VecModel::from(related)));
+    let sources: Vec<RelatedRef> = b
+        .note_context(&note.id)
+        .map(|context| {
+            context
+                .sources
+                .into_iter()
+                .map(|source| RelatedRef {
+                    id: source.id.into(),
+                    title: source.title.into(),
+                    via: if source.anchor.is_empty() {
+                        "source".into()
+                    } else {
+                        format!("^{}", source.anchor).into()
+                    },
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    ui.set_current_sources(ModelRc::new(VecModel::from(sources)));
 }
 
 /// The built-but-not-yet-driven app: window, shared state, and the background-

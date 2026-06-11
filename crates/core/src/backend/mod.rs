@@ -36,8 +36,8 @@ pub use settings::Settings;
 pub use vault::{detect_kind, effective_kind, markdown_title, set_markdown_title};
 pub use workflow::{
     BoardColumn, BoardModel, LabelContext, LabelReview, LabelSummary, NoteContext, NoteFacts,
-    NoteSummary, OneOnOneContext, ParsedNote, PropertyFact, TaskFact, TaskReview, TaskSource,
-    TaskStatus, TaskWorkflow, WaitingGroup, WaitingReview,
+    NoteSummary, OneOnOneContext, ParsedNote, PropertyFact, SourceRef, TaskFact, TaskReview,
+    TaskSource, TaskStatus, TaskWorkflow, WaitingGroup, WaitingReview,
 };
 
 // Crate-internal types that submodules reach for via `super::`.

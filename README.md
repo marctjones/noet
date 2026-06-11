@@ -79,6 +79,7 @@ Canonical syntax:
 - workstreams and note links: `[[Client/Acme]]`
 - labels: `#followup`, `#meeting/one-on-one`
 - properties: `due:2026-06-17`, `priority:A`, `repeat:1w`
+- source links: `source:[[1:1 - Jane Smith#^launch-risks]]`
 - references: `ref:https://...`, normal URLs, `gh:owner/repo#12`
 
 See [docs/noet-markdown.md](docs/noet-markdown.md).
@@ -148,6 +149,10 @@ Inline tasks can be promoted into standalone task notes. The promoted note keeps
 the people, workstream, label, due date, priority, and source-note backlink; the
 original line is rewritten to link to the promoted task note with a stable block
 anchor.
+
+Promoted task notes also expose their `source:[[note#^anchor]]` link in the
+Notes workspace context pane, so a standalone task can be traced back to the
+meeting or note where it was captured.
 
 ### Review
 
