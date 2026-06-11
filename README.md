@@ -46,6 +46,8 @@ Implemented foundation:
 - The 1:1 Focus workspace can show prior 1:1 history, navigate between 1:1
   notes, and resolve or carry forward unresolved follow-ups from the previous
   1:1.
+- Empty vaults seed a Welcome note that explains the local Markdown vault,
+  Markdown facts, workspaces, panes, and first actions.
 - Daily workflow screens are still being migrated onto the new workspace shell;
   the 1:1, task, board, and review flows are the active MVP path.
 

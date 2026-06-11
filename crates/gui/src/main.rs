@@ -768,79 +768,35 @@ fn to_note_item_from_summary(n: &backend::NoteSummary) -> NoteItem {
     }
 }
 
-// ---- Sample / rendering-test note --------------------------------------------
+// ---- First-run note -----------------------------------------------------------
 
-const SAMPLE_TITLE: &str = "Markdown rendering test";
+const WELCOME_TITLE: &str = "Welcome to Noet";
+const WELCOME_BODY: &str = r###"# Welcome to Noet
 
-const SAMPLE_BODY: &str = r###"This note exercises Noet's editor and the sred renderer. Edit it freely; delete it to regenerate on next launch.
+#welcome
+[[Noet Setup]]
 
-## Inline styles
-Plain, **bold**, *italic*, ***bold italic***, `inline code`, ~~strikethrough~~, a [labelled link](https://slint.dev), and a bare URL https://github.com/marctjones/noet
+Noet is a local-first work memory. The Markdown files in this vault are the source of truth; the SQLite index can be rebuilt.
 
-## Headings
-# Heading 1
-## Heading 2
-### Heading 3
+## First Actions
 
-## Bullet list (with sub-bullets)
-- First item
-- Second item
-  - Sub-bullet A
-  - Sub-bullet B
-    - Sub-sub-bullet (third level)
-- Third item
+- [ ] Capture one real meeting note #mine [[Noet Setup]]
+- [ ] Add a person with @[[Jane Doe]] and use 1:1 Focus #followup
+- [ ] Promote a task when it needs its own note #mine
+- [ ] Review overdue, stale, waiting, and someday work #mine
 
-## Numbered list (with sub-items)
-1. First
-2. Second
-   1. Sub one
-   2. Sub two
-3. Third
+## Markdown Facts
 
-## Task list items
-- [ ] draft the kickoff agenda priority:A due:2026-06-10
-- [/] wire up the API [[Platform]]
-- [x] set up the repo
+- `@[[Jane Doe]]` is a person.
+- `[[Client/Acme]]` is a workstream or note link.
+- `#followup`, `#delegated`, `#mine`, `#waiting`, and `#someday` describe task workflow.
+- `due:2026-06-17`, `priority:A`, and `repeat:1w` are properties.
+- `source:[[Meeting Note#^anchor]]` connects a promoted task note back to its source.
 
-## Blockquote
-> A quoted line.
-> A second quoted line.
+## Workspace Model
 
-## Code block
-```rust
-fn main() {
-    let greeting = "hello";
-    println!("{greeting}, world"); // syntect highlighting
-}
-```
-
-## Entities
-Workstream [[Acme Onboarding]], person @jane, label #urgent, nested label #area/sub.
-
-## Table
-col a | col b
----- | ----
-v1 | v2
-v3 | v4
-
-## Horizontal rule
----
-
-If the sub-bullets and numbered sub-items above don't indent/nest, that's the sred
-list renderer (tracked upstream as sred#3), not your markdown.
+Navigation panes help find context. Workspaces hold the work. Context panes show backlinks, related notes, source notes, history, or queues without owning the note you are editing.
 "###;
-
-/// Ensure the markdown sample/test note exists; return its id (existing or new).
-fn ensure_sample_note(b: &mut Backend) -> Option<String> {
-    if let Ok(notes) = b.query_notes(&Filter::default()) {
-        if let Some(n) = notes.iter().find(|n| n.title == SAMPLE_TITLE) {
-            return Some(n.id.clone());
-        }
-    }
-    let note = b.new_note().ok()?;
-    b.save_note(&note.id, SAMPLE_TITLE, SAMPLE_BODY).ok()?;
-    Some(note.id)
-}
 
 // ---- Command palette (Ctrl/⌘+K) ----------------------------------------------
 
@@ -1993,22 +1949,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
 
     if backend.is_vault_empty() {
         let note = backend.new_note()?;
-        backend.save_note(
-            &note.id,
-            "Welcome to Noet",
-            "Noet keeps plain markdown files as the source of truth. #welcome\n\n\
-             - [[Acme Onboarding]] links this note to a project/workstream.\n\
-             - #tags label notes — filter by them in the left rail.\n\n\
-             Task list items filter and group by workflow label:\n\
-             - [ ] draft the kickoff agenda [[Acme Onboarding]] start:2026-06-04 due:2026-06-10 #urgent\n\
-             - [/] set up the repo [[Acme Onboarding]] due:2026-06-06\n\
-             - [ ] check pricing with Jane @[[Jane]] [[Acme Onboarding]] #followup\n\
-             - [ ] send NDA @[[Sam]] [[Acme Onboarding]] #delegated due:2026-06-12\n\
-             - [ ] skim the Rust async book #reading\n\
-             - [ ] wire up the API [[Platform]] ref:https://example.com/proj-12 due:2026-06-20\n\n\
-             Try: the Board tab (group by status/workflow/workstream/person), the Gantt tab,\n\
-             and the search box + Projects/Tags/People filters on the left.\n",
-        )?;
+        backend.save_note(&note.id, WELCOME_TITLE, WELCOME_BODY)?;
     }
 
     let ui = AppWindow::new()?;
@@ -2529,15 +2470,14 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             if !ui.get_editing() {
                 let cur = ui.get_current_id().to_string();
                 if cur.is_empty() {
-                    // first index after launch — ensure the sample/test note exists
-                    // and open it (falling back to the most recent note).
-                    let sample_id = ensure_sample_note(&mut state.borrow_mut().backend);
                     let s = state.borrow();
-                    if let Some(id) = sample_id {
-                        open_in_editor(&ui, &s.backend, &id);
-                    } else if let Ok(notes) = s.backend.query_notes(&Filter::default()) {
-                        if let Some(first) = notes.into_iter().next() {
-                            open_in_editor(&ui, &s.backend, &first.id);
+                    if let Ok(notes) = s.backend.query_notes(&Filter::default()) {
+                        let startup_note = notes
+                            .iter()
+                            .find(|note| note.title == WELCOME_TITLE)
+                            .or_else(|| notes.first());
+                        if let Some(note) = startup_note {
+                            open_in_editor(&ui, &s.backend, &note.id);
                         }
                     }
                 } else {

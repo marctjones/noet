@@ -35,6 +35,29 @@ fn headless_ui_smoke() {
     // setup_app seeds a welcome note; build the index so queries see it.
     ctx.state.borrow_mut().backend.reindex_all().unwrap();
     refresh(ui, &ctx.state.borrow());
+    ui.invoke_reindex_finished();
+    assert_eq!(
+        ui.get_current_title(),
+        WELCOME_TITLE,
+        "first-run indexing opens the Welcome note"
+    );
+    assert!(
+        ui.get_current_body().contains("## Workspace Model")
+            && ui
+                .get_current_body()
+                .contains("source:[[Meeting Note#^anchor]]"),
+        "Welcome note explains workspaces, markdown facts, and source links"
+    );
+    assert!(
+        !ctx.state
+            .borrow()
+            .backend
+            .query_notes(&noet_core::backend::Filter::default())
+            .unwrap()
+            .iter()
+            .any(|note| note.title == "Markdown rendering test"),
+        "first-run onboarding should not seed an internal renderer test note"
+    );
 
     // ----- Level 1: generated property + callback API -----
     assert_eq!(
