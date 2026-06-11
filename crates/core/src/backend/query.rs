@@ -5,7 +5,9 @@
 use super::index::fts_query;
 use super::parse::{parse_links, parse_mentions, parse_tags};
 use super::vault::read_note;
-use super::{Backend, Filter, Note, Project, RelatedNote, SourceSpan, Todo, KINDS, STATUSES};
+use super::{
+    entity_key, Backend, Filter, Note, Project, RelatedNote, SourceSpan, Todo, KINDS, STATUSES,
+};
 use anyhow::Result;
 use chrono::Utc;
 use std::path::{Path, PathBuf};
@@ -81,9 +83,10 @@ impl Backend {
     }
 
     pub fn list_projects(&self) -> Result<Vec<Project>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT target, COUNT(*) FROM links GROUP BY target ORDER BY target ASC")?;
+        let mut stmt = self.conn.prepare(
+            "SELECT MIN(target), COUNT(DISTINCT note_id) FROM links \
+                 GROUP BY target_key ORDER BY MIN(target) COLLATE NOCASE ASC",
+        )?;
         let rows = stmt.query_map([], |r| {
             Ok(Project {
                 name: r.get(0)?,
@@ -97,8 +100,8 @@ impl Backend {
     /// Mentioning someone is how you "create" a person.
     pub fn list_people(&self) -> Result<Vec<Project>> {
         let mut stmt = self.conn.prepare(
-            "SELECT person, COUNT(DISTINCT note_id) FROM mentions \
-             GROUP BY person ORDER BY person ASC",
+            "SELECT MIN(person), COUNT(DISTINCT note_id) FROM mentions \
+             GROUP BY person_key ORDER BY MIN(person) COLLATE NOCASE ASC",
         )?;
         let rows = stmt.query_map([], |r| {
             Ok(Project {
@@ -124,7 +127,7 @@ impl Backend {
 
     /// The one query that powers every view. Joins tags/notes only when needed.
     pub fn query_todos(&self, f: &Filter) -> Result<Vec<Todo>> {
-        let mut sql = format!("SELECT {} FROM todos t", Self::todo_cols("t."));
+        let mut sql = format!("SELECT DISTINCT {} FROM todos t", Self::todo_cols("t."));
         let mut where_: Vec<String> = Vec::new();
         let mut binds: Vec<String> = Vec::new();
         if !f.tag.is_empty() {
@@ -139,15 +142,16 @@ impl Backend {
             binds.push(Filter::like(&f.search));
         }
         if !f.project.is_empty() {
+            let project_key = entity_key(&f.project);
             sql.push_str(
-                " JOIN task_links tl ON tl.task_id = t.id AND (tl.target = ? OR tl.target LIKE ?)",
+                " JOIN task_links tl ON tl.task_id = t.id AND (tl.target_key = ? OR tl.target_key LIKE ?)",
             );
-            binds.push(f.project.clone());
-            binds.push(format!("{}/%", f.project));
+            binds.push(project_key.clone());
+            binds.push(format!("{project_key}/%"));
         }
         if !f.person.is_empty() {
-            sql.push_str(" JOIN task_mentions tm ON tm.task_id = t.id AND tm.person = ?");
-            binds.push(f.person.clone());
+            sql.push_str(" JOIN task_mentions tm ON tm.task_id = t.id AND tm.person_key = ?");
+            binds.push(entity_key(&f.person));
         }
         if !f.kind.is_empty() {
             where_.push("t.kind = ?".into());
@@ -203,9 +207,12 @@ impl Backend {
         let mut where_: Vec<String> = Vec::new();
         let mut binds: Vec<String> = Vec::new();
         if !f.project.is_empty() {
-            sql.push_str(" JOIN links l ON l.note_id = n.id AND (l.target = ? OR l.target LIKE ?)");
-            binds.push(f.project.clone());
-            binds.push(format!("{}/%", f.project));
+            let project_key = entity_key(&f.project);
+            sql.push_str(
+                " JOIN links l ON l.note_id = n.id AND (l.target_key = ? OR l.target_key LIKE ?)",
+            );
+            binds.push(project_key.clone());
+            binds.push(format!("{project_key}/%"));
         }
         if !f.tag.is_empty() {
             sql.push_str(" JOIN tags tg ON tg.note_id = n.id AND (tg.tag = ? OR tg.tag LIKE ?)");
@@ -213,8 +220,8 @@ impl Backend {
             binds.push(format!("{}/%", f.tag));
         }
         if !f.person.is_empty() {
-            sql.push_str(" JOIN mentions mp ON mp.note_id = n.id AND mp.person = ?");
-            binds.push(f.person.clone());
+            sql.push_str(" JOIN mentions mp ON mp.note_id = n.id AND mp.person_key = ?");
+            binds.push(entity_key(&f.person));
         }
         if !f.search.is_empty() {
             let q = fts_query(&f.search);
@@ -362,10 +369,11 @@ impl Backend {
     pub fn backlinks(&self, target: &str) -> Result<Vec<Note>> {
         let mut stmt = self.conn.prepare(
             "SELECT DISTINCT n.id,n.title,n.path,n.created,n.updated,n.kind FROM notes n \
-             JOIN links l ON l.note_id = n.id WHERE l.target = ? AND n.archived = 0 \
+             JOIN links l ON l.note_id = n.id WHERE l.target_key = ? AND n.archived = 0 \
              ORDER BY n.updated DESC",
         )?;
-        let rows = stmt.query_map([target], Self::note_row)?;
+        let target_key = entity_key(target);
+        let rows = stmt.query_map([target_key], Self::note_row)?;
         Ok(rows.filter_map(|r| r.ok()).collect())
     }
 
@@ -376,29 +384,40 @@ impl Backend {
     pub fn related_notes(&self, note_id: &str, limit: usize) -> Result<Vec<RelatedNote>> {
         use std::collections::{BTreeSet, HashMap};
         // This note's own entity values, per source table.
-        let column_values = |table: &str, col: &str| -> Result<Vec<String>> {
-            let mut stmt = self
-                .conn
-                .prepare(&format!("SELECT {col} FROM {table} WHERE note_id=?"))?;
-            let rows = stmt.query_map([note_id], |r| r.get::<_, String>(0))?;
-            Ok(rows.filter_map(|r| r.ok()).collect())
-        };
+        let column_values =
+            |table: &str, col: &str, key_col: &str| -> Result<Vec<(String, String)>> {
+                let mut stmt = self.conn.prepare(&format!(
+                    "SELECT {col}, {key_col} FROM {table} WHERE note_id=?"
+                ))?;
+                let rows = stmt.query_map([note_id], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                })?;
+                Ok(rows.filter_map(|r| r.ok()).collect())
+            };
         let sources = [
-            ("links", "target", column_values("links", "target")?),
-            ("mentions", "person", column_values("mentions", "person")?),
-            ("tags", "tag", column_values("tags", "tag")?),
+            (
+                "links",
+                "target_key",
+                column_values("links", "target", "target_key")?,
+            ),
+            (
+                "mentions",
+                "person_key",
+                column_values("mentions", "person", "person_key")?,
+            ),
+            ("tags", "tag", column_values("tags", "tag", "tag")?),
         ];
         // note_id -> set of shared entity names.
         let mut hits: HashMap<String, BTreeSet<String>> = HashMap::new();
-        for (table, col, values) in &sources {
-            for v in values {
+        for (table, key_col, values) in &sources {
+            for (display, key) in values {
                 let mut stmt = self.conn.prepare(&format!(
-                    "SELECT DISTINCT note_id FROM {table} WHERE {col}=? AND note_id!=?"
+                    "SELECT DISTINCT note_id FROM {table} WHERE {key_col}=? AND note_id!=?"
                 ))?;
                 let rows =
-                    stmt.query_map(rusqlite::params![v, note_id], |r| r.get::<_, String>(0))?;
+                    stmt.query_map(rusqlite::params![key, note_id], |r| r.get::<_, String>(0))?;
                 for nid in rows.filter_map(|r| r.ok()) {
-                    hits.entry(nid).or_default().insert(v.clone());
+                    hits.entry(nid).or_default().insert(display.clone());
                 }
             }
         }

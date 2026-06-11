@@ -94,6 +94,9 @@ Canonical syntax:
 - references and contacts: `ref:https://...`, normal URLs, emails, social
   handles, `gh:owner/repo#12`
 
+People and wiki links resolve case-insensitively while preserving the casing you
+typed in the Markdown file.
+
 See [docs/noet-markdown.md](docs/noet-markdown.md).
 
 ### Workspace UX

@@ -5,7 +5,7 @@
 //! state from ad hoc note/todo queries.
 
 use super::parse::parse_markdown;
-use super::{Backend, Filter, Note, SourceSpan, Todo};
+use super::{entity_key, Backend, Filter, Note, SourceSpan, Todo};
 use anyhow::Result;
 use chrono::Local;
 use std::collections::{BTreeMap, HashMap};
@@ -449,9 +449,10 @@ impl Backend {
         for source in parse_markdown(note_id, body).source_links {
             let title = source.title;
             let anchor = source.anchor;
+            let title_key = entity_key(&title);
             let Some(note) = all_notes
                 .iter()
-                .find(|note| note.id != note_id && note.title == title)
+                .find(|note| note.id != note_id && entity_key(&note.title) == title_key)
             else {
                 continue;
             };

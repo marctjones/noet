@@ -70,6 +70,10 @@ just text. The parser records it as a contact-like social token and emits an
 `@[[Jane Doe]]` for people. Autocomplete may help convert typed shorthand into
 the canonical form before saving.
 
+Person resolution is case-insensitive. Noet preserves the spelling you typed in
+the Markdown file for display, but filters, task lookups, and 1:1 context treat
+`@[[Jane Doe]]`, `@[[jane doe]]`, and `@[[JANE DOE]]` as the same person.
+
 Emails, URLs, and social handles are separate contact entity types and do not
 automatically create canonical people.
 
@@ -95,6 +99,10 @@ Workstreams and note links use wiki links:
 
 `+[[...]]` is legacy syntax. Generated Noet Markdown should use one canonical
 link form: `[[...]]`.
+
+Wiki-link resolution is case-insensitive for note, workstream, backlink, related
+note, and source-link lookup. Noet preserves the typed casing in the file, but
+`[[Acme Onboarding]]` and `[[acme onboarding]]` resolve to the same target.
 
 ### Tasks
 

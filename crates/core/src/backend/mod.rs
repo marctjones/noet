@@ -44,7 +44,7 @@ pub use workflow::{
 };
 
 // Crate-internal types that submodules reach for via `super::`.
-pub(crate) use model::NamedFilter;
+pub(crate) use model::{entity_key, NamedFilter};
 
 use rusqlite::Connection;
 use std::path::PathBuf;

@@ -92,6 +92,14 @@ impl Filter {
     }
 }
 
+pub(crate) fn entity_key(value: &str) -> String {
+    value
+        .trim()
+        .chars()
+        .flat_map(char::to_lowercase)
+        .collect::<String>()
+}
+
 #[derive(serde::Serialize, serde::Deserialize)]
 pub(crate) struct NamedFilter {
     pub(crate) name: String,

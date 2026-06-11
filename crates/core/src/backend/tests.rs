@@ -1079,6 +1079,94 @@ fn inbox_backlinks_and_archive() {
 }
 
 #[test]
+fn person_and_note_links_match_case_insensitively() {
+    let dir = std::env::temp_dir().join(format!("noet-test-{}", ulid::Ulid::new()));
+    let notes_dir = dir.join("notes");
+    std::fs::create_dir_all(&notes_dir).unwrap();
+    std::fs::write(
+        notes_dir.join("project.md"),
+        "---\nupdated: 2026-06-01T09:00:00\nkind: markdown\n---\n\
+         # Project X\n\nReference note.\n",
+    )
+    .unwrap();
+    std::fs::write(
+        notes_dir.join("mixed.md"),
+        "---\nupdated: 2026-06-02T09:00:00\nkind: markdown\n---\n\
+         # Mixed casing\n\n[[project x]] @[[jane smith]]\n\
+         - [ ] Follow up on scope @[[jane smith]] [[project x]] #followup\n",
+    )
+    .unwrap();
+    std::fs::write(
+        notes_dir.join("oneonone.md"),
+        "---\nupdated: 2026-06-03T09:00:00\nkind: markdown\n---\n\
+         # Jane lower 1:1\n\n#meeting/one-on-one\n@[[jane smith]]\n\
+         - [ ] Ask about launch @[[jane smith]] #followup\n",
+    )
+    .unwrap();
+    std::fs::write(
+        notes_dir.join("task-note.md"),
+        "---\nupdated: 2026-06-04T09:00:00\nkind: markdown\n---\n\
+         # Task note\n\nsource:[[project x#^scope]]\n",
+    )
+    .unwrap();
+
+    let b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();
+
+    let project_notes = b
+        .query_notes(&Filter {
+            project: "PROJECT X".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(project_notes.len(), 1);
+    assert_eq!(project_notes[0].id, "mixed");
+
+    let person_notes = b
+        .query_notes(&Filter {
+            person: "Jane Smith".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    let person_note_ids: Vec<_> = person_notes.iter().map(|note| note.id.as_str()).collect();
+    assert!(person_note_ids.contains(&"mixed"));
+    assert!(person_note_ids.contains(&"oneonone"));
+
+    let person_todos = b
+        .query_todos(&Filter {
+            person: "JANE SMITH".into(),
+            status: "open".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(person_todos.len(), 2);
+
+    let project_todos = b
+        .query_todos(&Filter {
+            project: "Project X".into(),
+            status: "open".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(project_todos.len(), 1);
+    assert_eq!(project_todos[0].note_id, "mixed");
+
+    let backlinks = b.backlinks("Project X").unwrap();
+    assert_eq!(backlinks.len(), 1);
+    assert_eq!(backlinks[0].id, "mixed");
+
+    let context = b.note_context("task-note").unwrap();
+    assert_eq!(context.sources.len(), 1);
+    assert_eq!(context.sources[0].id, "project");
+    assert_eq!(context.sources[0].title, "Project X");
+
+    let one_on_one = b.one_on_one_context("Jane Smith").unwrap();
+    assert_eq!(one_on_one.history.len(), 1);
+    assert_eq!(one_on_one.followups.len(), 2);
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn mentions_make_people_and_add_tag() {
     let dir = std::env::temp_dir().join(format!("noet-test-{}", ulid::Ulid::new()));
     let mut b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();

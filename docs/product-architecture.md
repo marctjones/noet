@@ -153,6 +153,10 @@ Canonical extension forms:
 - URLs, emails, and social handles remain visible text, but Noet parses them as
   contact facts instead of canonical people.
 
+People and wiki-link resolution are case-insensitive. Markdown keeps the casing
+the user typed, while the index resolves filters, backlinks, source links, and
+1:1 context through normalized comparison keys.
+
 The parser should emit warnings for ambiguous bare `@name` tokens, invalid
 known properties, duplicate task anchors, and old syntax. Warnings support
 cleanup and autocomplete; they should not make a plain Markdown note unsavable.
