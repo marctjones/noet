@@ -1,9 +1,11 @@
-use chrono::NaiveDate;
+use chrono::{Duration, NaiveDate};
 use noet_core::backend;
 use noet_core::backend::Filter;
 use slint::{ModelRc, VecModel};
 
-use crate::{BoardColumn, FacetItem, GanttItem, NoteItem, NoteRef, RelatedRef, TodoItem};
+use crate::{
+    BoardColumn, FacetItem, FilterChip, GanttItem, NoteItem, NoteRef, RelatedRef, TodoItem,
+};
 
 pub fn note_item(n: &backend::Note) -> NoteItem {
     NoteItem {
@@ -19,6 +21,14 @@ pub fn note_item_from_summary(n: &backend::NoteSummary) -> NoteItem {
         title: n.title.clone().into(),
         subtitle: n.updated.replace('T', " ").into(),
     }
+}
+
+pub fn note_items(notes: &[backend::Note]) -> Vec<NoteItem> {
+    notes.iter().map(note_item).collect()
+}
+
+pub fn recent_note_items(notes: &[backend::Note], limit: usize) -> Vec<NoteItem> {
+    notes.iter().take(limit).map(note_item).collect()
 }
 
 pub fn facet_items(items: &[backend::Project], active: &str) -> Vec<FacetItem> {
@@ -96,6 +106,54 @@ pub fn todo_item_from_fact(t: &backend::TaskFact) -> TodoItem {
         external: t.external.clone().into(),
         priority: t.priority.clone().into(),
         done: !t.status.is_open(),
+    }
+}
+
+pub fn todo_items(todos: &[backend::Todo]) -> Vec<TodoItem> {
+    todos.iter().map(todo_item).collect()
+}
+
+pub fn task_items(tasks: &[backend::TaskFact]) -> Vec<TodoItem> {
+    tasks.iter().map(todo_item_from_fact).collect()
+}
+
+#[derive(Clone, Default)]
+pub struct AgendaSurface {
+    pub overdue: Vec<TodoItem>,
+    pub today: Vec<TodoItem>,
+    pub week: Vec<TodoItem>,
+    pub later: Vec<TodoItem>,
+}
+
+pub fn agenda_surface(items: &[backend::Todo], today: NaiveDate) -> AgendaSurface {
+    let today_label = today.format("%Y-%m-%d").to_string();
+    let week = (today + Duration::days(7)).format("%Y-%m-%d").to_string();
+    let mut surface = AgendaSurface::default();
+    for todo in items {
+        let row = todo_item(todo);
+        if todo.due.as_str() < today_label.as_str() {
+            surface.overdue.push(row);
+        } else if todo.due == today_label {
+            surface.today.push(row);
+        } else if todo.due.as_str() <= week.as_str() {
+            surface.week.push(row);
+        } else {
+            surface.later.push(row);
+        }
+    }
+    surface
+}
+
+#[derive(Clone, Default)]
+pub struct WorkstreamSurface {
+    pub todos: Vec<TodoItem>,
+    pub notes: Vec<NoteRef>,
+}
+
+pub fn workstream_surface(todos: &[backend::Todo], notes: &[backend::Note]) -> WorkstreamSurface {
+    WorkstreamSurface {
+        todos: todo_items(todos),
+        notes: note_refs_from_notes(notes),
     }
 }
 
@@ -316,6 +374,16 @@ pub fn source_refs(sources: &[backend::SourceRef]) -> Vec<RelatedRef> {
         .collect()
 }
 
+pub fn trash_note_refs(notes: &[(String, String)]) -> Vec<NoteRef> {
+    notes
+        .iter()
+        .map(|(id, title)| NoteRef {
+            id: id.clone().into(),
+            title: title.clone().into(),
+        })
+        .collect()
+}
+
 fn day(s: &str) -> Option<NaiveDate> {
     NaiveDate::parse_from_str(s, "%Y-%m-%d").ok()
 }
@@ -395,6 +463,49 @@ pub fn active_summary(f: &Filter) -> String {
     }
 }
 
+pub fn active_filter_chips(f: &Filter) -> Vec<FilterChip> {
+    let mut chips = Vec::new();
+    let mut chip = |label: String, dim: &str| {
+        chips.push(FilterChip {
+            label: label.into(),
+            dim: dim.into(),
+        });
+    };
+    if !f.project.is_empty() {
+        chip(format!("▸ {}", f.project), "project");
+    }
+    if !f.person.is_empty() {
+        chip(format!("@ {}", f.person), "person");
+    }
+    if !f.tag.is_empty() {
+        chip(format!("# {}", f.tag), "tag");
+    }
+    if !f.kind.is_empty() {
+        chip(format!("workflow: {}", f.kind), "kind");
+    }
+    if !f.priority.is_empty() {
+        chip(format!("priority {}", f.priority), "priority");
+    }
+    if !f.due_bucket.is_empty() {
+        chip(format!("due: {}", due_display(&f.due_bucket)), "due");
+    }
+    if !f.status.is_empty() {
+        chip(format!("status: {}", f.status), "status");
+    }
+    if !f.search.is_empty() {
+        chip(format!("search: {}", f.search), "search");
+    }
+    chips
+}
+
+pub fn filter_value_or_any(value: &str) -> String {
+    if value.is_empty() {
+        "any".into()
+    } else {
+        value.into()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -456,6 +567,43 @@ mod tests {
         }
     }
 
+    fn note(id: &str, title: &str, updated: &str) -> backend::Note {
+        backend::Note {
+            id: id.into(),
+            title: title.into(),
+            created: "2026-06-01T09:00:00".into(),
+            updated: updated.into(),
+            kind: "markdown".into(),
+            body: String::new(),
+            path: PathBuf::from(format!("{id}.md")),
+        }
+    }
+
+    fn todo(id: &str, due: &str, text: &str) -> backend::Todo {
+        backend::Todo {
+            id: id.into(),
+            note_id: "n1".into(),
+            kind: "followup".into(),
+            status: "todo".into(),
+            text: text.into(),
+            project: "Client/Acme".into(),
+            person: "Jane".into(),
+            start: String::new(),
+            due: due.into(),
+            external: String::new(),
+            priority: "B".into(),
+            repeat: String::new(),
+            done: false,
+            line_no: 3,
+            anchor: String::new(),
+            span: SourceSpan {
+                line_no: 3,
+                byte_start: 10,
+                byte_end: 72,
+            },
+        }
+    }
+
     #[test]
     fn note_and_todo_rows_are_stable() {
         let note = backend::Note {
@@ -499,6 +647,79 @@ mod tests {
         assert_eq!(row.kind.to_string(), "followup");
         assert_eq!(row.person.to_string(), "Jane");
         assert!(!row.done);
+    }
+
+    #[test]
+    fn agenda_surface_buckets_by_due_date() {
+        let items = vec![
+            todo("n1:1", "2026-06-10", "Overdue"),
+            todo("n1:2", "2026-06-11", "Today"),
+            todo("n1:3", "2026-06-18", "This week"),
+            todo("n1:4", "2026-06-19", "Later"),
+        ];
+
+        let surface = agenda_surface(&items, NaiveDate::from_ymd_opt(2026, 6, 11).unwrap());
+        assert_eq!(surface.overdue[0].text.to_string(), "Overdue");
+        assert_eq!(surface.today[0].text.to_string(), "Today");
+        assert_eq!(surface.week[0].text.to_string(), "This week");
+        assert_eq!(surface.later[0].text.to_string(), "Later");
+    }
+
+    #[test]
+    fn list_workstream_and_trash_surfaces_are_stable() {
+        let notes = vec![
+            note("n1", "Newest", "2026-06-11T10:30:00"),
+            note("n2", "Older", "2026-06-10T10:30:00"),
+        ];
+        let todos = vec![todo("n1:1", "2026-06-20", "Follow up")];
+
+        let hub = workstream_surface(&todos, &notes);
+        assert_eq!(hub.todos[0].text.to_string(), "Follow up");
+        assert_eq!(hub.notes[0].title.to_string(), "Newest");
+
+        let rows = note_items(&notes);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(recent_note_items(&notes, 1)[0].title.to_string(), "Newest");
+        assert_eq!(todo_items(&todos)[0].project.to_string(), "Client/Acme");
+
+        let trash = trash_note_refs(&[("old.md".into(), "Deleted note".into())]);
+        assert_eq!(trash[0].id.to_string(), "old.md");
+        assert_eq!(trash[0].title.to_string(), "Deleted note");
+    }
+
+    #[test]
+    fn active_filter_chips_are_deterministic() {
+        let filter = Filter {
+            project: "Client/Acme".into(),
+            person: "Jane".into(),
+            tag: "meeting".into(),
+            kind: "followup".into(),
+            priority: "A".into(),
+            due_bucket: "week".into(),
+            status: "open".into(),
+            search: "risk".into(),
+            show_archived: false,
+        };
+
+        let labels = active_filter_chips(&filter)
+            .iter()
+            .map(|chip| chip.label.to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            labels,
+            vec![
+                "▸ Client/Acme",
+                "@ Jane",
+                "# meeting",
+                "workflow: followup",
+                "priority A",
+                "due: this week",
+                "status: open",
+                "search: risk"
+            ]
+        );
+        assert_eq!(filter_value_or_any(""), "any");
+        assert_eq!(filter_value_or_any("A"), "A");
     }
 
     #[test]

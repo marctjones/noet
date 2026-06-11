@@ -126,10 +126,14 @@ Initial adapter boundary:
 - [x] Workspace/pane adapter from `noet-app` into Slint models.
 - [x] Dedicated adapters for 1:1, board, review, waiting queues, and note
   context references.
+- [x] Dedicated adapters for note/task list rows, agenda buckets, today extras,
+  workstream hubs, trash refs, and active filter chips.
 - [x] Deterministic adapter tests for 1:1, board, review, waiting queues,
   backlinks, related notes, and source links.
-- [ ] Continue extracting note, task, label, and history surfaces where GUI code
-  still owns query-specific assembly.
+- [x] Deterministic adapter tests for agenda, workstream, trash, and filter chip
+  surfaces.
+- [ ] Continue extracting label, history, calendar, and rendered Markdown block
+  surfaces where GUI code still owns query-specific assembly.
 
 Rules:
 

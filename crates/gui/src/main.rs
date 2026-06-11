@@ -909,8 +909,9 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
 
     if view == "notes" || view == "workspace" {
         if let Ok(notes) = b.query_notes(f) {
-            let items: Vec<NoteItem> = notes.iter().map(surface_adapters::note_item).collect();
-            ui.set_notes(ModelRc::new(VecModel::from(items)));
+            ui.set_notes(ModelRc::new(VecModel::from(surface_adapters::note_items(
+                &notes,
+            ))));
         }
     }
     if let Ok(p) = b.list_projects() {
@@ -934,19 +935,18 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
     // flat task list (same filtered todos as the board, ungrouped)
     if surface_visible("tasks") {
         if let Ok(tasks) = b.task_list(f) {
-            let items: Vec<TodoItem> = tasks
-                .iter()
-                .map(surface_adapters::todo_item_from_fact)
-                .collect();
-            ui.set_tasks(ModelRc::new(VecModel::from(items)));
+            ui.set_tasks(ModelRc::new(VecModel::from(surface_adapters::task_items(
+                &tasks,
+            ))));
         }
     }
 
     // "Waiting on": open delegated items, clustered by person, oldest first.
     if view == "waiting" {
         if let Ok(todos) = b.waiting_on() {
-            let items: Vec<TodoItem> = todos.iter().map(surface_adapters::todo_item).collect();
-            ui.set_waiting_todos(ModelRc::new(VecModel::from(items)));
+            ui.set_waiting_todos(ModelRc::new(VecModel::from(surface_adapters::todo_items(
+                &todos,
+            ))));
         }
     }
 
@@ -958,86 +958,52 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
             status: "open".into(),
             ..Default::default()
         };
-        if let Ok(todos) = b.query_todos(&f) {
-            let items: Vec<TodoItem> = todos.iter().map(surface_adapters::todo_item).collect();
-            ui.set_hub_todos(ModelRc::new(VecModel::from(items)));
-        }
-        let notes: Vec<NoteRef> = b
-            .backlinks(&hub)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|n| NoteRef {
-                id: n.id.into(),
-                title: n.title.into(),
-            })
-            .collect();
-        ui.set_hub_notes(ModelRc::new(VecModel::from(notes)));
+        let todos = b.query_todos(&f).unwrap_or_default();
+        let notes = b.backlinks(&hub).unwrap_or_default();
+        let hub_surface = surface_adapters::workstream_surface(&todos, &notes);
+        ui.set_hub_todos(ModelRc::new(VecModel::from(hub_surface.todos)));
+        ui.set_hub_notes(ModelRc::new(VecModel::from(hub_surface.notes)));
     }
 
     // agenda buckets by due date relative to today
     if view == "agenda" {
         if let Ok(items) = b.agenda(f) {
-            let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-            let week = (chrono::Local::now() + chrono::Duration::days(7))
-                .format("%Y-%m-%d")
-                .to_string();
-            let (mut overdue, mut td, mut wk, mut later) = (vec![], vec![], vec![], vec![]);
-            for t in &items {
-                let it = surface_adapters::todo_item(t);
-                if t.due < today {
-                    overdue.push(it);
-                } else if t.due == today {
-                    td.push(it);
-                } else if t.due <= week {
-                    wk.push(it);
-                } else {
-                    later.push(it);
-                }
-            }
-            ui.set_agenda_overdue(ModelRc::new(VecModel::from(overdue)));
-            ui.set_agenda_today(ModelRc::new(VecModel::from(td)));
-            ui.set_agenda_week(ModelRc::new(VecModel::from(wk)));
-            ui.set_agenda_later(ModelRc::new(VecModel::from(later)));
+            let agenda =
+                surface_adapters::agenda_surface(&items, chrono::Local::now().date_naive());
+            ui.set_agenda_overdue(ModelRc::new(VecModel::from(agenda.overdue)));
+            ui.set_agenda_today(ModelRc::new(VecModel::from(agenda.today)));
+            ui.set_agenda_week(ModelRc::new(VecModel::from(agenda.week)));
+            ui.set_agenda_later(ModelRc::new(VecModel::from(agenda.later)));
         }
     }
 
     // inbox: unfiled notes
     if view == "inbox" {
         if let Ok(notes) = b.inbox() {
-            let items: Vec<NoteItem> = notes.iter().map(surface_adapters::note_item).collect();
-            ui.set_inbox_notes(ModelRc::new(VecModel::from(items)));
+            ui.set_inbox_notes(ModelRc::new(VecModel::from(surface_adapters::note_items(
+                &notes,
+            ))));
         }
     }
 
     // today dashboard extras
     if view == "today" {
         if let Ok(stale) = b.stale_todos() {
-            ui.set_today_stale(ModelRc::new(VecModel::from(
-                stale
-                    .iter()
-                    .map(surface_adapters::todo_item)
-                    .collect::<Vec<_>>(),
-            )));
+            ui.set_today_stale(ModelRc::new(VecModel::from(surface_adapters::todo_items(
+                &stale,
+            ))));
         }
         if let Ok(recent) = b.query_notes(&Filter::default()) {
-            let items: Vec<NoteItem> = recent
-                .iter()
-                .take(8)
-                .map(surface_adapters::note_item)
-                .collect();
-            ui.set_today_recent(ModelRc::new(VecModel::from(items)));
+            ui.set_today_recent(ModelRc::new(VecModel::from(
+                surface_adapters::recent_note_items(&recent, 8),
+            )));
         }
     }
     if view == "trash" {
         if let Ok(tr) = b.list_trash() {
-            let items: Vec<NoteRef> = tr
-                .iter()
-                .map(|(f, t)| NoteRef {
-                    id: f.clone().into(),
-                    title: t.clone().into(),
-                })
-                .collect();
-            ui.set_trash_notes(ModelRc::new(VecModel::from(items)));
+            ui.set_trash_notes(ModelRc::new(VecModel::from(
+                surface_adapters::trash_note_refs(&tr),
+            )));
         }
     }
     ui.set_smart_lists(str_model(&b.list_smart_lists()));
@@ -1096,12 +1062,9 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
                     ..Default::default()
                 })
                 .unwrap_or_default();
-            ui.set_person_notes(ModelRc::new(VecModel::from(
-                pnotes
-                    .iter()
-                    .map(surface_adapters::note_item)
-                    .collect::<Vec<_>>(),
-            )));
+            ui.set_person_notes(ModelRc::new(VecModel::from(surface_adapters::note_items(
+                &pnotes,
+            ))));
         } else {
             ui.set_person_notes(ModelRc::new(VecModel::from(Vec::<NoteItem>::new())));
         }
@@ -1131,12 +1094,9 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
             ui.set_waiting_todos(ModelRc::new(VecModel::from(tasks)));
         }
         if let Ok(notes) = b.inbox() {
-            ui.set_review_inbox_notes(ModelRc::new(VecModel::from(
-                notes
-                    .iter()
-                    .map(surface_adapters::note_item)
-                    .collect::<Vec<_>>(),
-            )));
+            ui.set_review_inbox_notes(ModelRc::new(VecModel::from(surface_adapters::note_items(
+                &notes,
+            ))));
         }
     }
 
@@ -1151,51 +1111,11 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
     ui.set_active_summary(surface_adapters::active_summary(f).into());
 
     // removable active-filter chips + dropdown display values
-    let mut chips: Vec<FilterChip> = Vec::new();
-    let mut chip = |label: String, dim: &str| {
-        chips.push(FilterChip {
-            label: label.into(),
-            dim: dim.into(),
-        })
-    };
-    if !f.project.is_empty() {
-        chip(format!("▸ {}", f.project), "project");
-    }
-    if !f.person.is_empty() {
-        chip(format!("@ {}", f.person), "person");
-    }
-    if !f.tag.is_empty() {
-        chip(format!("# {}", f.tag), "tag");
-    }
-    if !f.kind.is_empty() {
-        chip(format!("workflow: {}", f.kind), "kind");
-    }
-    if !f.priority.is_empty() {
-        chip(format!("priority {}", f.priority), "priority");
-    }
-    if !f.due_bucket.is_empty() {
-        chip(
-            format!("due: {}", surface_adapters::due_display(&f.due_bucket)),
-            "due",
-        );
-    }
-    if !f.status.is_empty() {
-        chip(format!("status: {}", f.status), "status");
-    }
-    if !f.search.is_empty() {
-        chip(format!("search: {}", f.search), "search");
-    }
-    ui.set_active_filters(ModelRc::new(VecModel::from(chips)));
-    ui.set_filter_kind(if f.kind.is_empty() {
-        "any".into()
-    } else {
-        f.kind.clone().into()
-    });
-    ui.set_filter_priority(if f.priority.is_empty() {
-        "any".into()
-    } else {
-        f.priority.clone().into()
-    });
+    ui.set_active_filters(ModelRc::new(VecModel::from(
+        surface_adapters::active_filter_chips(f),
+    )));
+    ui.set_filter_kind(surface_adapters::filter_value_or_any(&f.kind).into());
+    ui.set_filter_priority(surface_adapters::filter_value_or_any(&f.priority).into());
     ui.set_filter_due(surface_adapters::due_display(&f.due_bucket).into());
     refresh_tabs(ui, state); // keep the open-notes tab strip in sync
 }

@@ -153,8 +153,10 @@ Covered tests:
 - [x] Add rendered Markdown read surfaces with explicit source/edit modes.
 - [x] Extract deterministic adapters for 1:1, board, review, waiting queues,
   and note context references.
-- [ ] Continue extracting note, task, label, and history surface assembly out of
-  renderer refresh code.
+- [x] Extract adapters for note/task list rows, agenda buckets, today extras,
+  workstream hubs, trash refs, and active filter chips.
+- [ ] Continue extracting label, history, calendar, and rendered Markdown block
+  surface assembly out of renderer refresh code.
 
 Current UX contract:
 
