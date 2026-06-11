@@ -190,6 +190,16 @@ Current 1:1 Focus progress:
 - [ ] Manual review scrolling, resizing, history browsing, resolve, carry, and
   defer behavior in the running GUI.
 
+Current Notes progress:
+
+- [x] Writing mode closes the note browser and context panes while preserving
+  the selected note.
+- [x] Writing mode starts rich editing and leaves raw Markdown source behind an
+  explicit Source action.
+- [x] App-model and GUI smoke tests cover writing-mode pane closure and
+  selection preservation.
+- [ ] Manual review read/edit/source/context workflow on a non-empty vault.
+
 Daily-use quality means:
 
 - keyboard and pointer actions work without raw Markdown leaks outside source mode

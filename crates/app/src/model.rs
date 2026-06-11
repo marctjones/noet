@@ -262,6 +262,38 @@ mod tests {
     }
 
     #[test]
+    fn notes_writing_can_close_supporting_panes() {
+        let mut model = AppModel::new();
+        assert!(
+            model
+                .apply(AppCommand::SwitchWorkspace("notes".into()))
+                .accepted
+        );
+        assert!(model.apply(AppCommand::OpenNote("n1".into())).accepted);
+        assert!(
+            model
+                .apply(AppCommand::ClosePane("note-browser".into()))
+                .accepted
+        );
+        assert!(
+            model
+                .apply(AppCommand::ClosePane("note-context".into()))
+                .accepted
+        );
+
+        let workspace = model.workspaces.active().unwrap();
+        assert_eq!(model.selection.note_id.as_deref(), Some("n1"));
+        assert!(!workspace.pane("note-browser").unwrap().open);
+        assert!(!workspace.pane("note-context").unwrap().open);
+        assert!(workspace.pane("note-editor").unwrap().open);
+        assert!(matches!(
+            &workspace.pane("note-editor").unwrap().surface,
+            Surface::NoteEditor { note_id } if note_id.as_deref() == Some("n1")
+        ));
+        assert!(model.active_workspace_has_open_work());
+    }
+
+    #[test]
     fn pane_resize_is_clamped_through_command_dispatch() {
         let mut model = AppModel::new();
         assert!(

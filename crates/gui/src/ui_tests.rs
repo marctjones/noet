@@ -348,6 +348,37 @@ fn headless_ui_smoke() {
     ElementHandle::find_by_accessible_label(ui, "Toggle task Call client")
         .find(|e| e.accessible_role() == Some(AccessibleRole::Checkbox))
         .expect("rendered todo is exposed as an interactive clean task row");
+    let rendered_note_id = ui.get_current_id();
+    ui.invoke_workspace_open_pane(ui.get_workspace_left_pane_id());
+    ui.invoke_workspace_open_pane(ui.get_workspace_right_pane_id());
+    assert!(ui.get_workspace_left_open());
+    assert!(ui.get_workspace_right_open());
+    let writing_mode = ElementHandle::find_by_accessible_label(ui, "Writing mode")
+        .find(|e| e.accessible_role() == Some(AccessibleRole::Button))
+        .expect("Notes workspace exposes writing mode");
+    writing_mode.invoke_accessible_default_action();
+    itest::mock_elapsed_time(std::time::Duration::from_millis(16));
+    assert!(ui.get_focus_mode(), "writing mode enters focus mode");
+    assert!(ui.get_editing(), "writing mode starts editing the note");
+    assert!(!ui.get_source_mode(), "writing mode uses the rich editor");
+    assert_eq!(
+        ui.get_current_id(),
+        rendered_note_id,
+        "writing mode preserves the selected note"
+    );
+    assert_eq!(ui.get_workspace_primary(), "notes");
+    assert!(
+        !ui.get_workspace_left_open() && !ui.get_workspace_right_open(),
+        "writing mode closes note browser and context panes"
+    );
+    let exit_writing = ElementHandle::find_by_accessible_label(ui, "Exit writing mode")
+        .find(|e| e.accessible_role() == Some(AccessibleRole::Button))
+        .expect("Notes workspace exposes an exit writing mode action");
+    exit_writing.invoke_accessible_default_action();
+    assert!(
+        !ui.get_focus_mode(),
+        "exit writing mode leaves pane state closed"
+    );
 
     // ----- Level 4b: Tab / Shift-Tab list indent (sred v0.7.0 #3) -----
     // The editor component forwards Tab/Shift-Tab to special("indent"/"outdent");

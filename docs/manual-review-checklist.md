@@ -63,6 +63,10 @@ NOET_VAULT=/tmp/noet-review-vault cargo run -p noet-gui
 ## Notes Workflow
 
 - Notes drawer lists notes and opens a selected note.
+- Writing mode closes the notes drawer and context pane, starts rich editing,
+  and keeps the selected note active.
+- Exiting writing mode leaves the selected note active and pane toggle controls
+  can reopen supporting panes.
 - Note title and body edits persist after navigating away and back.
 - Context pane shows source links, backlinks, and related notes when present.
 - Promoted task notes show their source note in context.

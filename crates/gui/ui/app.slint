@@ -1392,6 +1392,23 @@ export component AppWindow inherits Window {
         }
     }
 
+    function enter-notes-writing-mode() {
+        root.workspace-close-pane(root.workspace-left-pane-id);
+        root.workspace-close-pane(root.workspace-right-pane-id);
+        root.workspace-close-pane(root.workspace-bottom-pane-id);
+        root.source-mode = false;
+        root.editing = true;
+        root.focus-mode = true;
+    }
+
+    function toggle-notes-writing-mode() {
+        if (root.focus-mode) {
+            root.focus-mode = false;
+        } else {
+            root.enter-notes-writing-mode();
+        }
+    }
+
     shell-keys := FocusScope {
         KeyBinding { keys: @keys(Control + N); activated => { root.workspace-switch("notes"); root.new-note(); } }
         KeyBinding { keys: @keys(Control + Q); activated => { root.quit(); } }
@@ -1763,6 +1780,7 @@ export component AppWindow inherits Window {
                                                     HorizontalLayout {
                                                         spacing: 6px;
                                                         ActionButton { icon: Icons.edit; label: root.editing ? "Done" : "Edit"; clicked => { if (root.editing) { root.stop-editing(); } else { root.source-mode = false; root.editing = true; } } }
+                                                        ActionButton { icon: Icons.focus; label: root.focus-mode ? "Exit writing" : "Writing mode"; a11y: root.focus-mode ? "Exit writing mode" : "Writing mode"; clicked => { root.toggle-notes-writing-mode(); } }
                                                         ActionButton { icon: Icons.textsize; label: (root.editing && root.source-mode) ? "Preview" : "Source"; clicked => { if (root.editing && root.source-mode) { root.source-mode = false; } else { root.source-mode = true; root.editing = true; } } }
                                                         ActionButton { icon: Icons.check; label: "Add task"; clicked => { root.open-add-todo(); } }
                                                         ActionButton { icon: Icons.branch; label: "Related note"; clicked => { root.new-related-note(); } }

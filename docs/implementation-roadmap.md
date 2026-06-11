@@ -215,6 +215,15 @@ Current 1:1 Focus progress:
 - [ ] Manual review still needs to verify scrolling, resizing, history browsing,
   follow-up resolution, and carry-forward in the running GUI.
 
+Current Notes progress:
+
+- [x] Writing mode closes supporting panes, preserves the selected note, and
+  starts rich editing.
+- [x] App-model and GUI smoke tests cover writing-mode pane closure and
+  selection preservation.
+- [ ] Manual review still needs to verify read mode, edit mode, source mode,
+  context rows, and note switching on a non-empty vault.
+
 ## Release Gate
 
 Do not cut a release just because the app compiles.
