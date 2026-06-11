@@ -236,6 +236,7 @@ and not required for local development.
 - [Noet Markdown](docs/noet-markdown.md)
 - [Implementation Roadmap](docs/implementation-roadmap.md)
 - [UX Redesign Plan](docs/ux-redesign-plan.md)
+- [Manual Review Checklist](docs/manual-review-checklist.md)
 - [Roadmap](ROADMAP.md)
 
 ## License

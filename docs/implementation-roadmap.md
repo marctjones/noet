@@ -177,7 +177,7 @@ Each workflow should have:
 - an app-model test
 - a surface-adapter test
 - a GUI smoke test
-- a short manual review checklist
+- coverage in the [Manual Review Checklist](manual-review-checklist.md)
 
 ## Release Gate
 
