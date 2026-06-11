@@ -60,7 +60,7 @@ fn is_word_char(c: char) -> bool {
 }
 
 /// Misspelled-word char ranges for sred's spellchecker. Skips code fences, and
-/// `#tag` / `@person` / `[[link]]` / URL / markdown-marker tokens; flags only
+/// `#tag` / canonical people / `[[link]]` / URL / markdown-marker tokens; flags only
 /// dictionary-unknown words (≥2 chars, with a lowercase letter so ALLCAPS/acronyms
 /// pass).
 fn spell_misspellings(dict: &spellbook::Dictionary, text: &str) -> Vec<(usize, usize)> {
@@ -406,7 +406,7 @@ fn rich_autocomplete_accept(ui: &AppWindow) {
     rich_after_edit(ui);
 }
 
-// ---- sred domain tokens: color `[[wikilink]]` / `@mention` / `#tag` / url in
+// ---- sred domain tokens: color `[[wikilink]]` / `@[[person]]` / `#tag` / url in
 // the editor and make them clickable (route to the existing facet filters). ----
 
 /// Find `[[Name]]` runs in a line; value = the inner name.
@@ -433,7 +433,7 @@ fn find_wikilinks(line: &str) -> Vec<SredMatch> {
     out
 }
 
-/// Find `@[[Name]]` or bare `@name` mentions.
+/// Find canonical `@[[Name]]` mentions.
 fn find_mentions(line: &str) -> Vec<SredMatch> {
     let c: Vec<char> = line.chars().collect();
     let mut out = Vec::new();
@@ -453,19 +453,6 @@ fn find_mentions(line: &str) -> Vec<SredMatch> {
                     i = close + 2;
                     continue;
                 }
-            }
-            let mut j = i + 1;
-            while j < c.len() && (c[j].is_alphanumeric() || matches!(c[j], '.' | '-' | '_')) {
-                j += 1;
-            }
-            if j > i + 1 {
-                out.push(SredMatch {
-                    start: i,
-                    end: j,
-                    value: c[i + 1..j].iter().collect(),
-                });
-                i = j;
-                continue;
             }
         }
         i += 1;

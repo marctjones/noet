@@ -189,9 +189,10 @@ Daily-use quality means:
 - [x] Resolve anchored task ids before falling back to line-number write-back.
 - [ ] Replace remaining feature-specific regex scans in rendering and
   autocomplete with structured parsed facts where practical.
-- [ ] Add parser diagnostics for invalid properties, ambiguous people, and
-  unsupported old syntax.
-- [ ] Detect URLs, emails, and social handles as non-person contact entities.
+- [x] Add parser diagnostics for invalid properties, ambiguous people, duplicate
+  anchors, and unsupported old syntax.
+- [x] Detect URLs, emails, and social handles as contact facts without promoting
+  them to canonical people.
 
 ## Phase 7 - Packaging And Platform Polish
 

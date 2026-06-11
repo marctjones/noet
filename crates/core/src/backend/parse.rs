@@ -2,8 +2,38 @@
 //! GitHub-style task list items plus Noet labels, people, links, and properties.
 
 use super::{MdBlock, Segment, SourceSpan, Todo, TodoFields};
+use chrono::NaiveDate;
 use regex::Regex;
+use std::collections::HashMap;
 use std::sync::OnceLock;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParseSeverity {
+    Warning,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseDiagnostic {
+    pub code: String,
+    pub message: String,
+    pub severity: ParseSeverity,
+    pub span: SourceSpan,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContactKind {
+    Url,
+    Email,
+    Social,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContactFact {
+    pub kind: ContactKind,
+    pub value: String,
+    pub span: SourceSpan,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceLink {
@@ -31,6 +61,8 @@ pub struct ParsedMarkdown {
     pub properties: Vec<(String, String)>,
     pub todos: Vec<ParsedTodoLine>,
     pub source_links: Vec<SourceLink>,
+    pub contacts: Vec<ContactFact>,
+    pub diagnostics: Vec<ParseDiagnostic>,
 }
 
 #[derive(Clone, Copy)]
@@ -160,6 +192,7 @@ fn entity_properties(text: &str) -> Vec<(String, String)> {
     property_re()
         .captures_iter(text)
         .map(|m| (m["key"].to_string(), m["val"].to_string()))
+        .filter(|(key, _)| !ignored_property_key(key))
         .collect()
 }
 
@@ -172,23 +205,44 @@ pub fn parse_tags(body: &str) -> Vec<String> {
     )
 }
 
-// A person mention is either bracketed `@[[Jane Smith]]` (allows spaces) or a
-// bare `@jane` token. The `(?:^|\s)` guard keeps emails like a@b.com from matching.
+// A canonical person mention is bracketed `@[[Jane Smith]]` so it cannot be
+// confused with email addresses or social handles. Bare `@name` tokens are
+// parsed as social/contact facts and emit ambiguity diagnostics.
 fn person_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?:^|\s)@\[\[(?P<pb>[^\]]+)\]\]").unwrap())
+}
+
+fn bare_mention_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?:^|\s)(?P<h>@[A-Za-z][A-Za-z0-9_.\-]*)(?:\b|$)").unwrap())
+}
+
+fn federated_handle_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"(?:^|\s)@(?:\[\[(?P<pb>[^\]]+)\]\]|(?P<ps>[A-Za-z][A-Za-z0-9_.\-]*))").unwrap()
+        Regex::new(r"(?:^|\s)(?P<h>@[A-Za-z][A-Za-z0-9_.\-]*@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b")
+            .unwrap()
     })
+}
+
+fn email_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b").unwrap())
+}
+
+fn url_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"https?://[^\s<>\]\)]+").unwrap())
 }
 
 fn person_name(c: &regex::Captures) -> String {
     c.name("pb")
-        .or_else(|| c.name("ps"))
         .map(|m| m.as_str().to_string())
         .unwrap_or_default()
 }
 
-/// Every `@person` / `@[[Person]]` mention anywhere in a note (not just todos).
+/// Every canonical `@[[Person]]` mention anywhere in a note (not just todos).
 pub fn parse_mentions(body: &str) -> Vec<String> {
     sorted_dedup(
         text_lines(body)
@@ -221,7 +275,7 @@ pub fn line_segments(raw: &str) -> Vec<Segment> {
     static RE: OnceLock<Regex> = OnceLock::new();
     let re = RE.get_or_init(|| {
         Regex::new(
-            r"(?P<mdlink>\[[^\]]+\]\([^)]*\))|(?P<url>https?://[^\s)]+)|(?P<proj>\[\[[^\]]+\]\])|(?P<pers>@(?:\[\[[^\]]+\]\]|[A-Za-z][A-Za-z0-9_.\-]*))|(?P<tag>#[A-Za-z][A-Za-z0-9_/-]*)",
+            r"(?P<mdlink>\[[^\]]+\]\([^)]*\))|(?P<url>https?://[^\s)]+)|(?P<proj>\[\[[^\]]+\]\])|(?P<pers>@\[\[[^\]]+\]\])|(?P<tag>#[A-Za-z][A-Za-z0-9_/-]*)",
         )
         .unwrap()
     });
@@ -460,6 +514,16 @@ fn property_re() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r"\b(?P<key>[A-Za-z][A-Za-z0-9_-]*):(?P<val>[^\s]+)").unwrap())
 }
 
+fn old_task_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"^\s*(TODO|DOING|DONE)\(").unwrap())
+}
+
+fn old_workstream_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?:^|\s)\+\[\[").unwrap())
+}
+
 fn block_anchor_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| Regex::new(r"(?:^|\s)\^(?P<a>[A-Za-z0-9_-]+)(?:\s|$)").unwrap())
@@ -467,6 +531,10 @@ fn block_anchor_re() -> &'static Regex {
 
 pub fn parse_properties(text: &str) -> Vec<(String, String)> {
     entity_properties(text)
+}
+
+fn ignored_property_key(key: &str) -> bool {
+    matches!(key, "http" | "https" | "mailto" | "source")
 }
 
 fn line_anchor(text: &str) -> String {
@@ -652,17 +720,230 @@ pub fn parse_source_links(body: &str) -> Vec<SourceLink> {
     links
 }
 
+fn span_for_range(line: TextLine<'_>, start: usize, end: usize) -> SourceSpan {
+    SourceSpan {
+        line_no: line.line_no,
+        byte_start: line.byte_start + start,
+        byte_end: line.byte_start + end,
+    }
+}
+
+fn span_for_match(line: TextLine<'_>, m: regex::Match<'_>) -> SourceSpan {
+    span_for_range(line, m.start(), m.end())
+}
+
+fn warning(code: &str, message: impl Into<String>, span: SourceSpan) -> ParseDiagnostic {
+    ParseDiagnostic {
+        code: code.to_string(),
+        message: message.into(),
+        severity: ParseSeverity::Warning,
+        span,
+    }
+}
+
+fn range_inside(range: (usize, usize), outer: (usize, usize)) -> bool {
+    range.0 >= outer.0 && range.1 <= outer.1
+}
+
+fn line_contacts(line: TextLine<'_>) -> Vec<ContactFact> {
+    let mut contacts = Vec::new();
+    let mut url_ranges = Vec::new();
+
+    for m in url_re().find_iter(line.line) {
+        url_ranges.push((m.start(), m.end()));
+        contacts.push(ContactFact {
+            kind: ContactKind::Url,
+            value: m.as_str().trim_end_matches(['.', ',']).to_string(),
+            span: span_for_match(line, m),
+        });
+    }
+
+    for m in email_re().find_iter(line.line) {
+        let range = (m.start(), m.end());
+        if line
+            .line
+            .as_bytes()
+            .get(m.start().saturating_sub(1))
+            .is_some_and(|b| *b == b'@')
+            || url_ranges.iter().any(|outer| range_inside(range, *outer))
+        {
+            continue;
+        }
+        contacts.push(ContactFact {
+            kind: ContactKind::Email,
+            value: m.as_str().to_string(),
+            span: span_for_match(line, m),
+        });
+    }
+
+    for caps in federated_handle_re().captures_iter(line.line) {
+        let Some(m) = caps.name("h") else {
+            continue;
+        };
+        contacts.push(ContactFact {
+            kind: ContactKind::Social,
+            value: m.as_str().to_string(),
+            span: span_for_match(line, m),
+        });
+    }
+
+    for caps in bare_mention_re().captures_iter(line.line) {
+        let Some(m) = caps.name("h") else {
+            continue;
+        };
+        if line.line[m.end()..].starts_with('@') {
+            continue;
+        }
+        contacts.push(ContactFact {
+            kind: ContactKind::Social,
+            value: m.as_str().to_string(),
+            span: span_for_match(line, m),
+        });
+    }
+
+    contacts.sort_by(|a, b| {
+        a.span
+            .byte_start
+            .cmp(&b.span.byte_start)
+            .then(a.value.cmp(&b.value))
+    });
+    contacts
+}
+
+fn valid_repeat(value: &str) -> bool {
+    if value.len() < 2 {
+        return false;
+    }
+    let (number, unit) = value.split_at(value.len() - 1);
+    !number.is_empty()
+        && number.chars().all(|ch| ch.is_ascii_digit())
+        && matches!(unit, "d" | "w" | "m")
+}
+
+fn invalid_property_message(key: &str, value: &str) -> Option<String> {
+    match key {
+        "due" | "start" | "date" => {
+            if NaiveDate::parse_from_str(value, "%Y-%m-%d").is_ok() {
+                None
+            } else {
+                Some(format!("{key} must use YYYY-MM-DD"))
+            }
+        }
+        "priority" => {
+            if matches!(value, "A" | "B" | "C") {
+                None
+            } else {
+                Some("priority must be A, B, or C".to_string())
+            }
+        }
+        "repeat" => {
+            if valid_repeat(value) {
+                None
+            } else {
+                Some("repeat must use a number followed by d, w, or m".to_string())
+            }
+        }
+        _ => None,
+    }
+}
+
+fn line_diagnostics(line: TextLine<'_>) -> Vec<ParseDiagnostic> {
+    let mut diagnostics = Vec::new();
+
+    if let Some(m) = old_task_re().find(line.line) {
+        diagnostics.push(warning(
+            "unsupported-old-task-syntax",
+            "Use GitHub-style task list syntax such as - [ ] task",
+            span_for_match(line, m),
+        ));
+    }
+
+    if let Some(m) = old_workstream_re().find(line.line) {
+        diagnostics.push(warning(
+            "unsupported-old-workstream-syntax",
+            "Use [[Workstream]] instead of +[[Workstream]]",
+            span_for_match(line, m),
+        ));
+    }
+
+    for caps in bare_mention_re().captures_iter(line.line) {
+        let Some(m) = caps.name("h") else {
+            continue;
+        };
+        if line.line[m.end()..].starts_with('@') {
+            continue;
+        }
+        diagnostics.push(warning(
+            "ambiguous-person",
+            "Bare @name can be a person shorthand or social handle; use @[[Name]] for people",
+            span_for_match(line, m),
+        ));
+    }
+
+    for caps in property_re().captures_iter(line.line) {
+        let key = &caps["key"];
+        if ignored_property_key(key) {
+            continue;
+        }
+        let value = &caps["val"];
+        if let Some(message) = invalid_property_message(key, value) {
+            if let Some(m) = caps.get(0) {
+                diagnostics.push(warning(
+                    "invalid-property",
+                    message,
+                    span_for_match(line, m),
+                ));
+            }
+        }
+    }
+
+    diagnostics
+}
+
+fn duplicate_anchor_diagnostics(todos: &[ParsedTodoLine]) -> Vec<ParseDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut first_seen: HashMap<&str, SourceSpan> = HashMap::new();
+
+    for todo in todos {
+        if todo.todo.anchor.is_empty() {
+            continue;
+        }
+        if first_seen
+            .insert(todo.todo.anchor.as_str(), todo.todo.span)
+            .is_some()
+        {
+            diagnostics.push(warning(
+                "duplicate-anchor",
+                format!(
+                    "Block anchor ^{} is used by more than one task",
+                    todo.todo.anchor
+                ),
+                todo.todo.span,
+            ));
+        }
+    }
+
+    diagnostics
+}
+
 pub fn parse_markdown(note_id: &str, body: &str) -> ParsedMarkdown {
     let mut labels = Vec::new();
     let mut people = Vec::new();
     let mut workstreams = Vec::new();
     let mut properties = Vec::new();
+    let mut contacts = Vec::new();
+    let mut diagnostics = Vec::new();
     for line in text_line_spans(body) {
         labels.extend(entity_tags(line.line));
         people.extend(entity_mentions(line.line));
         workstreams.extend(entity_links(line.line));
         properties.extend(entity_properties(line.line));
+        contacts.extend(line_contacts(line));
+        diagnostics.extend(line_diagnostics(line));
     }
+    let todos = parse_todo_lines(note_id, body);
+    diagnostics.extend(duplicate_anchor_diagnostics(&todos));
+
     let mut source_links = parse_source_links(body);
     source_links.sort_by(|a, b| {
         a.span
@@ -676,8 +957,10 @@ pub fn parse_markdown(note_id: &str, body: &str) -> ParsedMarkdown {
         people: sorted_dedup(people),
         workstreams: sorted_dedup(workstreams),
         properties,
-        todos: parse_todo_lines(note_id, body),
+        todos,
         source_links,
+        contacts,
+        diagnostics,
     }
 }
 

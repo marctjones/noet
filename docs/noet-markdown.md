@@ -64,9 +64,14 @@ Canonical people mentions use bracketed links:
 @[[Jane Doe]]
 ```
 
-Bare `@jane` may be accepted as typing sugar, but generated output should prefer
-`@[[Jane Doe]]`. Emails, URLs, and social handles are separate entity types and
-do not automatically create canonical people.
+Bare `@jane` is ambiguous: it may be a person shorthand, a social handle, or
+just text. The parser records it as a contact-like social token and emits an
+`ambiguous-person` diagnostic. Generated output and write-back should use
+`@[[Jane Doe]]` for people. Autocomplete may help convert typed shorthand into
+the canonical form before saving.
+
+Emails, URLs, and social handles are separate contact entity types and do not
+automatically create canonical people.
 
 Examples that are not canonical people mentions:
 
@@ -276,7 +281,10 @@ read models, source links, and task write-back:
 - Markdown blocks: headings, paragraphs, lists, code blocks.
 - Noet entities: labels, people, links, URLs, emails, social handles.
 - Tasks: task marker, text, labels, people, links, properties, source span.
-- Properties: key, value, scope, validation result.
+- Contacts: URL, email, and social-handle facts with source spans.
+- Properties: key, value, scope, validation diagnostics.
+- Diagnostics: invalid properties, ambiguous bare people, duplicate anchors, and
+  unsupported old syntax.
 
 Task source spans include the source line number, byte range, and optional block
 anchor. A task line with a block anchor:
@@ -292,6 +300,10 @@ task still works after lines are inserted above it.
 Indexing and workflow read models consume the typed parse result. Rendering and
 autocomplete should continue moving toward the same model as the editor layer is
 hardened. Avoid adding unrelated regex scans for each new feature.
+
+Current parser diagnostics are warnings. They are intended to drive editor
+nudges and migration tools, not to make a plain Markdown note unreadable or
+unsavable.
 
 The parser should be platform-neutral core logic. macOS, Windows, and GNOME
 builds should all index the same vault the same way.
@@ -326,4 +338,6 @@ should be clean:
 - Convert old 1:1 note markers to `#meeting/one-on-one`.
 
 After migration, the old syntax should not be emitted and should not shape the
-architecture.
+architecture. During transition, the parser may warn about old syntax so the UI
+can show cleanup actions without preserving compatibility paths in new runtime
+behavior.

@@ -91,7 +91,8 @@ Canonical syntax:
 - labels: `#followup`, `#meeting/one-on-one`
 - properties: `due:2026-06-17`, `priority:A`, `repeat:1w`
 - source links: `source:[[1:1 - Jane Smith#^launch-risks]]`
-- references: `ref:https://...`, normal URLs, `gh:owner/repo#12`
+- references and contacts: `ref:https://...`, normal URLs, emails, social
+  handles, `gh:owner/repo#12`
 
 See [docs/noet-markdown.md](docs/noet-markdown.md).
 

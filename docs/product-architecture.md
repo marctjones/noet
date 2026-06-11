@@ -150,7 +150,12 @@ Canonical extension forms:
 - Workstreams use wiki links: `[[Client/Acme]]`.
 - Labels use hashtags and may be hierarchical: `#meeting/one-on-one`.
 - Properties use readable key-value tokens: `due:2026-06-17`.
-- URLs and emails remain normal Markdown/autolink concepts where possible.
+- URLs, emails, and social handles remain visible text, but Noet parses them as
+  contact facts instead of canonical people.
+
+The parser should emit warnings for ambiguous bare `@name` tokens, invalid
+known properties, duplicate task anchors, and old syntax. Warnings support
+cleanup and autocomplete; they should not make a plain Markdown note unsavable.
 
 Noet should avoid invisible magic. If something affects workflow, it should be
 visible as a label, link, mention, checkbox, or property.

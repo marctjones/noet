@@ -79,6 +79,81 @@ fn parsed_markdown_exposes_task_spans_and_source_links() {
 }
 
 #[test]
+fn parsed_markdown_reports_diagnostics_for_invalid_and_legacy_syntax() {
+    let body = "\
+TODO(followup) old task\n\
++[[Legacy Project]]\n\
+- [ ] Chase review @bob due:2026-99-99 priority:Z repeat:soon\n";
+    let parsed = parse_markdown("N1", body);
+    let codes: Vec<_> = parsed.diagnostics.iter().map(|d| d.code.as_str()).collect();
+
+    assert!(codes.contains(&"unsupported-old-task-syntax"));
+    assert!(codes.contains(&"unsupported-old-workstream-syntax"));
+    assert!(codes.contains(&"ambiguous-person"));
+    assert_eq!(
+        codes
+            .iter()
+            .filter(|code| **code == "invalid-property")
+            .count(),
+        3
+    );
+    assert!(parsed
+        .diagnostics
+        .iter()
+        .all(|d| d.severity == ParseSeverity::Warning && d.span.byte_end > d.span.byte_start));
+}
+
+#[test]
+fn parsed_markdown_detects_contact_entities_without_creating_people() {
+    let body = "\
+Reach marc@joneslaw.io or @marc@maston.social.\n\
+Also see @marctjones and https://joneslaw.io with @[[Jane]].\n";
+    let parsed = parse_markdown("N1", body);
+    let contacts: Vec<_> = parsed
+        .contacts
+        .iter()
+        .map(|c| (c.kind, c.value.as_str()))
+        .collect();
+
+    assert!(contacts.contains(&(ContactKind::Email, "marc@joneslaw.io")));
+    assert!(contacts.contains(&(ContactKind::Social, "@marc@maston.social")));
+    assert!(contacts.contains(&(ContactKind::Social, "@marctjones")));
+    assert!(contacts.contains(&(ContactKind::Url, "https://joneslaw.io")));
+    assert_eq!(parsed.people, vec!["Jane"]);
+    assert!(parsed
+        .diagnostics
+        .iter()
+        .any(|d| d.code == "ambiguous-person" && d.span.line_no == 1));
+
+    let segments = line_segments("Ping @marctjones and @[[Jane]]");
+    assert!(!segments
+        .iter()
+        .any(|s| s.kind == "person" && s.value == "marctjones"));
+    assert!(segments
+        .iter()
+        .any(|s| s.kind == "person" && s.value == "Jane"));
+}
+
+#[test]
+fn parsed_markdown_warns_on_duplicate_task_anchors() {
+    let body = "\
+- [ ] First task ^same-anchor\n\
+- [ ] Second task ^same-anchor\n\
+- [ ] Third task ^other-anchor\n";
+    let parsed = parse_markdown("N1", body);
+
+    assert_eq!(
+        parsed
+            .diagnostics
+            .iter()
+            .filter(|d| d.code == "duplicate-anchor")
+            .count(),
+        1
+    );
+    assert_eq!(parsed.diagnostics[0].span.line_no, 1);
+}
+
+#[test]
 fn kind_detection() {
     // strong typst signals
     assert_eq!(detect_kind("#set page(width: 10cm)\n= Hi"), "typst");
@@ -904,8 +979,8 @@ fn mentions_make_people_and_add_tag() {
     let dir = std::env::temp_dir().join(format!("noet-test-{}", ulid::Ulid::new()));
     let mut b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();
     let note = b.new_note().unwrap();
-    // Mentions in plain prose (not a todo) still create people — both the
-    // bare `@bob` form and the bracketed `@[[Two Words]]` form.
+    // Canonical bracketed mentions create people. Bare @handles remain
+    // contacts/diagnostics so social handles are not silently promoted.
     b.save_note(
         &note.id,
         "1:1",
@@ -919,20 +994,26 @@ fn mentions_make_people_and_add_tag() {
         .into_iter()
         .map(|p| p.name)
         .collect();
-    assert!(people.contains(&"bob".to_string()));
+    assert!(!people.contains(&"bob".to_string()));
     assert!(people.contains(&"Priya Patel".to_string())); // spaces survive
 
-    // Filtering notes by either person finds this note.
-    for who in ["bob", "Priya Patel"] {
-        let notes = b
-            .query_notes(&Filter {
-                person: who.into(),
-                ..Default::default()
-            })
-            .unwrap();
-        assert_eq!(notes.len(), 1, "person {who}");
-        assert_eq!(notes[0].id, note.id);
-    }
+    // Filtering notes by the canonical person finds this note; bare @bob does not.
+    let notes = b
+        .query_notes(&Filter {
+            person: "Priya Patel".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(notes.len(), 1);
+    assert_eq!(notes[0].id, note.id);
+
+    let bare_notes = b
+        .query_notes(&Filter {
+            person: "bob".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(bare_notes.is_empty());
 
     // add_tag appends a label and is idempotent.
     b.add_tag(&note.id, "#followup-soon").unwrap();

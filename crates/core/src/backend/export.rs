@@ -46,8 +46,9 @@ fn kind_color(kind: &str) -> &'static str {
 }
 
 /// Render one line's inline Noet entities — `[[workstream]]` (green),
-/// `@[[person]]` / `@person` (amber), `#tag` (purple) — as colored chips, escaping
-/// the text between them. Plain prose comes through escaped (verbatim layout).
+/// `@[[person]]` (amber), bare `@handle` contacts (slate), `#tag` (purple) —
+/// as colored chips, escaping the text between them. Plain prose comes through
+/// escaped (verbatim layout).
 fn render_inline(s: &str) -> String {
     let c: Vec<char> = s.chars().collect();
     let mut out = String::new();
@@ -93,16 +94,16 @@ fn render_inline(s: &str) -> String {
                 continue;
             }
         }
-        // @person (bare mention, not followed by [[)
+        // @handle contact (not a canonical person)
         if c[i] == '@' && (i == 0 || c[i - 1].is_whitespace()) {
             let mut j = i + 1;
-            while j < c.len() && is_word(c[j]) {
+            while j < c.len() && (is_word(c[j]) || c[j] == '@') {
                 j += 1;
             }
             if j > i + 1 {
-                let name: String = c[i + 1..j].iter().collect();
+                let handle: String = c[i..j].iter().collect();
                 flush(&mut buf, &mut out);
-                out.push_str(&chip(&name, "fdeede", "9a5b1b"));
+                out.push_str(&chip(&handle, "eef2f7", "475569"));
                 i = j;
                 continue;
             }

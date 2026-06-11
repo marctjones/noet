@@ -23,8 +23,8 @@ The core contract is mostly independent of the GUI rewrite.
 - [x] Markdown vault remains the source of truth.
 - [x] SQLite index remains rebuildable.
 - [x] GFM-style tasks are the canonical task syntax.
-- [x] Labels, people, workstreams, properties, URLs, and external refs are
-  visible Markdown facts.
+- [x] Labels, canonical people, workstreams, properties, contact facts, URLs,
+  and external refs are visible Markdown facts.
 - [x] Runtime should not emit old `TODO(kind)`, `DOING(kind)`, `DONE(kind)`, or
   `+[[Workstream]]` syntax.
 
@@ -38,8 +38,10 @@ Remaining core work:
 - [x] Promote inline task to task note while preserving source context.
 - [ ] Move rendering and autocomplete onto the typed parsed-note model where
   practical.
-- [ ] Add parser diagnostics for invalid properties, ambiguous people, and
-  unsupported old syntax.
+- [x] Add parser diagnostics for invalid properties, ambiguous people, duplicate
+  task anchors, and unsupported old syntax.
+- [x] Detect URLs, emails, and social handles as source-spanned contact facts
+  without promoting them to canonical people.
 
 ## Phase 2 - Add The App Model
 
