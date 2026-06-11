@@ -700,7 +700,7 @@ fn headless_ui_smoke() {
             .save_note(
                 &previous.id,
                 "Alice previous 1:1",
-                "# Alice previous 1:1\n\n#meeting/one-on-one\n@[[Alice]]\n\n- [ ] review budget @[[Alice]] #followup\n",
+                "# Alice previous 1:1\n\n#meeting/one-on-one\n@[[Alice]]\n\n- [ ] review budget @[[Alice]] #followup\n- [ ] revisit roadmap @[[Alice]] #followup\n",
             )
             .unwrap();
         let current = st.backend.new_note().unwrap();
@@ -818,6 +818,29 @@ fn headless_ui_smoke() {
             .done,
         "resolve marks the prior follow-up done"
     );
+    assert!(
+        ui.get_person_last_followups().row_count() >= 1,
+        "another prior follow-up remains available for defer"
+    );
+    let deferred = ui.get_person_last_followups().row_data(0).unwrap();
+    ui.invoke_defer_followup(deferred.id.clone());
+    assert_eq!(
+        ctx.state
+            .borrow()
+            .backend
+            .get_todo(&deferred.id)
+            .unwrap()
+            .kind,
+        "someday",
+        "defer parks the prior follow-up as someday"
+    );
+    for idx in 0..ui.get_person_last_followups().row_count() {
+        assert_ne!(
+            ui.get_person_last_followups().row_data(idx).unwrap().id,
+            deferred.id,
+            "deferred follow-up leaves the active carryover queue"
+        );
+    }
     let current_title = ui.get_current_title().to_string();
     let next_oneonone = ui.get_person_next_oneonone_id();
     ui.invoke_select_note(next_oneonone.clone());

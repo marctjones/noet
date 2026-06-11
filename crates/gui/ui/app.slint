@@ -864,6 +864,7 @@ component AgendaRow inherits Rectangle {
     callback promote(string);
     callback resolve(string);
     callback carry(string);
+    callback defer(string);
     height: 38px;
     border-radius: 5px;
     background: ar.has-hover ? Theme.surface3 : transparent;
@@ -902,6 +903,7 @@ component AgendaRow inherits Rectangle {
         Chip { text: t.project; tint: #e7f7ec; ink: #1f7a44; }
         if root.followup-actions: MiniBtn { icon: Icons.check; a11y: "Resolve follow-up " + t.text; clicked => { root.resolve(t.id); } }
         if root.followup-actions: MiniBtn { icon: Icons.copy; a11y: "Carry into current 1:1 " + t.text; clicked => { root.carry(t.id); } }
+        if root.followup-actions: MiniBtn { icon: Icons.kind-someday; a11y: "Defer follow-up " + t.text; clicked => { root.defer(t.id); } }
         MiniBtn { icon: Icons.notes; a11y: "Promote task to note " + t.text; clicked => { root.promote(t.id); } }
         MiniBtn { icon: Icons.edit; a11y: "Edit task " + t.text; clicked => { root.edit(t.id); } }
         MiniBtn { icon: Icons.external; a11y: "Open source note for task " + t.text; clicked => { root.open(t.id); } }
@@ -1319,6 +1321,7 @@ export component AppWindow inherits Window {
     callback open-url(string);
     callback resolve-followup(string);
     callback carry-followup(string);
+    callback defer-followup(string);
     callback toggle-fold(int);
     callback set-kind-filter(string);
     callback set-priority-filter(string);
@@ -2087,6 +2090,7 @@ export component AppWindow inherits Window {
                                                     promote(id) => { root.promote-task(id); }
                                                     resolve(id) => { root.resolve-followup(id); }
                                                     carry(id) => { root.carry-followup(id); }
+                                                    defer(id) => { root.defer-followup(id); }
                                                 }
                                             }
                                             PaneSection {

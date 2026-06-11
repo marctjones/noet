@@ -56,6 +56,8 @@ NOET_VAULT=/tmp/noet-review-vault cargo run -p noet-gui
 - Prior unresolved follow-ups appear in the queue.
 - Resolve marks a prior follow-up done.
 - Carry into current 1:1 inserts the follow-up into the current note.
+- Defer moves a prior follow-up to `#someday` and removes it from the active
+  carryover queue.
 - Delegated and other person-related tasks remain visible until resolved.
 
 ## Notes Workflow

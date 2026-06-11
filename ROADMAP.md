@@ -185,6 +185,8 @@ Current 1:1 Focus progress:
   the selected person and current 1:1 note.
 - [x] Meeting mode starts rich editing so the current note can be used during a
   live meeting.
+- [x] Prior follow-ups can be resolved, carried forward, or deferred to
+  `#someday` from the 1:1 queue.
 - [ ] Manual review scrolling, resizing, history browsing, resolve, carry, and
   defer behavior in the running GUI.
 

@@ -1759,6 +1759,25 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             refresh(&ui, &s);
         });
     }
+    {
+        let ui_w = ui.as_weak();
+        let state = state.clone();
+        ui.on_defer_followup(move |todo_id: SharedString| {
+            let ui = ui_w.unwrap();
+            let mut s = state.borrow_mut();
+            match s.backend.set_todo_kind(&todo_id, "someday") {
+                Ok(()) => {
+                    let current = ui.get_current_id().to_string();
+                    if !current.is_empty() {
+                        open_in_editor(&ui, &s.backend, &current);
+                    }
+                    ui.set_status_text("Follow-up deferred to someday".into());
+                }
+                Err(e) => ui.set_status_text(format!("Error: {e}").into()),
+            }
+            refresh(&ui, &s);
+        });
+    }
 
     // When a background reindex finishes: reflect new data, open the first note
     // if none is open yet (launch), reopen the current note from disk otherwise,

@@ -210,6 +210,8 @@ Current 1:1 Focus progress:
 - [x] Meeting mode closes supporting panes, preserves the selected person and
   current 1:1 note, and starts rich editing.
 - [x] App-model and GUI smoke tests cover meeting-mode pane closure.
+- [x] GUI smoke tests cover prior follow-up resolve, carry-forward, and defer to
+  `#someday`.
 - [ ] Manual review still needs to verify scrolling, resizing, history browsing,
   follow-up resolution, and carry-forward in the running GUI.
 
