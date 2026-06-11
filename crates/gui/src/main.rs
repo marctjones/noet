@@ -1568,6 +1568,15 @@ fn md_blocks_model(
     let empty = slint::Image::default();
     let mut out: Vec<MdBlock> = Vec::new();
     let no_segs = || ModelRc::new(VecModel::from(Vec::<Segment>::new()));
+    let empty_task_fields = || {
+        (
+            SharedString::from(""),
+            SharedString::from(""),
+            SharedString::from(""),
+            SharedString::from(""),
+            SharedString::from(""),
+        )
+    };
     let mut hide_level: Option<i32> = None; // hide blocks under a folded heading
     for (idx, x) in backend::markdown_blocks(body).into_iter().enumerate() {
         let level = match x.kind.as_str() {
@@ -1598,6 +1607,7 @@ fn md_blocks_model(
             if render_typst {
                 if let Some(png) = b.render_typst_src(&x.text) {
                     if let Ok(img) = slint::Image::load_from_path(&png) {
+                        let (task_kind, project, person, due, priority) = empty_task_fields();
                         out.push(MdBlock {
                             kind: "typst".into(),
                             text: "".into(),
@@ -1606,6 +1616,11 @@ fn md_blocks_model(
                             todo_id: "".into(),
                             done: false,
                             status: "".into(),
+                            task_kind,
+                            project,
+                            person,
+                            due,
+                            priority,
                             segments: no_segs(),
                             block_id: bid,
                             folded: false,
@@ -1614,6 +1629,7 @@ fn md_blocks_model(
                     }
                 }
             }
+            let (task_kind, project, person, due, priority) = empty_task_fields();
             out.push(MdBlock {
                 kind: "code".into(),
                 text: x.text.clone().into(),
@@ -1622,6 +1638,11 @@ fn md_blocks_model(
                 todo_id: "".into(),
                 done: false,
                 status: "".into(),
+                task_kind,
+                project,
+                person,
+                due,
+                priority,
                 segments: no_segs(),
                 block_id: bid,
                 folded: false,
@@ -1632,24 +1653,28 @@ fn md_blocks_model(
             let done = t.map(|t| t.done).unwrap_or(false);
             let status = t.map(|t| t.status.clone()).unwrap_or_default();
             let prio = t.map(|t| t.priority.clone()).unwrap_or_default();
-            let label = if prio.is_empty() {
-                x.text.clone()
-            } else {
-                format!("[{prio}] {}", x.text)
-            };
             out.push(MdBlock {
                 kind: "todo".into(),
-                text: label.into(),
+                text: t
+                    .map(|t| t.text.clone())
+                    .unwrap_or_else(|| x.text.clone())
+                    .into(),
                 indent: x.indent,
                 img: empty.clone(),
                 todo_id: id.into(),
                 done,
                 status: status.into(),
+                task_kind: t.map(|t| t.kind.clone()).unwrap_or_default().into(),
+                project: t.map(|t| t.project.clone()).unwrap_or_default().into(),
+                person: t.map(|t| t.person.clone()).unwrap_or_default().into(),
+                due: t.map(|t| t.due.clone()).unwrap_or_default().into(),
+                priority: prio.into(),
                 segments: no_segs(),
                 block_id: bid,
                 folded: false,
             });
         } else if x.kind == "code" || x.kind == "rule" {
+            let (task_kind, project, person, due, priority) = empty_task_fields();
             out.push(MdBlock {
                 kind: x.kind.clone().into(),
                 text: x.text.clone().into(),
@@ -1658,12 +1683,18 @@ fn md_blocks_model(
                 todo_id: "".into(),
                 done: false,
                 status: "".into(),
+                task_kind,
+                project,
+                person,
+                due,
+                priority,
                 segments: no_segs(),
                 block_id: bid,
                 folded: false,
             });
         } else if level <= 3 {
             let is_folded = folded.contains(&idx);
+            let (task_kind, project, person, due, priority) = empty_task_fields();
             out.push(MdBlock {
                 kind: x.kind.clone().into(),
                 text: backend::clean_inline(&x.text).into(),
@@ -1672,6 +1703,11 @@ fn md_blocks_model(
                 todo_id: "".into(),
                 done: false,
                 status: "".into(),
+                task_kind,
+                project,
+                person,
+                due,
+                priority,
                 segments: no_segs(),
                 block_id: bid,
                 folded: is_folded,
@@ -1696,6 +1732,7 @@ fn md_blocks_model(
                         value: s.value.clone().into(),
                     })
                     .collect();
+                let (task_kind, project, person, due, priority) = empty_task_fields();
                 out.push(MdBlock {
                     kind: x.kind.clone().into(),
                     text: "".into(),
@@ -1704,11 +1741,17 @@ fn md_blocks_model(
                     todo_id: "".into(),
                     done: false,
                     status: "".into(),
+                    task_kind,
+                    project,
+                    person,
+                    due,
+                    priority,
                     segments: ModelRc::new(VecModel::from(sm)),
                     block_id: bid,
                     folded: false,
                 });
             } else {
+                let (task_kind, project, person, due, priority) = empty_task_fields();
                 out.push(MdBlock {
                     kind: x.kind.clone().into(),
                     text: backend::clean_inline(&x.text).into(),
@@ -1717,6 +1760,11 @@ fn md_blocks_model(
                     todo_id: "".into(),
                     done: false,
                     status: "".into(),
+                    task_kind,
+                    project,
+                    person,
+                    due,
+                    priority,
                     segments: no_segs(),
                     block_id: bid,
                     folded: false,

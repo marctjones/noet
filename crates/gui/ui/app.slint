@@ -128,6 +128,11 @@ export struct MdBlock {
     todo-id: string, // for kind == "todo" — "<note>:<line>"
     done: bool,
     status: string,  // todo / doing / done (for the read-view checkbox)
+    task-kind: string,
+    project: string,
+    person: string,
+    due: string,
+    priority: string,
     segments: [Segment], // inline rich content (links/urls) for para/bullet
     block-id: int,   // index of the block (for heading fold toggle)
     folded: bool,    // heading is collapsed
@@ -540,7 +545,7 @@ component MarkdownBlockView inherits Rectangle {
             }
         }
         if root.md.kind == "todo": Rectangle {
-            height: 32px;
+            height: max(46px, todo-body.preferred-height + 14px);
             border-radius: 5px;
             background: todo-touch.has-hover ? Theme.surface3 : transparent;
             accessible-role: checkbox;
@@ -551,11 +556,11 @@ component MarkdownBlockView inherits Rectangle {
             HorizontalLayout {
                 padding-left: 3px + root.md.indent * 14px;
                 padding-right: 6px;
-                spacing: 8px;
+                spacing: 9px;
                 Rectangle {
                     width: 18px;
                     height: 18px;
-                    y: 6px;
+                    y: 8px;
                     border-radius: 4px;
                     border-width: 1.5px;
                     border-color: root.md.status == "doing" ? Theme.accent : Theme.text3;
@@ -568,13 +573,25 @@ component MarkdownBlockView inherits Rectangle {
                         vertical-alignment: center;
                     }
                 }
-                Text {
-                    text: root.md.text;
-                    font-size: (13px * Z.f);
-                    color: root.md.done ? Theme.text3 : Theme.text;
-                    wrap: word-wrap;
-                    vertical-alignment: center;
+                KindDot { kind: root.md.task-kind; y: 9px; }
+                todo-body := VerticalLayout {
                     horizontal-stretch: 1;
+                    spacing: 4px;
+                    Text {
+                        text: root.md.text;
+                        font-size: (13px * Z.f);
+                        font-weight: 650;
+                        color: root.md.done ? Theme.text3 : Theme.text;
+                        wrap: word-wrap;
+                    }
+                    HorizontalLayout {
+                        spacing: 4px;
+                        Chip { text: root.md.status; tint: #eef2f7; ink: #67727d; }
+                        Chip { text: root.md.priority; tint: #f5edda; ink: #8a6418; }
+                        Chip { text: root.md.person; tint: #fdeede; ink: #9a5b1b; }
+                        Chip { text: root.md.project; tint: #e7f7ec; ink: #1f7a44; }
+                        Chip { text: root.md.due; tint: #fde7ea; ink: #9a1b33; }
+                    }
                 }
             }
             todo-touch := TouchArea {
@@ -926,6 +943,31 @@ component MenuItem inherits Rectangle {
 component MenuSep inherits Rectangle {
     height: 7px;
     Rectangle { height: 1px; y: 3px; background: Theme.border; }
+}
+
+component MenuButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> active;
+    callback clicked;
+    width: mb-text.preferred-width + 18px;
+    height: 28px;
+    border-radius: 5px;
+    background: active ? Theme.sel : (mbt.has-hover ? Theme.hover : transparent);
+    accessible-role: button;
+    accessible-label: label + " menu";
+    accessible-action-default => { root.clicked(); }
+    mb-text := Text {
+        text: root.label;
+        color: root.active ? Theme.accent : Theme.text2;
+        font-size: (12px * Z.f);
+        font-weight: root.active ? 700 : 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    mbt := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
 }
 
 // The floating dropdown panel (chrome only); items are passed as @children.
@@ -1327,6 +1369,8 @@ export component AppWindow inherits Window {
     }
 
     shell-keys := FocusScope {
+        KeyBinding { keys: @keys(Control + N); activated => { root.workspace-switch("notes"); root.new-note(); } }
+        KeyBinding { keys: @keys(Control + Q); activated => { root.quit(); } }
         KeyBinding { keys: @keys(Control + K); activated => { root.open-command-palette(); } }
         KeyBinding { keys: @keys(Control + Shift + K); activated => { root.shortcuts-open = true; } }
         KeyBinding { keys: @keys(Control + Shift + F); activated => { root.focus-mode = !root.focus-mode; } }
@@ -1356,6 +1400,12 @@ export component AppWindow inherits Window {
                     spacing: 8px;
                     Image { source: Icons.noet-mark; colorize: Theme.accent; width: 22px * Z.f; height: 22px * Z.f; vertical-alignment: center; }
                     Text { text: "Noet"; font-size: (18px * Z.f); font-weight: 800; color: Theme.text; vertical-alignment: center; }
+                    Rectangle { width: 4px; }
+                    MenuButton { label: "File"; active: root.open-menu == "file"; clicked => { root.open-menu = root.open-menu == "file" ? "" : "file"; } }
+                    MenuButton { label: "Edit"; active: root.open-menu == "edit"; clicked => { root.open-menu = root.open-menu == "edit" ? "" : "edit"; } }
+                    MenuButton { label: "View"; active: root.open-menu == "view"; clicked => { root.open-menu = root.open-menu == "view" ? "" : "view"; } }
+                    MenuButton { label: "Note"; active: root.open-menu == "note"; clicked => { root.open-menu = root.open-menu == "note" ? "" : "note"; } }
+                    MenuButton { label: "Help"; active: root.open-menu == "help"; clicked => { root.open-menu = root.open-menu == "help" ? "" : "help"; } }
                     LineEdit {
                         placeholder-text: "Search notes, tasks, people, labels";
                         text <=> root.search;
@@ -2062,6 +2112,78 @@ export component AppWindow inherits Window {
                     }
                 }
             }
+        }
+
+        // ===== Top-level application menus =====
+        if root.open-menu != "": TouchArea {
+            x: 0; y: 0; width: root.width; height: root.height;
+            clicked => { root.open-menu = ""; }
+        }
+        if root.open-menu == "file": MenuPanel {
+            x: 76px;
+            y: 42px;
+            width: 245px;
+            MenuItem { icon: Icons.plus; label: "New note"; shortcut: "Ctrl+N"; clicked => { root.open-menu = ""; root.workspace-switch("notes"); root.new-note(); } }
+            MenuItem { icon: Icons.meeting; label: "New 1:1 note"; shortcut: ""; clicked => { root.open-menu = ""; root.workspace-switch("one-on-one-focus"); root.new-from-template("oneonone"); } }
+            MenuSep {}
+            MenuItem { icon: Icons.folder; label: "Open vault"; shortcut: ""; clicked => { root.open-menu = ""; root.open-vault-folder(); } }
+            MenuItem { icon: Icons.refresh; label: "Reindex vault"; shortcut: ""; clicked => { root.open-menu = ""; root.reindex(); } }
+            MenuSep {}
+            MenuItem { icon: Icons.download; label: "Export Markdown"; shortcut: ""; clicked => { root.open-menu = ""; root.export-note("md"); } }
+            MenuItem { icon: Icons.download; label: "Export PDF"; shortcut: ""; clicked => { root.open-menu = ""; root.export-note("pdf"); } }
+            MenuSep {}
+            MenuItem { icon: Icons.power; label: "Quit Noet"; shortcut: "Ctrl+Q"; clicked => { root.open-menu = ""; root.quit(); } }
+        }
+        if root.open-menu == "edit": MenuPanel {
+            x: 122px;
+            y: 42px;
+            width: 230px;
+            MenuItem { icon: Icons.swap; label: "Undo"; shortcut: "Ctrl+Z"; clicked => { root.open-menu = ""; root.rich-chord("z"); } }
+            MenuItem { icon: Icons.swap; label: "Redo"; shortcut: "Ctrl+Y"; clicked => { root.open-menu = ""; root.rich-chord("y"); } }
+            MenuSep {}
+            MenuItem { icon: Icons.cut; label: "Cut"; shortcut: "Ctrl+X"; clicked => { root.open-menu = ""; root.rich-chord("x"); } }
+            MenuItem { icon: Icons.copy; label: "Copy"; shortcut: "Ctrl+C"; clicked => { root.open-menu = ""; root.rich-chord("c"); } }
+            MenuItem { icon: Icons.paste; label: "Paste"; shortcut: "Ctrl+V"; clicked => { root.open-menu = ""; root.rich-chord("v"); } }
+            MenuItem { icon: Icons.selectall; label: "Select all"; shortcut: "Ctrl+A"; clicked => { root.open-menu = ""; root.rich-chord("a"); } }
+            MenuSep {}
+            MenuItem { icon: Icons.tasks; label: "Selection to task"; shortcut: ""; clicked => { root.open-menu = ""; root.selection-to-todo(); } }
+            MenuItem { icon: Icons.notes; label: "Selection to note"; shortcut: ""; clicked => { root.open-menu = ""; root.selection-to-note(); } }
+            MenuSep {}
+            MenuItem { icon: Icons.eye; label: "Find"; shortcut: "Ctrl+F"; clicked => { root.open-menu = ""; root.find-open = true; root.find-search(root.find-query); } }
+        }
+        if root.open-menu == "view": MenuPanel {
+            x: 168px;
+            y: 42px;
+            width: 260px;
+            MenuItem { icon: Icons.keyboard; label: "Command palette"; shortcut: "Ctrl+K"; clicked => { root.open-menu = ""; root.open-command-palette(); } }
+            MenuItem { icon: Icons.focus; label: root.focus-mode ? "Exit focus mode" : "Enter focus mode"; shortcut: "Ctrl+Shift+F"; clicked => { root.open-menu = ""; root.focus-mode = !root.focus-mode; } }
+            MenuSep {}
+            MenuItem { icon: Icons.panel-left; label: root.workspace-left-open ? "Hide navigation pane" : "Show navigation pane"; shortcut: "Ctrl+Alt+1"; clicked => { root.open-menu = ""; root.toggle-pane(root.workspace-left-pane-id, root.workspace-left-open); } }
+            MenuItem { icon: Icons.panel-right; label: root.workspace-right-open ? "Hide context pane" : "Show context pane"; shortcut: "Ctrl+Alt+2"; clicked => { root.open-menu = ""; root.toggle-pane(root.workspace-right-pane-id, root.workspace-right-open); } }
+            MenuItem { icon: Icons.tasks; label: root.workspace-bottom-open ? "Hide queue pane" : "Show queue pane"; shortcut: "Ctrl+Alt+3"; clicked => { root.open-menu = ""; root.toggle-pane(root.workspace-bottom-pane-id, root.workspace-bottom-open); } }
+            MenuSep {}
+            MenuItem { icon: Icons.textsize; label: root.source-mode ? "Use rich editor" : "Edit Markdown source"; shortcut: ""; clicked => { root.open-menu = ""; if (root.source-mode) { root.source-mode = false; } else { root.source-mode = true; root.editing = true; } } }
+            MenuItem { icon: Theme.dark ? Icons.sun : Icons.moon; label: Theme.dark ? "Light theme" : "Dark theme"; shortcut: ""; clicked => { root.open-menu = ""; Palette.color-scheme = Theme.dark ? ColorScheme.light : ColorScheme.dark; } }
+        }
+        if root.open-menu == "note": MenuPanel {
+            x: 216px;
+            y: 42px;
+            width: 240px;
+            MenuItem { icon: Icons.edit; label: root.editing ? "Done editing" : "Edit note"; shortcut: ""; clicked => { root.open-menu = ""; if (root.editing) { root.stop-editing(); } else { root.source-mode = false; root.editing = true; } } }
+            MenuItem { icon: Icons.check; label: "Add task"; shortcut: ""; clicked => { root.open-menu = ""; root.open-add-todo(); } }
+            MenuItem { icon: Icons.branch; label: "New related note"; shortcut: ""; clicked => { root.open-menu = ""; root.new-related-note(); } }
+            MenuItem { icon: Icons.flag; label: "Toggle Markdown/Typst mode"; shortcut: ""; clicked => { root.open-menu = ""; root.toggle-kind(); } }
+            MenuSep {}
+            MenuItem { icon: Icons.archive; label: "Archive note"; shortcut: ""; clicked => { root.open-menu = ""; root.archive-note(true); } }
+            MenuItem { icon: Icons.trash2; label: "Delete note"; shortcut: ""; danger: true; clicked => { root.open-menu = ""; root.delete-note(); } }
+        }
+        if root.open-menu == "help": MenuPanel {
+            x: 264px;
+            y: 42px;
+            width: 230px;
+            MenuItem { icon: Icons.keyboard; label: "Keyboard shortcuts"; shortcut: "Ctrl+Shift+K"; clicked => { root.open-menu = ""; root.shortcuts-open = true; } }
+            MenuItem { icon: Icons.license; label: "Open-source licenses"; shortcut: ""; clicked => { root.open-menu = ""; root.open-licenses(); } }
+            MenuItem { icon: Icons.info; label: "Settings"; shortcut: ""; clicked => { root.open-menu = ""; root.workspace-switch("settings"); } }
         }
 
         // ===== Minimal note context menu =====

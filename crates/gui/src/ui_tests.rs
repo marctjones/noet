@@ -128,6 +128,16 @@ fn headless_ui_smoke() {
         .expect("a Settings nav tab");
     assert_eq!(settings.accessible_label().as_deref(), Some("Settings"));
 
+    let file_menu = ElementHandle::find_by_accessible_label(ui, "File menu")
+        .find(|e| e.accessible_role() == Some(AccessibleRole::Button))
+        .expect("top-level File menu exposed as a button");
+    file_menu.invoke_accessible_default_action();
+    itest::mock_elapsed_time(std::time::Duration::from_millis(16));
+    ElementHandle::find_by_accessible_label(ui, "New 1:1 note")
+        .find(|e| e.accessible_role() == Some(AccessibleRole::Button))
+        .expect("File menu exposes note creation commands");
+    ui.set_open_menu("".into());
+
     ui.invoke_workspace_set_nav_surface("notes".into());
     itest::mock_elapsed_time(std::time::Duration::from_millis(16));
     let welcome_note_label = format!("Open note {WELCOME_TITLE}");
@@ -305,7 +315,7 @@ fn headless_ui_smoke() {
             .save_note(
                 &n.id,
                 "Rendered Markdown",
-                "# Rendered Markdown\n\nThis is **bold** and [[Acme]] #urgent\n",
+                "# Rendered Markdown\n\nThis is **bold** and [[Acme]] #urgent\n\n- [ ] Call client @[[Jane]] [[Acme]] #followup due:2026-07-01 priority:A\n",
             )
             .unwrap();
         rendered_id = n.id.clone();
@@ -324,6 +334,20 @@ fn headless_ui_smoke() {
     ElementHandle::find_by_accessible_label(ui, "Rendered Markdown")
         .next()
         .expect("rendered Markdown heading is exposed without the raw # marker");
+    let blocks = ui.get_md_blocks();
+    let todo_block = (0..blocks.row_count())
+        .filter_map(|i| blocks.row_data(i))
+        .find(|b| b.kind == "todo")
+        .expect("rendered note includes a todo block");
+    assert_eq!(todo_block.text, SharedString::from("Call client"));
+    assert_eq!(todo_block.task_kind, SharedString::from("followup"));
+    assert_eq!(todo_block.person, SharedString::from("Jane"));
+    assert_eq!(todo_block.project, SharedString::from("Acme"));
+    assert_eq!(todo_block.due, SharedString::from("2026-07-01"));
+    assert_eq!(todo_block.priority, SharedString::from("A"));
+    ElementHandle::find_by_accessible_label(ui, "Toggle task Call client")
+        .find(|e| e.accessible_role() == Some(AccessibleRole::Checkbox))
+        .expect("rendered todo is exposed as an interactive clean task row");
 
     // ----- Level 4b: Tab / Shift-Tab list indent (sred v0.7.0 #3) -----
     // The editor component forwards Tab/Shift-Tab to special("indent"/"outdent");
