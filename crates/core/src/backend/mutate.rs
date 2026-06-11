@@ -6,7 +6,10 @@ use super::parse::{
     advance_date, format_todo_line, parse_links, parse_tags, parse_todo_lines, set_marker_kind,
 };
 use super::vault::{markdown_title, read_note, write_note};
-use super::{Backend, Filter, NamedFilter, Note, Todo, TodoFields, KINDS, STATUSES};
+use super::{
+    is_workstream_label, workstream_label, Backend, Filter, NamedFilter, Note, Todo, TodoFields,
+    KINDS, STATUSES,
+};
 use anyhow::{Context, Result};
 use chrono::Utc;
 use std::path::PathBuf;
@@ -38,6 +41,10 @@ impl Backend {
     /// the same thread" without rewriting the old one.
     pub fn new_related_note(&mut self, source_id: &str) -> Result<Note> {
         let src = self.load_note(source_id)?;
+        let workstreams = parse_tags(&src.body)
+            .into_iter()
+            .filter(|tag| is_workstream_label(tag))
+            .collect::<Vec<_>>();
         let links = parse_links(&src.body);
         let id = ulid::Ulid::new().to_string();
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string();
@@ -50,6 +57,14 @@ impl Backend {
             body += &links
                 .iter()
                 .map(|l| format!("[[{l}]]"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            body.push('\n');
+        }
+        if !workstreams.is_empty() {
+            body += &workstreams
+                .iter()
+                .map(|label| format!("#{label}"))
                 .collect::<Vec<_>>()
                 .join(" ");
             body.push('\n');
@@ -182,7 +197,7 @@ impl Backend {
             body.push_str(&format!("@[[{}]]\n", todo.person));
         }
         if !todo.project.is_empty() {
-            body.push_str(&format!("[[{}]]\n", todo.project));
+            body.push_str(&format!("#{}\n", todo.project.trim_start_matches('#')));
         }
         if !todo.kind.is_empty() && todo.kind != "do" {
             body.push_str(&format!("#{}\n", todo.kind));
@@ -409,27 +424,29 @@ impl Backend {
         self.persist(&note)
     }
 
-    /// File a note into a topic/project by appending a `[[Topic]]` link.
+    /// File a note into a workstream by appending a `#workstream/...` label.
     pub fn add_link(&mut self, note_id: &str, topic: &str) -> Result<()> {
         let topic = topic
             .trim()
             .trim_start_matches("[[")
             .trim_end_matches("]]")
+            .trim_start_matches('#')
             .trim();
+        let topic = workstream_label(topic);
         if topic.is_empty() {
             return Ok(());
         }
         let mut note = self.load_note(note_id)?;
-        if parse_links(&note.body)
+        if parse_tags(&note.body)
             .iter()
-            .any(|t| t.eq_ignore_ascii_case(topic))
+            .any(|t| t.eq_ignore_ascii_case(&topic))
         {
             return Ok(());
         }
         if !note.body.is_empty() && !note.body.ends_with('\n') {
             note.body.push('\n');
         }
-        note.body.push_str(&format!("[[{topic}]]\n"));
+        note.body.push_str(&format!("#{topic}\n"));
         self.persist(&note)
     }
 
@@ -475,7 +492,7 @@ impl Backend {
         match group_by {
             "status" => fields.status = val.to_string(),
             "kind" => fields.kind = val.to_string(),
-            "project" | "workstream" => fields.project = val.to_string(),
+            "project" | "workstream" => fields.project = workstream_label(val),
             "person" => fields.person = val.to_string(),
             _ => {}
         }

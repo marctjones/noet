@@ -53,7 +53,7 @@ Nested labels create hierarchy. Filtering `#meeting` includes
 
 Labels are the main dynamic organization layer. A note does not need to live in a
 preselected notebook or section to be useful. The same note can appear in
-meeting, person, project, waiting, timeline, and review surfaces because it
+meeting, person, workstream, waiting, timeline, and review surfaces because it
 contains readable labels and entities.
 
 ### People
@@ -89,9 +89,9 @@ https://example.com
 These may be detected as contact or URL entities, but they should not be merged
 into a person unless the user explicitly links them to a canonical person.
 
-### Links
+### Wiki Links
 
-Workstreams and note links use wiki links:
+Notes, topics, and ordinary cross-references use wiki links:
 
 ```markdown
 [[Acme Onboarding]]
@@ -100,16 +100,33 @@ Workstreams and note links use wiki links:
 `+[[...]]` is legacy syntax. Generated Noet Markdown should use one canonical
 link form: `[[...]]`.
 
-Wiki-link resolution is case-insensitive for note, workstream, backlink, related
-note, and source-link lookup. Noet preserves the typed casing in the file, but
-`[[Acme Onboarding]]` and `[[acme onboarding]]` resolve to the same target.
+Wiki-link resolution is case-insensitive for note, backlink, related-note, and
+source-link lookup. Noet preserves the typed casing in the file, but
+`[[Acme Onboarding]]` and `[[acme onboarding]]` resolve to the same wiki target.
+
+Wiki links are not filing metadata. Linking a note to `[[Client/Acme]]` creates a
+backlink relationship; it does not by itself assign the note or task to the Acme
+workstream.
+
+### Workstreams
+
+Workstreams are explicit labels:
+
+```markdown
+#workstream/enterprise-saas
+#workstream/open-source-security
+```
+
+Use workstream labels when a note or task should appear in workstream filters,
+reviews, boards, and hubs. This keeps "link to a page" separate from "file this
+under an area of work."
 
 ### Tasks
 
 Inline tasks use GitHub-style task list items:
 
 ```markdown
-- [ ] Ask Jane about launch risks @[[Jane]] #followup due:2026-06-17
+- [ ] Ask Jane about launch risks @[[Jane]] #followup #workstream/enterprise-saas due:2026-06-17
 - [x] Send NDA @[[Sam]] #delegated
 ```
 
@@ -182,13 +199,14 @@ Noet recognizes two simple scopes.
 ### Note Metadata Area
 
 The note metadata area starts after the H1 and continues until the first section
-heading or ordinary prose paragraph. It is intended for labels, people, links,
-and note-level properties.
+heading or ordinary prose paragraph. It is intended for labels, people, wiki
+links, workstream labels, and note-level properties.
 
 ```markdown
 # 1:1 with Jane
 
 #meeting/one-on-one
+#workstream/enterprise-saas
 @[[Jane]]
 [[Acme Onboarding]]
 date:2026-06-10
@@ -199,10 +217,11 @@ Discussed launch risks.
 
 ### Task Line
 
-Labels, people, links, and properties on a task line attach to that task.
+Labels, people, wiki links, and properties on a task line attach to that task.
+Workstream filing is explicit through `#workstream/...`.
 
 ```markdown
-- [ ] Ask Jane about launch risks @[[Jane]] #followup due:2026-06-17
+- [ ] Ask Jane about launch risks @[[Jane]] #followup #workstream/enterprise-saas due:2026-06-17
 ```
 
 Noet should not infer arbitrary associations from normal prose lines. Same-line

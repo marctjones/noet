@@ -100,6 +100,23 @@ pub(crate) fn entity_key(value: &str) -> String {
         .collect::<String>()
 }
 
+pub(crate) const WORKSTREAM_PREFIX: &str = "workstream/";
+
+pub(crate) fn workstream_label(value: &str) -> String {
+    let value = value.trim().trim_start_matches('#').trim();
+    if value.is_empty() {
+        String::new()
+    } else if entity_key(value).starts_with(WORKSTREAM_PREFIX) {
+        value.to_string()
+    } else {
+        format!("{WORKSTREAM_PREFIX}{value}")
+    }
+}
+
+pub(crate) fn is_workstream_label(value: &str) -> bool {
+    entity_key(value).starts_with(WORKSTREAM_PREFIX)
+}
+
 #[derive(serde::Serialize, serde::Deserialize)]
 pub(crate) struct NamedFilter {
     pub(crate) name: String,

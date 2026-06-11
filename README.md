@@ -76,9 +76,9 @@ Noet builds on CommonMark with visible, readable extensions:
 
 #meeting/one-on-one
 @[[Jane Smith]]
-[[Client/Acme]]
+#workstream/enterprise-saas
 
-- [ ] Ask about launch risks @[[Jane Smith]] #followup due:2026-06-17 priority:A
+- [ ] Ask about launch risks @[[Jane Smith]] #followup #workstream/enterprise-saas due:2026-06-17 priority:A
 - [/] Draft onboarding checklist #mine
 - [x] Send NDA @[[Sam Lee]] #delegated
 ```
@@ -87,17 +87,27 @@ Canonical syntax:
 
 - tasks: `- [ ]`, `- [/]`, `- [x]`
 - people: `@[[Jane Smith]]`
-- workstreams and note links: `[[Client/Acme]]`
+- note/wiki links: `[[Client/Acme]]`
 - labels: `#followup`, `#meeting/one-on-one`
+- workstreams: `#workstream/enterprise-saas`
 - properties: `due:2026-06-17`, `priority:A`, `repeat:1w`
 - source links: `source:[[1:1 - Jane Smith#^launch-risks]]`
 - references and contacts: `ref:https://...`, normal URLs, emails, social
   handles, `gh:owner/repo#12`
 
-People and wiki links resolve case-insensitively while preserving the casing you
-typed in the Markdown file.
+People, wiki links, and workstream labels resolve case-insensitively while
+preserving the casing you typed in the Markdown file. A `[[wiki link]]` is a
+relationship/backlink; a `#workstream/...` label is filing and review metadata.
 
 See [docs/noet-markdown.md](docs/noet-markdown.md).
+
+To recreate a deterministic demo vault for UI testing:
+
+```bash
+bash scripts/reset-demo-vault.sh
+```
+
+See [docs/demo-corpus-plan.md](docs/demo-corpus-plan.md).
 
 ### Workspace UX
 

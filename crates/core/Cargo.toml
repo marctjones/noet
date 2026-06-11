@@ -15,6 +15,10 @@ path = "src/lib.rs"
 name = "noet-bench"
 path = "src/bin/bench.rs"
 
+[[bin]]
+name = "noet-demo-vault"
+path = "src/bin/demo_vault.rs"
+
 [dependencies]
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }

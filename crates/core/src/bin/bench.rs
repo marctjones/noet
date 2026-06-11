@@ -1,7 +1,7 @@
 //! Headless performance benchmark for Noet's backend.
 //!
 //! Generates a synthetic vault of N markdown notes (realistic token density:
-//! workstreams, people, tags, typed todos with dates/priorities) and times the
+//! wiki links, workstreams, people, tags, typed todos with dates/priorities) and times the
 //! operations that the UI's `refresh()` actually calls. No window, no GPU — this
 //! isolates the data-layer cost that scales with vault size.
 //!
@@ -82,7 +82,8 @@ fn gen_note(rng: &mut Lcg, i: usize) -> String {
         rng.range(1, 12), rng.range(1, 28), rng.range(1, 12), rng.range(1, 28),
     );
     s.push_str(&format!(
-        "# {title}\n\nMeeting in [[{ws}]] with @{}.\n\n",
+        "# {title}\n\n#workstream/{}\nMeeting in [[{ws}]] with @[[{}]].\n\n",
+        ws.to_lowercase(),
         rng.pick(PEOPLE)
     ));
     s.push_str(&format!(
@@ -103,7 +104,8 @@ fn gen_note(rng: &mut Lcg, i: usize) -> String {
         };
         let due = format!(" due:2026-{:02}-{:02}", rng.range(1, 12), rng.range(1, 28));
         s.push_str(&format!(
-            "- [ ] Follow up on item with @{person} [[{ws}]] #{kind} #{}{pstr}{due}\n",
+            "- [ ] Follow up on item with @[[{person}]] [[{ws}]] #workstream/{} #{kind} #{}{pstr}{due}\n",
+            ws.to_lowercase(),
             rng.pick(TAGS),
         ));
     }

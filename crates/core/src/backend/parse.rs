@@ -1,7 +1,9 @@
 //! Parsing — the file-first grammar. Notes are plain markdown; tasks are
 //! GitHub-style task list items plus Noet labels, people, links, and properties.
 
-use super::{MdBlock, Segment, SourceSpan, Todo, TodoFields};
+use super::{
+    is_workstream_label, workstream_label, MdBlock, Segment, SourceSpan, Todo, TodoFields,
+};
 use chrono::NaiveDate;
 use regex::Regex;
 use std::collections::HashMap;
@@ -107,7 +109,7 @@ struct TextLine<'a> {
     byte_end: usize,
 }
 
-// A task line: - [ ] text @[[Person]] [[Project]] #followup due:2026-06-10
+// A task line: - [ ] text @[[Person]] [[Wiki Link]] #followup #workstream/foo due:2026-06-10
 // Marker is [ ] / [/] / [x] -> status.
 fn todo_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
@@ -675,19 +677,6 @@ fn line_anchor(text: &str) -> String {
         .unwrap_or_default()
 }
 
-fn first_wikilink(rest: &str) -> String {
-    link_re()
-        .captures_iter(rest)
-        .find(|c| {
-            c.get(0).is_some_and(|m| {
-                let before = &rest[..m.start()];
-                !before.ends_with('@') && !before.ends_with('+') && !before.ends_with("source:")
-            })
-        })
-        .map(|c| c["t"].trim().to_string())
-        .unwrap_or_default()
-}
-
 fn task_kind(labels: &[String]) -> String {
     for label in labels {
         match label.as_str() {
@@ -700,6 +689,14 @@ fn task_kind(labels: &[String]) -> String {
     "do".into()
 }
 
+fn task_workstream(labels: &[String]) -> String {
+    labels
+        .iter()
+        .find(|label| is_workstream_label(label))
+        .cloned()
+        .unwrap_or_default()
+}
+
 fn parse_todo_text_line(note_id: &str, source: TextLine<'_>) -> Option<ParsedTodoLine> {
     let line = source.line;
     if let Some(c) = todo_re().captures(line) {
@@ -707,7 +704,7 @@ fn parse_todo_text_line(note_id: &str, source: TextLine<'_>) -> Option<ParsedTod
         let rest = c["rest"].to_string();
         let labels = entity_tags(&rest);
         let kind = task_kind(&labels);
-        let project = first_wikilink(&rest);
+        let project = task_workstream(&labels);
         let person = person_re()
             .captures(&rest)
             .map(|m| person_name(&m))
@@ -782,7 +779,10 @@ fn parse_todo_text_line(note_id: &str, source: TextLine<'_>) -> Option<ParsedTod
             raw_line: line.to_string(),
             labels,
             people: entity_mentions(&rest),
-            workstreams: entity_links(&rest),
+            workstreams: entity_tags(&rest)
+                .into_iter()
+                .filter(|label| is_workstream_label(label))
+                .collect(),
             properties: entity_properties(&rest),
         })
     } else {
@@ -808,7 +808,7 @@ pub fn parse_todos(note_id: &str, body: &str) -> Vec<Todo> {
         .collect()
 }
 
-/// All `[[wikilink]]` targets in a body (projects / workstreams / pages).
+/// All `[[wikilink]]` targets in a body (notes / topics / pages).
 pub fn parse_links(body: &str) -> Vec<String> {
     sorted_dedup(
         text_lines(body)
@@ -1054,9 +1054,14 @@ pub fn parse_markdown(note_id: &str, body: &str) -> ParsedMarkdown {
     for line in text_line_spans(body) {
         for entity in line_inline_entities(line) {
             match entity.kind {
-                InlineEntityKind::Tag => labels.push(entity.value),
+                InlineEntityKind::Tag => {
+                    if is_workstream_label(&entity.value) {
+                        workstreams.push(entity.value.clone());
+                    }
+                    labels.push(entity.value);
+                }
                 InlineEntityKind::Person => people.push(entity.value),
-                InlineEntityKind::Project => workstreams.push(entity.value),
+                InlineEntityKind::Project => {}
                 InlineEntityKind::MarkdownLink | InlineEntityKind::Url => {
                     contacts.push(ContactFact {
                         kind: ContactKind::Url,
@@ -1114,7 +1119,10 @@ pub(crate) fn format_todo_line(f: &TodoFields) -> String {
         s += &format!(" @[[{}]]", f.person.trim());
     }
     if !f.project.is_empty() {
-        s += &format!(" [[{}]]", f.project.trim());
+        let label = workstream_label(&f.project);
+        if !label.is_empty() {
+            s += &format!(" #{label}");
+        }
     }
     if !kind.is_empty() && kind != "do" {
         s += &format!(" #{}", kind);

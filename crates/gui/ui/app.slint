@@ -70,7 +70,7 @@ export struct RelatedRef { id: string, title: string, via: string }
 
 // A command-palette result. `id` is a typed ref the Rust side dispatches:
 // "v:<view>" (open view), "n:<note-id>" (open note), "c:<command>" (run command),
-// "p:<project>" / "t:<tag>" / "@:<person>" (apply a facet filter).
+// "p:<workstream>" / "t:<tag>" / "@:<person>" (apply a facet filter).
 export struct PaletteItem { id: string, label: string, kind: string, hint: string }
 
 export struct LicenseRow { crate-name: string, version: string, license: string }
@@ -1037,7 +1037,7 @@ export component AppWindow inherits Window {
     in property <[TodoItem]> review-waiting;
     in property <[TodoItem]> review-someday;
     in property <[NoteItem]> review-inbox-notes;
-    // Workstream hub: one workstream's open todos + the notes referencing it.
+    // Workstream hub: one workstream's open todos + filed notes.
     in-out property <string> hub-name;
     in property <[TodoItem]> hub-todos;
     in property <[NoteRef]> hub-notes;
@@ -2235,7 +2235,7 @@ export component AppWindow inherits Window {
                         }
                         Field {
                             label: "Workstream";
-                            LineEdit { text <=> root.form-project; placeholder-text: "Client/Acme"; }
+                            LineEdit { text <=> root.form-project; placeholder-text: "workstream/enterprise-saas"; }
                         }
                     }
                     HorizontalLayout {
@@ -2393,7 +2393,7 @@ export component AppWindow inherits Window {
                     padding: 10px;
                     spacing: 8px;
                     palinput := LineEdit {
-                        placeholder-text: "Jump to a note, view, command, or #tag / ▸project…";
+                        placeholder-text: "Jump to a note, view, command, or #tag / ▸workstream…";
                         text <=> root.palette-query;
                         font-size: (15px * Z.f);
                         edited(t) => { root.palette-search(t); }

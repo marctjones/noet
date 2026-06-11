@@ -11,7 +11,7 @@ use std::path::Path;
 fn parses_typed_todos_and_tokens() {
     let body = "\
 - meeting notes\n\
-- [ ] draft agenda [[Acme]] due:2026-06-10 ref:https://example.com/proj-12\n\
+- [ ] draft agenda [[Acme]] #workstream/acme due:2026-06-10 ref:https://example.com/proj-12\n\
 - [ ] check pricing @[[Jane]] #followup\n\
 - [x] skim the rust book #reading\n";
     let todos = parse_todos("N1", body);
@@ -19,7 +19,7 @@ fn parses_typed_todos_and_tokens() {
 
     let do_t = &todos[0];
     assert_eq!(do_t.kind, "do");
-    assert_eq!(do_t.project, "Acme");
+    assert_eq!(do_t.project, "workstream/acme");
     assert_eq!(do_t.due, "2026-06-10");
     assert_eq!(do_t.external, "ref:https://example.com/proj-12");
     assert_eq!(do_t.text, "draft agenda"); // tokens stripped
@@ -53,7 +53,7 @@ fn promoted_task_link_stays_readable_as_todo_text() {
 
 #[test]
 fn parsed_markdown_exposes_task_spans_and_source_links() {
-    let body = "# Task\n\nsource:[[Meeting Note#^launch-risks]]\n\n- [ ] Follow up @[[Jane]] [[Acme]] #followup due:2026-06-17 ^launch-risks\n";
+    let body = "# Task\n\nsource:[[Meeting Note#^launch-risks]]\n\n- [ ] Follow up @[[Jane]] [[Acme]] #followup #workstream/acme due:2026-06-17 ^launch-risks\n";
     let parsed = parse_markdown("N1", body);
 
     assert_eq!(parsed.todos.len(), 1);
@@ -61,8 +61,8 @@ fn parsed_markdown_exposes_task_spans_and_source_links() {
     assert_eq!(task.todo.id, "N1:^launch-risks");
     assert_eq!(task.todo.anchor, "launch-risks");
     assert_eq!(task.people, vec!["Jane"]);
-    assert_eq!(task.workstreams, vec!["Acme"]);
-    assert_eq!(task.labels, vec!["followup"]);
+    assert_eq!(task.workstreams, vec!["workstream/acme"]);
+    assert_eq!(task.labels, vec!["followup", "workstream/acme"]);
     assert!(task
         .properties
         .iter()
@@ -221,10 +221,10 @@ fn inline_entities_expose_typed_ranges_for_rendering_and_editor_tokens() {
 
 #[test]
 fn inline_entities_do_not_index_source_or_legacy_workstreams() {
-    let body = "source:[[Meeting Note#^launch-risks]]\n+[[Legacy Project]]\n[[Current Project]]\n";
+    let body = "source:[[Meeting Note#^launch-risks]]\n+[[Legacy Project]]\n[[Current Project]]\n#workstream/current-project\n";
     let parsed = parse_markdown("N1", body);
 
-    assert_eq!(parsed.workstreams, vec!["Current Project"]);
+    assert_eq!(parsed.workstreams, vec!["workstream/current-project"]);
     assert_eq!(parsed.source_links.len(), 1);
     assert!(parsed
         .diagnostics
@@ -331,7 +331,7 @@ fn backend_roundtrip_and_toggle() {
     b.save_note(
         &note.id,
         "Kickoff",
-        "# Kickoff\n\n- [ ] ship it [[Acme]] due:2026-07-01\nlinked [[Roadmap]]\n",
+        "# Kickoff\n\n#workstream/acme\n- [ ] ship it [[Acme]] #workstream/acme due:2026-07-01\nlinked [[Roadmap]]\n",
     )
     .unwrap();
 
@@ -339,8 +339,7 @@ fn backend_roundtrip_and_toggle() {
 
     let projects = b.list_projects().unwrap();
     let names: Vec<_> = projects.iter().map(|p| p.name.as_str()).collect();
-    assert!(names.contains(&"Acme"));
-    assert!(names.contains(&"Roadmap"));
+    assert!(names.contains(&"workstream/acme"));
 
     let todos = b
         .query_todos(&Filter {
@@ -377,14 +376,14 @@ fn people_stale_and_project_filters() {
     std::fs::write(
         notes_dir.join("old.md"),
         "---\nupdated: 2000-01-01T00:00:00\nkind: markdown\n---\n\
-             # Old\n\n- [ ] chase Jane on contract @[[Jane]] [[Acme]] #followup\n",
+             # Old\n\n- [ ] chase Jane on contract @[[Jane]] [[Acme]] #followup #workstream/acme\n",
     )
     .unwrap();
-    // A fresh note with a do-item tied to the same project.
+    // A fresh note with a do-item tied to the same workstream.
     std::fs::write(
         notes_dir.join("new.md"),
         format!(
-            "---\nupdated: {}\nkind: markdown\n---\n# New\n\n- [ ] ship [[Acme]]\n",
+            "---\nupdated: {}\nkind: markdown\n---\n# New\n\n- [ ] ship [[Acme]] #workstream/acme\n",
             Utc::now().format("%Y-%m-%dT%H:%M:%S")
         ),
     )
@@ -412,10 +411,10 @@ fn people_stale_and_project_filters() {
     assert_eq!(stale.len(), 1);
     assert_eq!(stale[0].note_id, "old");
 
-    // project view: Acme has both todos
+    // workstream view: Acme has both todos
     assert_eq!(
         b.query_todos(&Filter {
-            project: "Acme".into(),
+            project: "workstream/acme".into(),
             ..Default::default()
         })
         .unwrap()
@@ -448,7 +447,7 @@ fn incremental_reindex_only_touches_changed_files() {
     write("a.md", "---\nkind: markdown\n---\n# Alpha\n\nbody a\n");
     write(
         "b.md",
-        "---\nkind: markdown\n---\n# Beta\n\n- [ ] bee [[P]]\n",
+        "---\nkind: markdown\n---\n# Beta\n\n- [ ] bee [[P]] #workstream/p\n",
     );
     set_mtime("a.md", 1000);
     set_mtime("b.md", 1000);
@@ -467,7 +466,7 @@ fn incremental_reindex_only_touches_changed_files() {
     // Edit a.md (new title + a todo) and advance its mtime; b.md untouched.
     write(
         "a.md",
-        "---\nkind: markdown\n---\n# Alpha2\n\n- [ ] ay [[P]]\n",
+        "---\nkind: markdown\n---\n# Alpha2\n\n- [ ] ay [[P]] #workstream/p\n",
     );
     set_mtime("a.md", 2000);
     assert_eq!(
@@ -482,7 +481,7 @@ fn incremental_reindex_only_touches_changed_files() {
     );
     assert_eq!(
         b.query_todos(&Filter {
-            project: "P".into(),
+            project: "workstream/p".into(),
             ..Default::default()
         })
         .unwrap()
@@ -506,7 +505,7 @@ fn incremental_reindex_only_touches_changed_files() {
     );
     assert_eq!(
         b.query_todos(&Filter {
-            project: "P".into(),
+            project: "workstream/p".into(),
             ..Default::default()
         })
         .unwrap()
@@ -710,10 +709,10 @@ fn add_update_and_drop_via_form() {
     let t = b.get_todo(&id).unwrap();
     assert_eq!(t.kind, "followup");
     assert_eq!(t.person, "Dana");
-    assert_eq!(t.project, "Q3");
+    assert_eq!(t.project, "workstream/Q3");
     assert_eq!(t.due, "2026-07-01");
     let disk = std::fs::read_to_string(&note.path).unwrap();
-    assert!(disk.contains("- [ ] ping vendor @[[Dana]] [[Q3]] #followup due:2026-07-01"));
+    assert!(disk.contains("- [ ] ping vendor @[[Dana]] #workstream/Q3 #followup due:2026-07-01"));
 
     // edit it: change kind + status + add a start date
     let mut f = TodoFields::from_todo(&b.get_todo(&id).unwrap());
@@ -726,9 +725,9 @@ fn add_update_and_drop_via_form() {
     assert_eq!(t.status, "doing");
     assert_eq!(t.start, "2026-06-25");
 
-    // drag onto a different project column (group_by = project)
+    // drag onto a different workstream column (group_by = project)
     b.drop_card(&id, "project", "Platform").unwrap();
-    assert_eq!(b.get_todo(&id).unwrap().project, "Platform");
+    assert_eq!(b.get_todo(&id).unwrap().project, "workstream/Platform");
 
     // drag onto a status column
     b.drop_card(&id, "status", "done").unwrap();
@@ -795,7 +794,7 @@ fn promote_inline_todo_creates_task_note_and_links_source_line() {
         &meeting.id,
         "1:1 with Jane",
         "# 1:1 with Jane\n\n#meeting/one-on-one\n@[[Jane]]\n\n\
-         - [ ] Ask Jane about launch risks @[[Jane]] [[Client/Acme]] #followup due:2026-06-17 priority:A\n",
+         - [ ] Ask Jane about launch risks @[[Jane]] [[Client/Acme]] #followup #workstream/client-acme due:2026-06-17 priority:A\n",
     )
     .unwrap();
 
@@ -811,7 +810,7 @@ fn promote_inline_todo_creates_task_note_and_links_source_line() {
     assert_eq!(promoted.title, "Ask Jane about launch risks");
     assert!(promoted.body.contains("#task"));
     assert!(promoted.body.contains("@[[Jane]]"));
-    assert!(promoted.body.contains("[[Client/Acme]]"));
+    assert!(promoted.body.contains("#workstream/client-acme"));
     assert!(promoted.body.contains("#followup"));
     assert!(promoted.body.contains("due:2026-06-17"));
     assert!(promoted.body.contains("priority:A"));
@@ -820,12 +819,12 @@ fn promote_inline_todo_creates_task_note_and_links_source_line() {
         .contains("source:[[1:1 with Jane#^ask-jane-about-launch-risks]]"));
     assert!(promoted
         .body
-        .contains("- [ ] Ask Jane about launch risks @[[Jane]] [[Client/Acme]] #followup priority:A due:2026-06-17"));
+        .contains("- [ ] Ask Jane about launch risks @[[Jane]] #workstream/client-acme #followup priority:A due:2026-06-17"));
 
     let source = b.load_note(&meeting.id).unwrap();
     assert!(source
         .body
-        .contains("[[Ask Jane about launch risks]] @[[Jane]] [[Client/Acme]] #followup priority:A due:2026-06-17 ^ask-jane-about-launch-risks"));
+        .contains("[[Ask Jane about launch risks]] @[[Jane]] #workstream/client-acme #followup priority:A due:2026-06-17 ^ask-jane-about-launch-risks"));
 
     let promoted_tasks = b
         .query_todos(&Filter {
@@ -968,14 +967,16 @@ fn hierarchical_subtree_filter() {
     let dir = std::env::temp_dir().join(format!("noet-test-{}", ulid::Ulid::new()));
     let mut b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();
     let a = b.new_note().unwrap();
-    b.save_note(&a.id, "x", "[[Clients/Acme]]\n").unwrap();
+    b.save_note(&a.id, "x", "#workstream/clients/acme\n[[Clients/Acme]]\n")
+        .unwrap();
     let c = b.new_note().unwrap();
-    b.save_note(&c.id, "y", "[[Clients/Beta]]\n").unwrap();
+    b.save_note(&c.id, "y", "#workstream/clients/beta\n[[Clients/Beta]]\n")
+        .unwrap();
 
     // parent shows the whole subtree
     let parent = b
         .query_notes(&Filter {
-            project: "Clients".into(),
+            project: "workstream/clients".into(),
             ..Default::default()
         })
         .unwrap();
@@ -983,7 +984,7 @@ fn hierarchical_subtree_filter() {
     // a leaf shows only itself
     let leaf = b
         .query_notes(&Filter {
-            project: "Clients/Acme".into(),
+            project: "workstream/clients/acme".into(),
             ..Default::default()
         })
         .unwrap();
@@ -1000,7 +1001,7 @@ fn related_notes_and_filing() {
     b.save_note(
         &a.id,
         "Acme kickoff",
-        "# Acme kickoff\n\nminutes [[Client Acme]]\n",
+        "# Acme kickoff\n\n#workstream/client-acme\nminutes [[Client Acme]]\n",
     )
     .unwrap();
 
@@ -1012,7 +1013,7 @@ fn related_notes_and_filing() {
     // both notes are now in the cluster
     let cluster = b
         .query_notes(&Filter {
-            project: "Client Acme".into(),
+            project: "workstream/client-acme".into(),
             ..Default::default()
         })
         .unwrap();
@@ -1021,10 +1022,10 @@ fn related_notes_and_filing() {
     // filing an unfiled note adds it to the cluster
     let c = b.new_note().unwrap();
     b.save_note(&c.id, "loose", "# loose\n\nidea\n").unwrap();
-    b.add_link(&c.id, "Client Acme").unwrap();
+    b.add_link(&c.id, "client-acme").unwrap();
     let cluster2 = b
         .query_notes(&Filter {
-            project: "Client Acme".into(),
+            project: "workstream/client-acme".into(),
             ..Default::default()
         })
         .unwrap();
@@ -1037,13 +1038,17 @@ fn related_notes_and_filing() {
 fn inbox_backlinks_and_archive() {
     let dir = std::env::temp_dir().join(format!("noet-test-{}", ulid::Ulid::new()));
     let mut b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();
-    // an unfiled note (no links) -> inbox; a filed one -> not inbox
+    // an unfiled note (no workstream label) -> inbox; a filed one -> not inbox
     let a = b.new_note().unwrap();
     b.save_note(&a.id, "Loose thought", "just an idea\n")
         .unwrap();
     let c = b.new_note().unwrap();
-    b.save_note(&c.id, "Filed", "work on [[Project X]]\n")
-        .unwrap();
+    b.save_note(
+        &c.id,
+        "Filed",
+        "#workstream/project-x\nwork on [[Project X]]\n",
+    )
+    .unwrap();
 
     let inbox: Vec<_> = b.inbox().unwrap().into_iter().map(|n| n.id).collect();
     assert!(inbox.contains(&a.id));
@@ -1092,8 +1097,8 @@ fn person_and_note_links_match_case_insensitively() {
     std::fs::write(
         notes_dir.join("mixed.md"),
         "---\nupdated: 2026-06-02T09:00:00\nkind: markdown\n---\n\
-         # Mixed casing\n\n[[project x]] @[[jane smith]]\n\
-         - [ ] Follow up on scope @[[jane smith]] [[project x]] #followup\n",
+         # Mixed casing\n\n#workstream/project-x\n[[project x]] @[[jane smith]]\n\
+         - [ ] Follow up on scope @[[jane smith]] [[project x]] #followup #workstream/project-x\n",
     )
     .unwrap();
     std::fs::write(
@@ -1112,14 +1117,14 @@ fn person_and_note_links_match_case_insensitively() {
 
     let b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();
 
-    let project_notes = b
+    let workstream_notes = b
         .query_notes(&Filter {
-            project: "PROJECT X".into(),
+            project: "WORKSTREAM/PROJECT-X".into(),
             ..Default::default()
         })
         .unwrap();
-    assert_eq!(project_notes.len(), 1);
-    assert_eq!(project_notes[0].id, "mixed");
+    assert_eq!(workstream_notes.len(), 1);
+    assert_eq!(workstream_notes[0].id, "mixed");
 
     let person_notes = b
         .query_notes(&Filter {
@@ -1142,7 +1147,7 @@ fn person_and_note_links_match_case_insensitively() {
 
     let project_todos = b
         .query_todos(&Filter {
-            project: "Project X".into(),
+            project: "Project-X".into(),
             status: "open".into(),
             ..Default::default()
         })
@@ -1399,7 +1404,7 @@ fn parsed_note_exposes_markdown_facts_and_primary_task() {
     std::fs::write(
         notes_dir.join("task-note.md"),
         "---\nupdated: 2026-06-10T09:00:00\nkind: markdown\n---\n\
-         - [ ] Draft proposal @[[Jane Smith]] [[Client/Acme]] #mine due:2026-06-20 priority:A\n\
+         - [ ] Draft proposal @[[Jane Smith]] [[Client/Acme]] #mine #workstream/client-acme due:2026-06-20 priority:A\n\
          Supporting context #meeting/one-on-one\n",
     )
     .unwrap();
@@ -1413,7 +1418,7 @@ fn parsed_note_exposes_markdown_facts_and_primary_task() {
     assert_eq!(task.status, TaskStatus::Todo);
     assert_eq!(task.workflow, TaskWorkflow::Mine);
     assert_eq!(task.people, vec!["Jane Smith"]);
-    assert_eq!(task.workstreams, vec!["Client/Acme"]);
+    assert_eq!(task.workstreams, vec!["workstream/client-acme"]);
     assert_eq!(task.property("due"), Some("2026-06-20"));
     assert_eq!(task.property("priority"), Some("A"));
     assert_eq!(task.source.line_no, 0);

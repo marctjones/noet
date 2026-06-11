@@ -46,7 +46,7 @@ fn kind_color(kind: &str) -> &'static str {
     }
 }
 
-/// Render one line's inline Noet entities — `[[workstream]]` (green),
+/// Render one line's inline Noet entities — `[[wiki link]]` (green),
 /// `@[[person]]` (amber), bare `@handle` contacts (slate), `#tag` (purple) —
 /// as colored chips, escaping the text between them. Plain prose comes through
 /// escaped (verbatim layout).
@@ -131,7 +131,7 @@ fn render_todo(td: &super::Todo) -> String {
 /// Lightweight markdown→Typst for PDF export. Renders `#`/`##`/`###` headings,
 /// `- ` bullets, and — crucially — Noet's own markup the way the app shows it:
 /// GFM task-list items become checkbox + kind dot + text + chips, and
-/// inline `[[workstreams]]` / `@people` / `#tags` become colored chips.
+/// inline `[[wiki links]]` / `@people` / `#tags` become colored chips.
 pub(crate) fn markdown_to_typst(title: &str, body: &str) -> String {
     let mut out = String::from("#set page(margin: 2cm)\n#set text(size: 11pt)\n#set par(justify: false, leading: 0.7em)\n\n");
     out.push_str(&format!("= {}\n\n", typst_escape(title)));

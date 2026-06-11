@@ -2,7 +2,7 @@
 //! lifecycle. Markdown files are the source of truth — every table here is
 //! rebuilt from them and can be thrown away.
 
-use super::parse::parse_markdown;
+use super::parse::{parse_links, parse_markdown};
 use super::vault::read_note;
 use super::{entity_key, Backend, Note};
 use anyhow::Result;
@@ -227,7 +227,7 @@ impl Backend {
                 created TEXT, updated TEXT, kind TEXT, body TEXT, archived INTEGER,
                 mtime INTEGER DEFAULT 0);
             CREATE TABLE links(note_id TEXT, target TEXT, target_key TEXT);
-            CREATE TABLE tags(note_id TEXT, tag TEXT);
+            CREATE TABLE tags(note_id TEXT, tag TEXT, tag_key TEXT);
             CREATE TABLE mentions(note_id TEXT, person TEXT, person_key TEXT);
             CREATE TABLE todos(
                 id TEXT PRIMARY KEY, note_id TEXT, kind TEXT, status TEXT, text TEXT,
@@ -235,18 +235,20 @@ impl Backend {
                 priority TEXT, repeat TEXT, done INTEGER, line_no INTEGER,
                 anchor TEXT, span_start INTEGER, span_end INTEGER);
             CREATE TABLE task_links(task_id TEXT, note_id TEXT, target TEXT, target_key TEXT);
-            CREATE TABLE task_tags(task_id TEXT, note_id TEXT, tag TEXT);
+            CREATE TABLE task_tags(task_id TEXT, note_id TEXT, tag TEXT, tag_key TEXT);
             CREATE TABLE task_mentions(task_id TEXT, note_id TEXT, person TEXT, person_key TEXT);
             CREATE TABLE task_properties(task_id TEXT, note_id TEXT, key TEXT, value TEXT);
             CREATE INDEX idx_todos_note ON todos(note_id);
             CREATE INDEX idx_links_note ON links(note_id);
             CREATE INDEX idx_links_target_key ON links(target_key);
             CREATE INDEX idx_tags_note ON tags(note_id);
+            CREATE INDEX idx_tags_tag_key ON tags(tag_key);
             CREATE INDEX idx_mentions_note ON mentions(note_id);
             CREATE INDEX idx_mentions_person_key ON mentions(person_key);
             CREATE INDEX idx_task_links_task ON task_links(task_id);
             CREATE INDEX idx_task_links_target_key ON task_links(target_key);
             CREATE INDEX idx_task_tags_task ON task_tags(task_id);
+            CREATE INDEX idx_task_tags_tag_key ON task_tags(tag_key);
             CREATE INDEX idx_task_mentions_task ON task_mentions(task_id);
             CREATE INDEX idx_task_mentions_person_key ON task_mentions(person_key);
             CREATE INDEX idx_task_properties_task ON task_properties(task_id);
@@ -346,17 +348,17 @@ impl Backend {
         let parsed = parse_markdown(&note.id, &note.body);
 
         tx.execute("DELETE FROM links WHERE note_id=?", [&note.id])?;
-        for target in &parsed.workstreams {
+        for target in parse_links(&note.body) {
             tx.execute(
                 "INSERT INTO links(note_id,target,target_key) VALUES(?,?,?)",
-                rusqlite::params![note.id, target, entity_key(target)],
+                rusqlite::params![note.id, target, entity_key(&target)],
             )?;
         }
         tx.execute("DELETE FROM tags WHERE note_id=?", [&note.id])?;
         for tag in &parsed.labels {
             tx.execute(
-                "INSERT INTO tags(note_id,tag) VALUES(?,?)",
-                rusqlite::params![note.id, tag],
+                "INSERT INTO tags(note_id,tag,tag_key) VALUES(?,?,?)",
+                rusqlite::params![note.id, tag, entity_key(tag)],
             )?;
         }
         tx.execute("DELETE FROM mentions WHERE note_id=?", [&note.id])?;
@@ -382,16 +384,16 @@ impl Backend {
                     t.line_no as i64, t.anchor, t.span.byte_start as i64, t.span.byte_end as i64
                 ],
             )?;
-            for target in &parsed_todo.workstreams {
+            for target in parse_links(&parsed_todo.raw_line) {
                 tx.execute(
                     "INSERT INTO task_links(task_id,note_id,target,target_key) VALUES(?,?,?,?)",
-                    rusqlite::params![t.id, note.id, target, entity_key(target)],
+                    rusqlite::params![t.id, note.id, target, entity_key(&target)],
                 )?;
             }
             for tag in &parsed_todo.labels {
                 tx.execute(
-                    "INSERT INTO task_tags(task_id,note_id,tag) VALUES(?,?,?)",
-                    rusqlite::params![t.id, note.id, tag],
+                    "INSERT INTO task_tags(task_id,note_id,tag,tag_key) VALUES(?,?,?,?)",
+                    rusqlite::params![t.id, note.id, tag, entity_key(tag)],
                 )?;
             }
             for person in &parsed_todo.people {

@@ -3,10 +3,11 @@
 //! exception is [`Backend::load_note`], which re-reads the file (the truth).
 
 use super::index::fts_query;
-use super::parse::{parse_links, parse_mentions, parse_tags};
+use super::parse::{parse_mentions, parse_tags};
 use super::vault::read_note;
 use super::{
-    entity_key, Backend, Filter, Note, Project, RelatedNote, SourceSpan, Todo, KINDS, STATUSES,
+    entity_key, workstream_label, Backend, Filter, Note, Project, RelatedNote, SourceSpan, Todo,
+    KINDS, STATUSES, WORKSTREAM_PREFIX,
 };
 use anyhow::Result;
 use chrono::Utc;
@@ -84,16 +85,74 @@ impl Backend {
 
     pub fn list_projects(&self) -> Result<Vec<Project>> {
         let mut stmt = self.conn.prepare(
-            "SELECT MIN(target), COUNT(DISTINCT note_id) FROM links \
-                 GROUP BY target_key ORDER BY MIN(target) COLLATE NOCASE ASC",
+            "SELECT MIN(tag), COUNT(DISTINCT note_id) FROM tags \
+             WHERE tag_key = ? OR tag_key LIKE ? \
+             GROUP BY tag_key ORDER BY MIN(tag) COLLATE NOCASE ASC",
         )?;
-        let rows = stmt.query_map([], |r| {
-            Ok(Project {
-                name: r.get(0)?,
-                count: r.get(1)?,
-            })
-        })?;
+        let rows = stmt.query_map(
+            rusqlite::params![
+                WORKSTREAM_PREFIX.trim_end_matches('/'),
+                format!("{WORKSTREAM_PREFIX}%")
+            ],
+            |r| {
+                Ok(Project {
+                    name: r.get(0)?,
+                    count: r.get(1)?,
+                })
+            },
+        )?;
         Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    pub fn list_wiki_targets(&self) -> Result<Vec<Project>> {
+        use std::collections::BTreeMap;
+
+        let mut targets: BTreeMap<String, Project> = BTreeMap::new();
+        {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT title FROM notes WHERE archived = 0")?;
+            let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+            for title in rows.filter_map(|r| r.ok()) {
+                let key = entity_key(&title);
+                if key.is_empty() {
+                    continue;
+                }
+                targets
+                    .entry(key)
+                    .and_modify(|target| target.count += 1)
+                    .or_insert(Project {
+                        name: title,
+                        count: 1,
+                    });
+            }
+        }
+        {
+            let mut stmt = self.conn.prepare(
+                "SELECT target, COUNT(DISTINCT note_id) FROM links \
+                 GROUP BY target_key ORDER BY MIN(target) COLLATE NOCASE ASC",
+            )?;
+            let rows = stmt.query_map([], |r| {
+                Ok(Project {
+                    name: r.get(0)?,
+                    count: r.get(1)?,
+                })
+            })?;
+            for link in rows.filter_map(|r| r.ok()) {
+                let key = entity_key(&link.name);
+                if key.is_empty() {
+                    continue;
+                }
+                targets
+                    .entry(key)
+                    .and_modify(|target| target.count += link.count)
+                    .or_insert(link);
+            }
+        }
+
+        let mut out: Vec<Project> = targets.into_values().collect();
+        out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        Ok(out)
     }
 
     /// People mentioned anywhere (`@[[Name]]`), with how many notes mention them.
@@ -113,9 +172,9 @@ impl Backend {
     }
 
     pub fn list_tags(&self) -> Result<Vec<Project>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT tag, COUNT(*) FROM tags GROUP BY tag ORDER BY tag ASC")?;
+        let mut stmt = self.conn.prepare(
+            "SELECT MIN(tag), COUNT(*) FROM tags GROUP BY tag_key ORDER BY MIN(tag) ASC",
+        )?;
         let rows = stmt.query_map([], |r| {
             Ok(Project {
                 name: r.get(0)?,
@@ -131,20 +190,22 @@ impl Backend {
         let mut where_: Vec<String> = Vec::new();
         let mut binds: Vec<String> = Vec::new();
         if !f.tag.is_empty() {
+            let tag_key = entity_key(&f.tag);
             sql.push_str(
-                " JOIN task_tags tg ON tg.task_id = t.id AND (tg.tag = ? OR tg.tag LIKE ?)",
+                " JOIN task_tags tg ON tg.task_id = t.id AND (tg.tag_key = ? OR tg.tag_key LIKE ?)",
             );
-            binds.push(f.tag.clone());
-            binds.push(format!("{}/%", f.tag));
+            binds.push(tag_key.clone());
+            binds.push(format!("{tag_key}/%"));
         }
         if !f.search.is_empty() {
             where_.push("t.text LIKE ?".into());
             binds.push(Filter::like(&f.search));
         }
         if !f.project.is_empty() {
-            let project_key = entity_key(&f.project);
+            let project = workstream_label(&f.project);
+            let project_key = entity_key(&project);
             sql.push_str(
-                " JOIN task_links tl ON tl.task_id = t.id AND (tl.target_key = ? OR tl.target_key LIKE ?)",
+                " JOIN task_tags tw ON tw.task_id = t.id AND (tw.tag_key = ? OR tw.tag_key LIKE ?)",
             );
             binds.push(project_key.clone());
             binds.push(format!("{project_key}/%"));
@@ -199,7 +260,7 @@ impl Backend {
         Ok(rows.filter_map(|r| r.ok()).collect())
     }
 
-    /// Notes view query: search title/body, filter by project/tag/person.
+    /// Notes view query: search title/body, filter by workstream/tag/person.
     pub fn query_notes(&self, f: &Filter) -> Result<Vec<Note>> {
         let mut sql = String::from(
             "SELECT DISTINCT n.id,n.title,n.path,n.created,n.updated,n.kind FROM notes n",
@@ -207,17 +268,21 @@ impl Backend {
         let mut where_: Vec<String> = Vec::new();
         let mut binds: Vec<String> = Vec::new();
         if !f.project.is_empty() {
-            let project_key = entity_key(&f.project);
+            let project = workstream_label(&f.project);
+            let project_key = entity_key(&project);
             sql.push_str(
-                " JOIN links l ON l.note_id = n.id AND (l.target_key = ? OR l.target_key LIKE ?)",
+                " JOIN tags tw ON tw.note_id = n.id AND (tw.tag_key = ? OR tw.tag_key LIKE ?)",
             );
             binds.push(project_key.clone());
             binds.push(format!("{project_key}/%"));
         }
         if !f.tag.is_empty() {
-            sql.push_str(" JOIN tags tg ON tg.note_id = n.id AND (tg.tag = ? OR tg.tag LIKE ?)");
-            binds.push(f.tag.clone());
-            binds.push(format!("{}/%", f.tag));
+            let tag_key = entity_key(&f.tag);
+            sql.push_str(
+                " JOIN tags tg ON tg.note_id = n.id AND (tg.tag_key = ? OR tg.tag_key LIKE ?)",
+            );
+            binds.push(tag_key.clone());
+            binds.push(format!("{tag_key}/%"));
         }
         if !f.person.is_empty() {
             sql.push_str(" JOIN mentions mp ON mp.note_id = n.id AND mp.person_key = ?");
@@ -345,14 +410,24 @@ impl Backend {
         Ok(v)
     }
 
-    /// Inbox: un-filed notes (no project/workstream link yet), newest first.
+    /// Inbox: notes with no workstream label yet, newest first.
     pub fn inbox(&self) -> Result<Vec<Note>> {
         let mut stmt = self.conn.prepare(
             "SELECT n.id,n.title,n.path,n.created,n.updated,n.kind FROM notes n \
-             WHERE n.archived = 0 AND NOT EXISTS (SELECT 1 FROM links l WHERE l.note_id = n.id) \
+             WHERE n.archived = 0 AND NOT EXISTS (
+                SELECT 1 FROM tags tg
+                WHERE tg.note_id = n.id
+                  AND (tg.tag_key = ? OR tg.tag_key LIKE ?)
+             ) \
              ORDER BY n.updated DESC",
         )?;
-        let rows = stmt.query_map([], Self::note_row)?;
+        let rows = stmt.query_map(
+            rusqlite::params![
+                WORKSTREAM_PREFIX.trim_end_matches('/'),
+                format!("{WORKSTREAM_PREFIX}%")
+            ],
+            Self::note_row,
+        )?;
         Ok(rows.filter_map(|r| r.ok()).collect())
     }
 
@@ -377,9 +452,9 @@ impl Backend {
         Ok(rows.filter_map(|r| r.ok()).collect())
     }
 
-    /// Notes related to `note_id` by shared workstreams (`[[ ]]` links), people
+    /// Notes related to `note_id` by shared wiki links, workstream labels, people
     /// (`@`), or tags (`#`), ranked by how many entities they share, then recency.
-    /// Powers "link this meeting note to related prior meetings": the same project
+    /// Powers "link this meeting note to related prior meetings": the same workstream
     /// or the same recurring attendees surface the earlier notes in the thread.
     pub fn related_notes(&self, note_id: &str, limit: usize) -> Result<Vec<RelatedNote>> {
         use std::collections::{BTreeSet, HashMap};
@@ -405,7 +480,7 @@ impl Backend {
                 "person_key",
                 column_values("mentions", "person", "person_key")?,
             ),
-            ("tags", "tag", column_values("tags", "tag", "tag")?),
+            ("tags", "tag_key", column_values("tags", "tag", "tag_key")?),
         ];
         // note_id -> set of shared entity names.
         let mut hits: HashMap<String, BTreeSet<String>> = HashMap::new();
@@ -510,8 +585,9 @@ impl Backend {
         read_note(Path::new(&path))
     }
 
-    /// Entities referenced in a note body: (projects, people, tags).
+    /// Entities referenced in a note body: (workstreams, people, tags).
     pub fn note_entities(body: &str) -> (Vec<String>, Vec<String>, Vec<String>) {
-        (parse_links(body), parse_mentions(body), parse_tags(body))
+        let parsed = super::parse_markdown("", body);
+        (parsed.workstreams, parse_mentions(body), parse_tags(body))
     }
 }

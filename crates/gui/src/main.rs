@@ -1,4 +1,4 @@
-// Noet — native, lightweight notes + typed-todos + projects over plain markdown.
+// Noet — native, lightweight notes + typed-todos + workstreams over plain markdown.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 use noet_app::{AppCommand, AppModel};
@@ -155,7 +155,7 @@ thread_local! {
     static FIND_CUR: Cell<usize> = const { Cell::new(0) };
 
     /// Active autocomplete trigger: (kind, text-typed-after-the-trigger). `kind` is
-    /// "project" | "person" | "tag". `None` when the popup is closed.
+    /// "wiki" | "person" | "tag". `None` when the popup is closed.
     static AC: RefCell<Option<(&'static str, String)>> = const { RefCell::new(None) };
 
     /// Recently-opened note ids (most-recent first) for the tab strip. A thread-local
@@ -165,18 +165,18 @@ thread_local! {
 }
 
 /// Parse the text immediately before the caret for an open entity-autocomplete
-/// trigger. Returns `(kind, typed)` where `kind` is "project" | "person" | "tag"
+/// trigger. Returns `(kind, typed)` where `kind` is "wiki" | "person" | "tag"
 /// and `typed` is what's been entered after the trigger so far. Pure (unit-tested).
 fn ac_detect(prefix: &str) -> Option<(&'static str, String)> {
     // An open wiki-link: the last "[[" with no "]]" / newline after it. The kind
-    // is "person" when preceded by '@' (`@[[`), else "project" (`[[`).
+    // is "person" when preceded by '@' (`@[[`), else "wiki" (`[[`).
     if let Some(pos) = prefix.rfind("[[") {
         let seg = &prefix[pos + 2..];
         if !seg.contains(']') && !seg.contains('\n') {
             let kind = if prefix[..pos].ends_with('@') {
                 "person"
             } else {
-                "project"
+                "wiki"
             };
             return Some((kind, seg.to_string()));
         }
@@ -322,7 +322,7 @@ impl SredEditorAdapter {
 }
 
 /// Re-evaluate inline autocomplete after a typing/caret change: detect a trigger
-/// in the text before the caret, fetch matching workstream/person/tag names from
+/// in the text before the caret, fetch matching wiki/person/tag names from
 /// the index, and open or close the popup accordingly. Cheap (only on a single
 /// caret); skips the query entirely when no trigger is active.
 fn rich_autocomplete_update(ui: &AppWindow, state: &Rc<RefCell<State>>) {
@@ -347,7 +347,7 @@ fn rich_autocomplete_update(ui: &AppWindow, state: &Rc<RefCell<State>>) {
         let st = state.borrow();
         let b = &st.backend;
         let raw = match kind {
-            "project" => b.list_projects(),
+            "wiki" => b.list_wiki_targets(),
             "person" => b.list_people(),
             _ => b.list_tags(),
         };
@@ -640,7 +640,8 @@ Noet is a local-first work memory. The Markdown files in this vault are the sour
 ## Markdown Facts
 
 - `@[[Jane Doe]]` is a person.
-- `[[Client/Acme]]` is a workstream or note link.
+- `[[Client/Acme]]` is a wiki link.
+- `#workstream/enterprise-saas` files notes and tasks into a workstream.
 - `#followup`, `#delegated`, `#mine`, `#waiting`, and `#someday` describe task workflow.
 - `due:2026-06-17`, `priority:A`, and `repeat:1w` are properties.
 - `source:[[Meeting Note#^anchor]]` connects a promoted task note back to its source.
@@ -680,7 +681,7 @@ const PALETTE_CMDS: &[(&str, &str)] = &[
 
 /// Build the palette result set for `query` (case-insensitive substring match).
 /// Empty query → views + commands + recent notes; otherwise also matches notes
-/// and facets (projects / tags / people).
+/// and facets (workstreams / tags / people).
 fn palette_results(b: &Backend, query: &str) -> Vec<PaletteItem> {
     let q = query.trim().to_lowercase();
     let hit = |s: &str| q.is_empty() || s.to_lowercase().contains(&q);
@@ -863,7 +864,7 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
         }
     }
 
-    // Workstream hub: one workstream's open todos + the notes that reference it.
+    // Workstream hub: one workstream's open todos + filed notes.
     if view == "workstream" {
         let hub = ui.get_hub_name().to_string();
         let f = backend::Filter {
@@ -872,7 +873,12 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
             ..Default::default()
         };
         let todos = b.query_todos(&f).unwrap_or_default();
-        let notes = b.backlinks(&hub).unwrap_or_default();
+        let notes = b
+            .query_notes(&backend::Filter {
+                project: hub,
+                ..Default::default()
+            })
+            .unwrap_or_default();
         let hub_surface = surface_adapters::workstream_surface(&todos, &notes);
         ui.set_hub_todos(ModelRc::new(VecModel::from(hub_surface.todos)));
         ui.set_hub_notes(ModelRc::new(VecModel::from(hub_surface.notes)));
@@ -1196,7 +1202,7 @@ fn render_read(ui: &AppWindow, b: &Backend, note: &backend::Note) {
     ui.set_current_backlinks(ModelRc::new(VecModel::from(
         surface_adapters::note_refs_from_notes(&backs),
     )));
-    // related prior meetings: notes sharing a workstream/person/tag, to one-click link
+    // related prior meetings: notes sharing wiki links, workstreams, people, or tags.
     let related = b.related_notes(&note.id, 8).unwrap_or_default();
     ui.set_current_related(ModelRc::new(VecModel::from(
         surface_adapters::related_refs(&related),
@@ -1778,7 +1784,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let mut s = state.borrow_mut();
             if let Ok(n) = s.backend.new_note() {
                 let id = n.id.clone();
-                // inherit the active project/topic context so the note is auto-filed
+                // inherit the active workstream context so the note is auto-filed
                 let proj = s.filter.project.clone();
                 if !proj.is_empty() {
                     let _ = s.backend.add_link(&id, &proj);
@@ -3074,7 +3080,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         });
     }
 
-    // file the current note into a topic/project ([[Topic]])
+    // file the current note into a workstream (#workstream/...)
     {
         let ui_w = ui.as_weak();
         let state = state.clone();

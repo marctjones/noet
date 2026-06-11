@@ -963,7 +963,7 @@ mod tests {
             status,
             workflow,
             people: vec!["Jane".into()],
-            workstreams: vec!["Client/Acme".into()],
+            workstreams: vec!["workstream/client-acme".into()],
             labels: Vec::new(),
             properties: Vec::new(),
             start: String::new(),
@@ -1004,7 +1004,7 @@ mod tests {
             kind: "followup".into(),
             status: "todo".into(),
             text: text.into(),
-            project: "Client/Acme".into(),
+            project: "workstream/client-acme".into(),
             person: "Jane".into(),
             start: String::new(),
             due: due.into(),
@@ -1044,7 +1044,7 @@ mod tests {
             kind: "followup".into(),
             status: "todo".into(),
             text: "Ask Jane about launch risks".into(),
-            project: "Acme".into(),
+            project: "workstream/acme".into(),
             person: "Jane".into(),
             start: String::new(),
             due: "2026-06-17".into(),
@@ -1098,7 +1098,10 @@ mod tests {
         let rows = note_items(&notes);
         assert_eq!(rows.len(), 2);
         assert_eq!(recent_note_items(&notes, 1)[0].title.to_string(), "Newest");
-        assert_eq!(todo_items(&todos)[0].project.to_string(), "Client/Acme");
+        assert_eq!(
+            todo_items(&todos)[0].project.to_string(),
+            "workstream/client-acme"
+        );
 
         let trash = trash_note_refs(&[("old.md".into(), "Deleted note".into())]);
         assert_eq!(trash[0].id.to_string(), "old.md");
@@ -1163,7 +1166,7 @@ mod tests {
     #[test]
     fn active_filter_chips_are_deterministic() {
         let filter = Filter {
-            project: "Client/Acme".into(),
+            project: "workstream/client-acme".into(),
             person: "Jane".into(),
             tag: "meeting".into(),
             kind: "followup".into(),
@@ -1181,7 +1184,7 @@ mod tests {
         assert_eq!(
             labels,
             vec![
-                "▸ Client/Acme",
+                "▸ workstream/client-acme",
                 "@ Jane",
                 "# meeting",
                 "workflow: followup",
@@ -1204,7 +1207,7 @@ mod tests {
 ## Folded
 Hidden detail
 # Visible
-- [x] Close task #mine @[[Jane]] [[Client/Acme]] due:2026-06-20 priority:A
+- [x] Close task #mine @[[Jane]] [[Client/Acme]] #workstream/client-acme due:2026-06-20 priority:A
 See [[Client/Acme]] and https://example.test
 ";
 
@@ -1231,7 +1234,7 @@ See [[Client/Acme]] and https://example.test
         assert!(todo.done);
         assert_eq!(todo.status.to_string(), "done");
         assert_eq!(todo.task_kind.to_string(), "mine");
-        assert_eq!(todo.project.to_string(), "Client/Acme");
+        assert_eq!(todo.project.to_string(), "workstream/client-acme");
         assert_eq!(todo.person.to_string(), "Jane");
         assert_eq!(todo.due.to_string(), "2026-06-20");
         assert_eq!(todo.priority.to_string(), "A");
@@ -1437,7 +1440,7 @@ See [[Client/Acme]] and https://example.test
             status: TaskStatus::Doing,
             workflow: TaskWorkflow::Delegated,
             people: vec!["Sam".into()],
-            workstreams: vec!["Client/Acme".into()],
+            workstreams: vec!["workstream/client-acme".into()],
             labels: vec!["delegated".into()],
             properties: vec![PropertyFact {
                 key: "due".into(),
@@ -1453,7 +1456,7 @@ See [[Client/Acme]] and https://example.test
         let row = todo_item_from_fact(&task);
         assert_eq!(row.status.to_string(), "doing");
         assert_eq!(row.kind.to_string(), "delegated");
-        assert_eq!(row.project.to_string(), "Client/Acme");
+        assert_eq!(row.project.to_string(), "workstream/client-acme");
         assert_eq!(row.person.to_string(), "Sam");
         assert!(!row.done);
     }
@@ -1604,13 +1607,13 @@ See [[Client/Acme]] and https://example.test
     #[test]
     fn filter_summary_and_board_group_are_deterministic() {
         let summary = active_summary(&Filter {
-            project: "Acme".into(),
+            project: "workstream/acme".into(),
             person: "Jane".into(),
             tag: "followup".into(),
             status: "open".into(),
             ..Default::default()
         });
-        assert!(summary.contains("▸Acme"));
+        assert!(summary.contains("▸workstream/acme"));
         assert!(summary.contains("@Jane"));
         assert_eq!(board_group_key("workflow"), "kind");
         assert_eq!(due_display("week"), "this week");

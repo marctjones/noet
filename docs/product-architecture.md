@@ -26,7 +26,7 @@ The central promise is:
 
 The primary user is a manager, operator, lawyer, consultant, founder, or senior
 individual contributor who spends much of the day in meetings and needs to keep
-personal follow-up memory across people, projects, decisions, and obligations.
+personal follow-up memory across people, workstreams, decisions, and obligations.
 
 This user:
 
@@ -89,7 +89,7 @@ Noet parses Markdown into typed facts:
 - tasks
 - labels
 - people
-- workstream links
+- workstream labels
 - URLs and external references
 - properties
 - source positions
@@ -147,15 +147,18 @@ Canonical extension forms:
 
 - Tasks use GitHub-Flavored Markdown checkboxes: `- [ ]`, `- [/]`, `- [x]`.
 - People use explicit wiki mentions: `@[[Jane Smith]]`.
-- Workstreams use wiki links: `[[Client/Acme]]`.
 - Labels use hashtags and may be hierarchical: `#meeting/one-on-one`.
+- Workstreams use explicit labels: `#workstream/enterprise-saas`.
+- Wiki links use `[[Client/Acme]]` for note/topic relationships and backlinks.
 - Properties use readable key-value tokens: `due:2026-06-17`.
 - URLs, emails, and social handles remain visible text, but Noet parses them as
   contact facts instead of canonical people.
 
-People and wiki-link resolution are case-insensitive. Markdown keeps the casing
-the user typed, while the index resolves filters, backlinks, source links, and
-1:1 context through normalized comparison keys.
+People, wiki-link, and workstream resolution are case-insensitive. Markdown
+keeps the casing the user typed, while the index resolves filters, backlinks,
+source links, workstream labels, and 1:1 context through normalized comparison
+keys. Wiki links are relationships; `#workstream/...` labels are filing and
+review metadata.
 
 The parser should emit warnings for ambiguous bare `@name` tokens, invalid
 known properties, duplicate task anchors, and old syntax. Warnings support
@@ -174,7 +177,7 @@ Examples:
 - a meeting note
 - a 1:1 note
 - a task note
-- a project note
+- a workstream note
 - a reference note
 - an inbox capture
 
@@ -234,6 +237,12 @@ People:
 ```
 
 Workstreams:
+
+```markdown
+#workstream/enterprise-saas
+```
+
+Wiki/topic links:
 
 ```markdown
 [[Client/Acme]]

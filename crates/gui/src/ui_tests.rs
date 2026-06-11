@@ -344,7 +344,7 @@ fn headless_ui_smoke() {
             .save_note(
                 &n.id,
                 "Rendered Markdown",
-                "# Rendered Markdown\n\nThis is **bold** and [[Acme]] #urgent\n\nDiscuss with @[[Jane]] about launch.\n\n- [ ] Call client @[[Jane]] [[Acme]] #followup due:2026-07-01 priority:A\n",
+                "# Rendered Markdown\n\nThis is **bold** and [[Acme]] #urgent\n\nDiscuss with @[[Jane]] about launch.\n\n- [ ] Call client @[[Jane]] [[Acme]] #followup #workstream/acme due:2026-07-01 priority:A\n",
             )
             .unwrap();
         rendered_id = n.id.clone();
@@ -390,7 +390,7 @@ fn headless_ui_smoke() {
     assert_eq!(todo_block.text, SharedString::from("Call client"));
     assert_eq!(todo_block.task_kind, SharedString::from("followup"));
     assert_eq!(todo_block.person, SharedString::from("Jane"));
-    assert_eq!(todo_block.project, SharedString::from("Acme"));
+    assert_eq!(todo_block.project, SharedString::from("workstream/acme"));
     assert_eq!(todo_block.due, SharedString::from("2026-07-01"));
     assert_eq!(todo_block.priority, SharedString::from("A"));
     ElementHandle::find_by_accessible_label(ui, "Toggle task Call client")
@@ -499,17 +499,17 @@ fn headless_ui_smoke() {
     );
     assert!(!ui.get_rich_ac_open(), "popup closes after accept");
 
-    // Workstream completion: "[[Ac" offers "Acme"; accept closes the wikilink.
+    // Wiki completion: "[[Ac" offers "Acme"; accept closes the wikilink.
     ui.invoke_new_note();
     ui.invoke_rich_insert_text("[[Ac".into());
     assert!(
         ui.get_rich_ac_open(),
-        "typing [[Ac opens the workstream autocomplete"
+        "typing [[Ac opens the wiki autocomplete"
     );
     let items = ui.get_rich_ac_items();
     assert!(
         (0..items.row_count()).any(|i| items.row_data(i).unwrap() == "Acme"),
-        "workstream candidate 'Acme' offered"
+        "wiki candidate 'Acme' offered"
     );
     ui.invoke_rich_ac_key("accept".into());
     assert!(
@@ -678,21 +678,21 @@ fn headless_ui_smoke() {
             .save_note(
                 &n.id,
                 "Acme work",
-                "# Acme work\n\n- [ ] build it [[Acme]]\n",
+                "# Acme work\n\n#workstream/acme\n- [ ] build it [[Acme]] #workstream/acme\n",
             )
             .unwrap();
     }
     ctx.state.borrow_mut().backend.reindex_all().unwrap();
-    ui.invoke_palette_activate("p:Acme".into());
+    ui.invoke_palette_activate("p:workstream/acme".into());
     assert_eq!(ui.get_view(), "workstream", "palette workstream → hub view");
-    assert_eq!(ui.get_hub_name(), "Acme");
+    assert_eq!(ui.get_hub_name(), "workstream/acme");
     assert!(
         ui.get_hub_todos().row_count() >= 1,
         "hub lists the workstream's open todos"
     );
     assert!(
         ui.get_hub_notes().row_count() >= 1,
-        "hub lists notes referencing the workstream"
+        "hub lists notes filed to the workstream"
     );
 
     // ----- Level 10: open-notes tab strip + pin/close -----
@@ -1096,7 +1096,7 @@ fn headless_ui_smoke() {
             .save_note(
                 &n.id,
                 "Promotion source",
-                "# Promotion source\n\n- [ ] draft promotion test @[[Jane]] #followup [[Acme]] due:2026-06-20 priority:A\n",
+                "# Promotion source\n\n- [ ] draft promotion test @[[Jane]] #followup #workstream/acme [[Acme]] due:2026-06-20 priority:A\n",
             )
             .unwrap();
         promote_source_id = n.id.clone();
@@ -1138,7 +1138,7 @@ fn headless_ui_smoke() {
     for expected in [
         "[[draft promotion test]]",
         "@[[Jane]]",
-        "[[Acme]]",
+        "#workstream/acme",
         "#followup",
         "due:2026-06-20",
         "priority:A",
@@ -1160,7 +1160,7 @@ fn headless_ui_smoke() {
             .save_note(
                 &n.id,
                 "Task writeback",
-                "# Task writeback\n\n- [ ] task list toggle #mine [[Ops]]\n- [ ] review cycle #mine due:2000-01-01\n- [ ] board move #mine [[Ops]]\n- [ ] board drop #mine [[Ops]]\n",
+                "# Task writeback\n\n- [ ] task list toggle #mine #workstream/ops [[Ops]]\n- [ ] review cycle #mine due:2000-01-01\n- [ ] board move #mine #workstream/ops [[Ops]]\n- [ ] board drop #mine #workstream/ops [[Ops]]\n",
             )
             .unwrap();
         task_action_note_id = n.id.clone();
@@ -1280,7 +1280,7 @@ fn headless_ui_smoke() {
         .unwrap();
     assert!(
         dialog_note.body.contains(
-            "- [ ] created through dialog @[[Casey]] [[Ops]] #followup priority:B due:2026-07-10"
+            "- [ ] created through dialog @[[Casey]] #workstream/Ops #followup priority:B due:2026-07-10"
         ),
         "dialog-created task is written as Markdown: {:?}",
         dialog_note.body
@@ -1318,9 +1318,9 @@ fn headless_ui_smoke() {
 /// as a second test in this process since it never initializes the toolkit).
 #[test]
 fn ac_detect_grammar() {
-    // Workstream / project: `[[`, kind "project".
-    assert_eq!(ac_detect("see [[Ac"), Some(("project", "Ac".into())));
-    assert_eq!(ac_detect("x [["), Some(("project", "".into())));
+    // Wiki link: `[[`, kind "wiki".
+    assert_eq!(ac_detect("see [[Ac"), Some(("wiki", "Ac".into())));
+    assert_eq!(ac_detect("x [["), Some(("wiki", "".into())));
     // Person: `@[[`, kind "person".
     assert_eq!(ac_detect("ping @[[Ja"), Some(("person", "Ja".into())));
     // Tag: bare `#word` at start or after whitespace.
