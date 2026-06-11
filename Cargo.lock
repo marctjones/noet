@@ -4017,7 +4017,7 @@ dependencies = [
 
 [[package]]
 name = "noet-app"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "noet-core",
  "serde",
@@ -4025,7 +4025,7 @@ dependencies = [
 
 [[package]]
 name = "noet-core"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4041,7 +4041,7 @@ dependencies = [
 
 [[package]]
 name = "noet-gui"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "arboard",

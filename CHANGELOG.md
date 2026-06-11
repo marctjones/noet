@@ -6,7 +6,22 @@ All notable changes to Noet are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-06-11
+
+**Workspace and Markdown redesign** — a cleaner local-first work memory model
+with flexible workspaces, explicit workstream labels, and realistic demo data for
+manual review.
+
 ### Changed
+- Reworked the GUI around workspaces, panes, surfaces, and navigation panes so
+  primary work can stay open while supporting context panes are shown, resized,
+  or closed.
+- Redesigned the 1:1/person workflow around current meeting notes, historical
+  1:1 notes, and follow-up tasks tied to the person.
+- Split wiki links from filing metadata: `[[...]]` now means a wiki/backlink
+  relationship, while workstreams use explicit `#workstream/...` labels.
+- Removed connector-first assumptions from the product direction and focused the
+  app on local-only personal notes, tasks, labels, people, and workstreams.
 - Documentation now treats the workspace/pane/surface architecture in
   `docs/product-architecture.md` as the target design. Older changelog entries
   remain historical and may describe removed or superseded UI/connectors.
@@ -14,6 +29,22 @@ All notable changes to Noet are documented here. Format follows
   over full installer releases during the UX architecture reset.
 - Updated the macOS release workflow to use the same packaging script as local
   Apple Silicon builds.
+
+### Added
+- Added a deterministic demo corpus generator and reset script for UI/manual
+  testing with 7 direct reports, 10 recurring collaborators, 28 1:1 notes, 10
+  additional meetings, workstreams, task notes, inline todos, and source links.
+- Added case-insensitive resolution for people, note/wiki links, and workstream
+  labels.
+- Added wiki-link autocomplete backed by existing notes and indexed link
+  targets.
+
+### Fixed
+- Improved rendered Markdown handling for Noet extension syntax so person links,
+  wiki links, task fields, and labels are displayed as structured UI rather than
+  raw syntax where supported.
+- Improved macOS packaging defaults so local unsigned/ad-hoc builds remain
+  usable without requiring a Developer ID.
 
 ## [0.6.0] - 2026-06-08
 
