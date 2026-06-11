@@ -221,6 +221,11 @@ NOET_VAULT=/path/to/vault cargo run -p noet-gui
 cargo test --workspace
 ```
 
+During the UX architecture reset, local visual checkpoints are preferred over
+full installer releases. Run the app from source with a disposable vault, review
+it with the manual checklist, and package only when an app bundle checkpoint is
+useful.
+
 On Apple Silicon macOS, build a local app bundle and disk image:
 
 ```bash
@@ -230,6 +235,9 @@ On Apple Silicon macOS, build a local app bundle and disk image:
 The packaging script supports ad-hoc signing. Developer ID signing is optional
 and not required for local development.
 
+See [Local Run And Release](docs/local-run-and-release.md) for vault selection,
+visual checkpoint, and packaging details.
+
 ## Documentation
 
 - [Product Architecture](docs/product-architecture.md)
@@ -237,6 +245,7 @@ and not required for local development.
 - [Implementation Roadmap](docs/implementation-roadmap.md)
 - [UX Redesign Plan](docs/ux-redesign-plan.md)
 - [Manual Review Checklist](docs/manual-review-checklist.md)
+- [Local Run And Release](docs/local-run-and-release.md)
 - [Roadmap](ROADMAP.md)
 
 ## License

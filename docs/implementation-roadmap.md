@@ -194,7 +194,9 @@ Release only when:
 - local macOS packaging succeeds, if releasing a macOS artifact
 
 Installers are optional during active UX architecture work. Running the local
-debug app is enough for visual review checkpoints.
+debug app is enough for visual review checkpoints. The current local checkpoint
+and packaging policy is documented in
+[Local Run And Release](local-run-and-release.md).
 
 ## Deferred
 

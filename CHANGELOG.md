@@ -10,6 +10,8 @@ All notable changes to Noet are documented here. Format follows
 - Documentation now treats the workspace/pane/surface architecture in
   `docs/product-architecture.md` as the target design. Older changelog entries
   remain historical and may describe removed or superseded UI/connectors.
+- Added local run and release guidance that favors source-run visual checkpoints
+  over full installer releases during the UX architecture reset.
 
 ## [0.6.0] - 2026-06-08
 
