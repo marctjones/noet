@@ -9,7 +9,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' crates/gui/Cargo.toml | head -1)"
+VERSION="${NOET_MACOS_VERSION:-$(sed -n 's/^version = "\(.*\)"/\1/p' crates/gui/Cargo.toml | head -1)}"
+ARTIFACT_LABEL="${NOET_MACOS_ARTIFACT_LABEL:-v${VERSION}-local}"
+BUNDLE_VERSION="${NOET_MACOS_BUNDLE_VERSION:-${VERSION}-local}"
 ARCH="$(uname -m)"
 if [[ "$ARCH" != "arm64" ]]; then
   echo "This script currently builds the Apple Silicon artifact only (found $ARCH)." >&2
@@ -22,10 +24,11 @@ export CARGO_PROFILE_RELEASE_LTO
 OUT="${NOET_MACOS_DIST:-$ROOT/dist/macos}"
 APP="$OUT/Noet.app"
 DMG_ROOT="$OUT/dmgroot"
-DMG="$ROOT/noet-v${VERSION}-local-macos-arm64.dmg"
-TARBALL="$ROOT/noet-v${VERSION}-local-macos-arm64.tar.gz"
+DMG="$ROOT/noet-${ARTIFACT_LABEL}-macos-arm64.dmg"
+TARBALL="$ROOT/noet-${ARTIFACT_LABEL}-macos-arm64.tar.gz"
 
 rm -rf "$OUT"
+rm -f "$DMG" "$TARBALL"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$DMG_ROOT"
 
 cargo build --release -p noet-gui
@@ -41,8 +44,8 @@ PL="$APP/Contents/Info.plist"
   echo '<key>CFBundleDisplayName</key><string>Noet</string>'
   echo '<key>CFBundleExecutable</key><string>noet</string>'
   echo '<key>CFBundleIdentifier</key><string>cl.skpt.noet</string>'
-  echo "<key>CFBundleVersion</key><string>${VERSION}-local</string>"
-  echo "<key>CFBundleShortVersionString</key><string>${VERSION}-local</string>"
+  echo "<key>CFBundleVersion</key><string>${BUNDLE_VERSION}</string>"
+  echo "<key>CFBundleShortVersionString</key><string>${BUNDLE_VERSION}</string>"
   echo '<key>CFBundlePackageType</key><string>APPL</string>'
   echo '<key>LSMinimumSystemVersion</key><string>11.0</string>'
   echo '<key>NSHighResolutionCapable</key><true/>'
@@ -65,9 +68,9 @@ codesign --verify --deep --strict --verbose=2 "$APP"
 ditto "$APP" "$DMG_ROOT/Noet.app"
 ln -s /Applications "$DMG_ROOT/Applications"
 
-tar -C "$OUT" -czf "$TARBALL" Noet.app
-hdiutil create -volname "Noet" -srcfolder "$DMG_ROOT" -ov -format UDZO "$DMG"
+hdiutil create -volname "Noet" -srcfolder "$DMG_ROOT" -format UDZO "$DMG"
 hdiutil verify "$DMG"
+tar -C "$OUT" -czf "$TARBALL" Noet.app
 
 echo "Created:"
 echo "  $APP"

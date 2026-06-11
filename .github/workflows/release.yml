@@ -127,16 +127,6 @@ jobs:
           targets: aarch64-apple-darwin
       - uses: Swatinem/rust-cache@v2
 
-      # Apple Silicon (arm64) only. (An x86_64 universal build is dropped: it isn't
-      # needed, and muda — tray-icon's menu crate — fails its bitcode load when
-      # cross-compiled to x86_64-apple-darwin under release LTO.) CoreText only, no
-      # extra system deps.
-      - name: Build release (Apple Silicon)
-        run: |
-          cargo build --release -p noet-gui --target aarch64-apple-darwin
-          mkdir -p dist
-          cp target/aarch64-apple-darwin/release/noet dist/noet
-
       # Import the Developer ID cert into an ephemeral keychain and auto-detect
       # the signing identity hash (so no separate identity-name secret is needed).
       - name: Import signing certificate
@@ -161,52 +151,17 @@ jobs:
           echo "SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
           echo "Using signing identity $IDENTITY"
 
-      - name: Build Noet.app
+      # Use the same Apple Silicon packaging script as local builds so CI and
+      # manual release checks exercise one code path. The script ad-hoc signs
+      # when SIGN_IDENTITY is absent, and signs with the Developer ID identity
+      # imported above when credentials are configured.
+      - name: Build Noet.app, DMG, and tarball
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          APP="Noet.app"
-          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-          cp dist/noet "$APP/Contents/MacOS/noet"
-          chmod +x "$APP/Contents/MacOS/noet"
-          # Build Info.plist line-by-line (avoid heredoc indentation issues in YAML).
-          PL="$APP/Contents/Info.plist"
-          {
-            echo '<?xml version="1.0" encoding="UTF-8"?>'
-            echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
-            echo '<plist version="1.0"><dict>'
-            echo '<key>CFBundleName</key><string>Noet</string>'
-            echo '<key>CFBundleDisplayName</key><string>Noet</string>'
-            echo '<key>CFBundleExecutable</key><string>noet</string>'
-            echo '<key>CFBundleIdentifier</key><string>cl.skpt.noet</string>'
-            echo "<key>CFBundleVersion</key><string>${VERSION}</string>"
-            echo "<key>CFBundleShortVersionString</key><string>${VERSION}</string>"
-            echo '<key>CFBundlePackageType</key><string>APPL</string>'
-            echo '<key>LSMinimumSystemVersion</key><string>11.0</string>'
-            echo '<key>NSHighResolutionCapable</key><true/>'
-            echo '</dict></plist>'
-          } > "$PL"
-
-      # Hardened runtime (--options runtime) is required for notarization.
-      - name: Sign Noet.app
-        if: env.MAC_CERT != ''
-        run: |
-          codesign --force --options runtime --timestamp \
-            --sign "$SIGN_IDENTITY" Noet.app/Contents/MacOS/noet
-          codesign --force --options runtime --timestamp \
-            --sign "$SIGN_IDENTITY" Noet.app
-          codesign --verify --strict --verbose=2 Noet.app
-
-      - name: Build .dmg + tarball
-        run: |
-          # .dmg with a drag-to-Applications target
-          mkdir -p dmgroot
-          cp -R Noet.app dmgroot/
-          ln -s /Applications dmgroot/Applications
-          hdiutil create -volname "Noet" -srcfolder dmgroot -ov -format UDZO \
-            "noet-${GITHUB_REF_NAME}-macos-arm64.dmg"
-          # plain tarball of the Apple Silicon binary
-          cp README.md CHANGELOG.md dist/
-          tar -C dist -czf "noet-${GITHUB_REF_NAME}-macos-arm64.tar.gz" .
+          NOET_MACOS_VERSION="$VERSION" \
+            NOET_MACOS_ARTIFACT_LABEL="$GITHUB_REF_NAME" \
+            NOET_MACOS_BUNDLE_VERSION="$VERSION" \
+            ./scripts/package-macos.sh
 
       - name: Sign .dmg
         if: env.MAC_CERT != ''

@@ -12,6 +12,8 @@ All notable changes to Noet are documented here. Format follows
   remain historical and may describe removed or superseded UI/connectors.
 - Added local run and release guidance that favors source-run visual checkpoints
   over full installer releases during the UX architecture reset.
+- Updated the macOS release workflow to use the same packaging script as local
+  Apple Silicon builds.
 
 ## [0.6.0] - 2026-06-08
 

@@ -70,6 +70,15 @@ block local use or review. If a Developer ID identity is available, pass it with
 SIGN_IDENTITY="Developer ID Application: Example" ./scripts/package-macos.sh
 ```
 
+The release workflow calls the same script with:
+
+- `NOET_MACOS_VERSION`, usually the tag without the leading `v`
+- `NOET_MACOS_ARTIFACT_LABEL`, usually the full tag such as `v0.6.0`
+- `NOET_MACOS_BUNDLE_VERSION`, usually the bundle version without `-local`
+
+Local defaults keep the explicit `-local` suffix so ad-hoc artifacts are easy to
+distinguish from tagged releases.
+
 The `.dmg` is a disk image that contains `Noet.app` and an Applications
 shortcut. It is not a package installer. Open it, drag `Noet.app` to
 Applications, then launch Noet. For an ad-hoc signed local build, macOS may show
