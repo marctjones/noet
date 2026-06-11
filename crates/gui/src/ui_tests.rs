@@ -12,7 +12,8 @@
 use super::*;
 use i_slint_backend_testing as itest;
 use itest::{AccessibleRole, ElementHandle, ElementQuery};
-use slint::Model;
+use slint::platform::{Key, WindowEvent};
+use slint::{ComponentHandle, Model, SharedString};
 
 #[test]
 fn headless_ui_smoke() {
@@ -187,6 +188,24 @@ fn headless_ui_smoke() {
         !buttons.is_empty(),
         "the Settings view should expose Buttons"
     );
+
+    send_key_combo(ui, &[Key::Control.into(), "k".into()]);
+    assert!(
+        ui.get_palette_open(),
+        "Ctrl/Cmd+K opens the command palette"
+    );
+    ui.set_palette_open(false);
+    send_key_combo(ui, &[Key::Control.into(), Key::Shift.into(), "k".into()]);
+    assert!(
+        ui.get_shortcuts_open(),
+        "Ctrl/Cmd+Shift+K opens the shortcut sheet"
+    );
+    ui.set_shortcuts_open(false);
+    assert!(!ui.get_focus_mode(), "focus mode starts off");
+    send_key_combo(ui, &[Key::Control.into(), Key::Shift.into(), "f".into()]);
+    assert!(ui.get_focus_mode(), "Ctrl/Cmd+Shift+F enters focus mode");
+    send_key_combo(ui, &[Key::Control.into(), Key::Shift.into(), "f".into()]);
+    assert!(!ui.get_focus_mode(), "Ctrl/Cmd+Shift+F exits focus mode");
 
     // ----- Level 3: more real handlers (templates, filters, smart lists) -----
     ui.invoke_set_view("notes".into());
@@ -732,7 +751,18 @@ fn headless_ui_smoke() {
         ui.get_notes().row_count() >= 1,
         "workspace refresh populates note browser data"
     );
-    ui.invoke_workspace_switch("tasks".into());
+    send_key_combo(ui, &[Key::Control.into(), "2".into()]);
+    assert_eq!(
+        ui.get_workspace_primary(),
+        "notes",
+        "Ctrl/Cmd+2 switches to the Notes surface"
+    );
+    send_key_combo(ui, &[Key::Control.into(), "3".into()]);
+    assert_eq!(
+        ui.get_workspace_primary(),
+        "tasks",
+        "Ctrl/Cmd+3 switches to the Tasks surface"
+    );
     refresh(ui, &ctx.state.borrow());
     assert!(
         ui.get_tasks().row_count() >= 2,
@@ -763,8 +793,39 @@ fn headless_ui_smoke() {
         .expect("task status checkbox exposed through accessibility");
     assert_eq!(task_checkbox.accessible_checkable(), Some(true));
 
-    ui.invoke_workspace_switch("one-on-one-focus".into());
+    send_key_combo(ui, &[Key::Control.into(), "1".into()]);
     refresh(ui, &ctx.state.borrow());
+
+    send_key_combo(ui, &[Key::Control.into(), Key::Alt.into(), "1".into()]);
+    assert!(
+        !ui.get_workspace_left_open(),
+        "Ctrl/Cmd+Alt+1 closes the navigation pane"
+    );
+    send_key_combo(ui, &[Key::Control.into(), Key::Alt.into(), "1".into()]);
+    assert!(
+        ui.get_workspace_left_open(),
+        "Ctrl/Cmd+Alt+1 reopens the navigation pane"
+    );
+    send_key_combo(ui, &[Key::Control.into(), Key::Alt.into(), "2".into()]);
+    assert!(
+        !ui.get_workspace_right_open(),
+        "Ctrl/Cmd+Alt+2 closes the context pane"
+    );
+    send_key_combo(ui, &[Key::Control.into(), Key::Alt.into(), "2".into()]);
+    assert!(
+        ui.get_workspace_right_open(),
+        "Ctrl/Cmd+Alt+2 reopens the context pane"
+    );
+    send_key_combo(ui, &[Key::Control.into(), Key::Alt.into(), "3".into()]);
+    assert!(
+        !ui.get_workspace_bottom_open(),
+        "Ctrl/Cmd+Alt+3 closes the queue pane"
+    );
+    send_key_combo(ui, &[Key::Control.into(), Key::Alt.into(), "3".into()]);
+    assert!(
+        ui.get_workspace_bottom_open(),
+        "Ctrl/Cmd+Alt+3 reopens the queue pane"
+    );
 
     ui.invoke_pick_person("Alice".into());
     assert_eq!(
@@ -914,6 +975,16 @@ fn line_char_offset_lands_on_the_right_line() {
     );
     // past the end clamps to total length (no panic)
     assert_eq!(line_char_offset(body, 99), body.chars().count());
+}
+
+fn send_key_combo(ui: &AppWindow, keys: &[SharedString]) {
+    let window = ui.window();
+    for key in keys {
+        window.dispatch_event(WindowEvent::KeyPressed { text: key.clone() });
+    }
+    for key in keys.iter().rev() {
+        window.dispatch_event(WindowEvent::KeyReleased { text: key.clone() });
+    }
 }
 
 /// Integration guard for the opt-in Typst fragment renderer: the hook Noet wires

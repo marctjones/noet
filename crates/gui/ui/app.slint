@@ -644,6 +644,8 @@ export component AppWindow inherits Window {
     preferred-width: 1280px;
     preferred-height: 820px;
     background: Theme.bg;
+    forward-focus: shell-keys;
+    init => { shell-keys.focus(); }
 
     // Models
     in property <[NoteItem]> notes;
@@ -973,9 +975,37 @@ export component AppWindow inherits Window {
         }
     }
 
-    Rectangle {
-        // ===== New workspace shell =====
-        VerticalLayout {
+    function open-command-palette() {
+        root.palette-query = "";
+        root.palette-search("");
+        root.palette-open = true;
+    }
+
+    function toggle-pane(pane-id: string, is-open: bool) {
+        if (is-open) {
+            root.workspace-close-pane(pane-id);
+        } else {
+            root.workspace-open-pane(pane-id);
+        }
+    }
+
+    shell-keys := FocusScope {
+        KeyBinding { keys: @keys(Control + K); activated => { root.open-command-palette(); } }
+        KeyBinding { keys: @keys(Control + Shift + K); activated => { root.shortcuts-open = true; } }
+        KeyBinding { keys: @keys(Control + Shift + F); activated => { root.focus-mode = !root.focus-mode; } }
+        KeyBinding { keys: @keys(Control + "1"); activated => { root.workspace-switch("one-on-one-focus"); } }
+        KeyBinding { keys: @keys(Control + "2"); activated => { root.workspace-switch("notes"); } }
+        KeyBinding { keys: @keys(Control + "3"); activated => { root.workspace-switch("tasks"); } }
+        KeyBinding { keys: @keys(Control + "4"); activated => { root.workspace-switch("board"); } }
+        KeyBinding { keys: @keys(Control + "5"); activated => { root.workspace-switch("review"); } }
+        KeyBinding { keys: @keys(Control + "6"); activated => { root.workspace-switch("settings"); } }
+        KeyBinding { keys: @keys(Control + Alt + "1"); activated => { root.toggle-pane(root.workspace-left-pane-id, root.workspace-left-open); } }
+        KeyBinding { keys: @keys(Control + Alt + "2"); activated => { root.toggle-pane(root.workspace-right-pane-id, root.workspace-right-open); } }
+        KeyBinding { keys: @keys(Control + Alt + "3"); activated => { root.toggle-pane(root.workspace-bottom-pane-id, root.workspace-bottom-open); } }
+
+        Rectangle {
+            // ===== New workspace shell =====
+            VerticalLayout {
             Rectangle {
                 height: root.focus-mode ? 0px : 48px;
                 visible: !root.focus-mode;
@@ -1782,7 +1812,10 @@ export component AppWindow inherits Window {
                     KbRow { keys: "⌘C / ⌘X / ⌘V"; desc: "Copy / Cut / Paste"; }
                     KbRow { keys: "⌘A"; desc: "Select all (in editor)"; }
                     KbRow { keys: "Enter / Esc"; desc: "Palette: open top match / close overlay"; }
-                    KbRow { keys: "⛶ Focus"; desc: "Focus mode — hide chrome (top bar / View menu)"; }
+                    KbRow { keys: "⌘1-6 / Ctrl+1-6"; desc: "Switch workspace surfaces"; }
+                    KbRow { keys: "⌘⌥1-3 / Ctrl+Alt+1-3"; desc: "Toggle navigation, context, and queue panes"; }
+                    KbRow { keys: "⌘⇧F / Ctrl+Shift+F"; desc: "Focus mode — hide chrome"; }
+                    KbRow { keys: "⌘⇧K / Ctrl+Shift+K"; desc: "Show this shortcut sheet"; }
                     Rectangle { vertical-stretch: 1; }
                     Text { text: "Note: ⌘ is the Command key on macOS, Ctrl elsewhere."; font-size: (9px * Z.f); color: Theme.text3; }
                 }
@@ -1811,5 +1844,6 @@ export component AppWindow inherits Window {
                 vertical-alignment: center;
             }
         }
+    }
     }
 }

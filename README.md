@@ -42,6 +42,9 @@ Implemented foundation:
 - Reusable workspace controls, pane sections, note rows, task rows, task status
   checkboxes, and context rows expose accessibility roles, labels, and default
   actions for assistive technology and GUI automation.
+- The workspace shell has keyboard shortcuts for command palette, shortcut
+  help, focus mode, switching primary surfaces, and toggling navigation,
+  context, and queue panes.
 - Tasks, Board, and Review surfaces now consume workflow read models instead of
   ad hoc GUI todo queries.
 - Inline tasks can be promoted into full task notes while leaving a linked

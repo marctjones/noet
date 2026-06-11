@@ -136,6 +136,8 @@ Renderer responsibilities:
 - render each surface
 - forward commands
 - host `SredEditorAdapter`
+- provide keyboard shortcuts for command palette, shortcut help, focus mode,
+  primary surface switching, and pane visibility toggles
 - expose accessibility roles, labels, checked state, and default actions for
   pane controls, surface switchers, note rows, task rows, task status controls,
   and context rows
@@ -150,6 +152,7 @@ Tests:
 - context pane can close independently
 - queue pane can close independently
 - selecting a person updates the 1:1 surface
+- keyboard shortcuts can switch surfaces and toggle panes
 - critical controls are present in the accessibility tree
 
 ## Phase 6 - Workflow Quality
