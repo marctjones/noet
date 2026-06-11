@@ -271,9 +271,17 @@ fn headless_ui_smoke() {
     // over the live editor is the regression guard for the property-recursion.
     ui.invoke_set_search("".into());
     itest::mock_elapsed_time(std::time::Duration::from_millis(250));
-    ui.invoke_set_view("notes".into());
+    ui.invoke_workspace_switch("notes".into());
     ui.invoke_new_note(); // new notes open straight into edit mode (editing = true)
-                          // typing into sred mirrors back into current-body (the autosave source)
+    itest::mock_elapsed_time(std::time::Duration::from_millis(16));
+    let rich_editor = ElementHandle::find_by_accessible_label(ui, "Note editor")
+        .find(|e| e.accessible_role() == Some(AccessibleRole::TextInput))
+        .expect("workspace note surface mounts the sred RichTextEditor");
+    assert_eq!(
+        rich_editor.accessible_label().as_deref(),
+        Some("Note editor")
+    );
+    // typing into sred mirrors back into current-body (the autosave source)
     ui.invoke_rich_insert_text("Hello sred".into());
     assert!(
         ui.get_current_body().contains("Hello sred"),
@@ -286,6 +294,36 @@ fn headless_ui_smoke() {
         .match_descendants()
         .match_accessible_role(AccessibleRole::Button)
         .find_all();
+
+    // Selecting an existing note leaves edit mode and should render Markdown
+    // instead of showing raw source markers in a plain TextEdit.
+    let rendered_id;
+    {
+        let mut st = ctx.state.borrow_mut();
+        let n = st.backend.new_note().unwrap();
+        st.backend
+            .save_note(
+                &n.id,
+                "Rendered Markdown",
+                "# Rendered Markdown\n\nThis is **bold** and [[Acme]] #urgent\n",
+            )
+            .unwrap();
+        rendered_id = n.id.clone();
+    }
+    ctx.state.borrow_mut().backend.reindex_all().unwrap();
+    ui.invoke_select_note(rendered_id.into());
+    ui.set_workspace_primary("notes".into());
+    itest::mock_elapsed_time(std::time::Duration::from_millis(16));
+    assert!(
+        !ui.get_editing(),
+        "selecting an existing note shows read mode"
+    );
+    ElementHandle::find_by_accessible_label(ui, "Rendered note")
+        .find(|e| e.accessible_role() == Some(AccessibleRole::Groupbox))
+        .expect("workspace read mode mounts the rendered Markdown document");
+    ElementHandle::find_by_accessible_label(ui, "Rendered Markdown")
+        .next()
+        .expect("rendered Markdown heading is exposed without the raw # marker");
 
     // ----- Level 4b: Tab / Shift-Tab list indent (sred v0.7.0 #3) -----
     // The editor component forwards Tab/Shift-Tab to special("indent"/"outdent");
