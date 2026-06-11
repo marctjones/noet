@@ -136,7 +136,9 @@ Renderer responsibilities:
 - render each surface
 - forward commands
 - host `SredEditorAdapter`
-- expose accessibility labels for pane controls
+- expose accessibility roles, labels, checked state, and default actions for
+  pane controls, surface switchers, note rows, task rows, task status controls,
+  and context rows
 
 The GUI should not own product decisions such as what counts as a 1:1 note or
 which follow-ups belong to a person.

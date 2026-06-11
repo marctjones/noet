@@ -127,6 +127,28 @@ fn headless_ui_smoke() {
         .expect("a Settings nav tab");
     assert_eq!(settings.accessible_label().as_deref(), Some("Settings"));
 
+    ui.invoke_workspace_set_nav_surface("notes".into());
+    itest::mock_elapsed_time(std::time::Duration::from_millis(16));
+    let welcome_note_label = format!("Open note {WELCOME_TITLE}");
+    let welcome_note = ElementHandle::find_by_accessible_label(ui, &welcome_note_label)
+        .find(|e| e.accessible_role() == Some(AccessibleRole::Button))
+        .expect("welcome note row exposed as an accessible button");
+    assert_eq!(
+        welcome_note.accessible_label().as_deref(),
+        Some(welcome_note_label.as_str())
+    );
+
+    let tasks_segment = ElementHandle::find_by_accessible_label(ui, "Tasks")
+        .find(|e| e.accessible_role() == Some(AccessibleRole::Button))
+        .expect("workspace Tasks segment exposed as a button");
+    assert_eq!(tasks_segment.accessible_checked(), Some(false));
+    tasks_segment.invoke_accessible_default_action();
+    assert_eq!(
+        ui.get_workspace_primary(),
+        "tasks",
+        "segment default action switches the workspace surface"
+    );
+
     // ----- Level 2b: simulated input via the accessibility action -----
     settings.invoke_accessible_default_action();
     assert_eq!(
@@ -716,6 +738,31 @@ fn headless_ui_smoke() {
         ui.get_tasks().row_count() >= 2,
         "task workspace refresh populates task surface data"
     );
+    itest::mock_elapsed_time(std::time::Duration::from_millis(16));
+    let task_buttons = ElementQuery::from_root(ui)
+        .match_descendants()
+        .match_accessible_role(AccessibleRole::Button)
+        .find_all();
+    assert!(
+        task_buttons.iter().any(|e| {
+            e.accessible_label()
+                .is_some_and(|label| label.to_string().starts_with("Open task "))
+        }),
+        "task rows expose an accessible open action"
+    );
+    let task_checkboxes = ElementQuery::from_root(ui)
+        .match_descendants()
+        .match_accessible_role(AccessibleRole::Checkbox)
+        .find_all();
+    let task_checkbox = task_checkboxes
+        .iter()
+        .find(|e| {
+            e.accessible_label()
+                .is_some_and(|label| label.to_string().starts_with("Cycle task status "))
+        })
+        .expect("task status checkbox exposed through accessibility");
+    assert_eq!(task_checkbox.accessible_checkable(), Some(true));
+
     ui.invoke_workspace_switch("one-on-one-focus".into());
     refresh(ui, &ctx.state.borrow());
 
@@ -733,6 +780,17 @@ fn headless_ui_smoke() {
     assert!(
         ui.get_workspace_right_open(),
         "the context pane remains independent"
+    );
+    itest::mock_elapsed_time(std::time::Duration::from_millis(16));
+    let pane_groups = ElementQuery::from_root(ui)
+        .match_descendants()
+        .match_accessible_role(AccessibleRole::Groupbox)
+        .find_all();
+    assert!(
+        pane_groups
+            .iter()
+            .any(|e| e.accessible_label().as_deref() == Some("1:1 history")),
+        "pane sections expose groupbox labels"
     );
 
     ui.invoke_workspace_open_pane(ui.get_workspace_left_pane_id());

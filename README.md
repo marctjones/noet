@@ -39,6 +39,9 @@ Implemented foundation:
   1:1 context, task review, waiting review, board columns, and label review.
 - `noet-gui` renders workspace panes from `noet-app`, routes workspace pane
   operations through app commands, and adapts the note editor surface to `sred`.
+- Reusable workspace controls, pane sections, note rows, task rows, task status
+  checkboxes, and context rows expose accessibility roles, labels, and default
+  actions for assistive technology and GUI automation.
 - Tasks, Board, and Review surfaces now consume workflow read models instead of
   ad hoc GUI todo queries.
 - Inline tasks can be promoted into full task notes while leaving a linked

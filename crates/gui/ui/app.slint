@@ -197,6 +197,9 @@ component EmptyState inherits Rectangle {
     in property <string> glyph;
     in property <string> title;
     in property <string> hint;
+    accessible-role: text;
+    accessible-label: root.title;
+    accessible-description: root.hint;
     VerticalLayout {
         alignment: center;
         spacing: 7px;
@@ -215,6 +218,10 @@ component SegBtn inherits Rectangle {
     border-radius: 6px;
     background: active ? Theme.accent : (t.has-hover ? Theme.sel : Theme.surface3);
     animate background { duration: 120ms; easing: ease-out; }
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-checked: root.active;
+    accessible-action-default => { root.clicked(); }
     HorizontalLayout {
         padding-left: 10px; padding-right: 10px;
         Text {
@@ -399,6 +406,9 @@ component PaneSection inherits Rectangle {
     border-radius: 7px;
     border-width: 1px;
     border-color: Theme.border;
+    accessible-role: groupbox;
+    accessible-label: root.title;
+    accessible-description: root.detail;
     VerticalLayout {
         padding: 10px;
         spacing: 6px;
@@ -422,6 +432,10 @@ component NoteRow inherits Rectangle {
     border-radius: 6px;
     background: nr.has-hover ? Theme.surface3 : transparent;
     animate background { duration: 100ms; }
+    accessible-role: button;
+    accessible-label: "Open note " + note.title;
+    accessible-description: note.subtitle;
+    accessible-action-default => { root.open(note.id); }
     VerticalLayout {
         padding-left: 8px; padding-right: 8px; padding-top: 6px; padding-bottom: 6px;
         Text { text: note.title; font-size: (13px * Z.f); font-weight: 650; color: Theme.text; overflow: elide; }
@@ -443,6 +457,10 @@ component CommitmentRow inherits Rectangle {
     border-radius: 7px;
     background: crt.has-hover ? Theme.surface3 : transparent;
     animate background { duration: 100ms; }
+    accessible-role: button;
+    accessible-label: "Open task " + t.text;
+    accessible-description: t.status + (t.person != "" ? " assigned to " + t.person : "") + (t.project != "" ? " in " + t.project : "") + (t.due != "" ? " due " + t.due : "");
+    accessible-action-default => { root.open(t.id); }
     Rectangle { width: 3px; height: 100%; border-radius: 2px; background: root.accent; }
     crt := TouchArea {
         mouse-cursor: pointer;
@@ -457,6 +475,12 @@ component CommitmentRow inherits Rectangle {
             border-width: 1.5px;
             border-color: (t.status == "doing" || crcb.has-hover) ? root.accent : Theme.text3;
             background: t.status == "done" ? #1f9d57 : (t.status == "doing" ? Theme.sel : Theme.surface);
+            accessible-role: checkbox;
+            accessible-checkable: true;
+            accessible-label: "Cycle task status " + root.t.text;
+            accessible-checked: root.t.status == "done";
+            accessible-description: "Current status " + root.t.status;
+            accessible-action-default => { root.cycle(root.t.id); }
             Text { text: t.status == "done" ? "✓" : (t.status == "doing" ? "•" : ""); color: t.status == "done" ? white : root.accent; font-size: (13px * Z.f); horizontal-alignment: center; vertical-alignment: center; }
             crcb := TouchArea { mouse-cursor: pointer; clicked => { root.cycle(t.id); } }
         }
@@ -480,9 +504,9 @@ component CommitmentRow inherits Rectangle {
                 ExtChip { text: t.external; clicked => { root.external(t.external); } }
             }
         }
-        Button { text: root.action-label; clicked => { root.open(t.id); } }
-        Button { text: "Promote"; clicked => { root.promote(t.id); } }
-        Button { text: "Edit"; clicked => { root.edit(t.id); } }
+        Button { text: root.action-label; accessible-label: root.action-label + " task " + t.text; clicked => { root.open(t.id); } }
+        Button { text: "Promote"; accessible-label: "Promote task " + t.text; clicked => { root.promote(t.id); } }
+        Button { text: "Edit"; accessible-label: "Edit task " + t.text; clicked => { root.edit(t.id); } }
     }
 }
 
@@ -500,6 +524,10 @@ component AgendaRow inherits Rectangle {
     border-radius: 5px;
     background: ar.has-hover ? Theme.surface3 : transparent;
     animate background { duration: 100ms; }
+    accessible-role: button;
+    accessible-label: "Open task " + t.text;
+    accessible-description: t.status + (t.person != "" ? " assigned to " + t.person : "") + (t.project != "" ? " in " + t.project : "") + (t.due != "" ? " due " + t.due : "");
+    accessible-action-default => { root.open(t.id); }
     // Double-click the row → open its note at the todo's line (matches Tasks/Board).
     ar := TouchArea { double-clicked => { root.open(t.id); } }
     HorizontalLayout {
@@ -509,6 +537,12 @@ component AgendaRow inherits Rectangle {
             border-radius: 4px; border-width: 1.5px;
             border-color: (t.status == "doing" || cbx.has-hover) ? Theme.accent : Theme.text3;
             background: t.status == "done" ? #1f9d57 : (t.status == "doing" ? Theme.sel : white);
+            accessible-role: checkbox;
+            accessible-checkable: true;
+            accessible-label: "Cycle task status " + root.t.text;
+            accessible-checked: root.t.status == "done";
+            accessible-description: "Current status " + root.t.status;
+            accessible-action-default => { root.cycle(root.t.id); }
             Text { text: t.status == "done" ? "✓" : (t.status == "doing" ? "•" : ""); color: t.status == "done" ? white : Theme.accent; font-size: (13px * Z.f); horizontal-alignment: center; vertical-alignment: center; }
             cbx := TouchArea { mouse-cursor: pointer; clicked => { root.cycle(t.id); } }
         }
@@ -522,11 +556,11 @@ component AgendaRow inherits Rectangle {
         }
         Chip { text: t.due; tint: #fde7ea; ink: #9a1b33; }
         Chip { text: t.project; tint: #e7f7ec; ink: #1f7a44; }
-        if root.followup-actions: MiniBtn { icon: Icons.check; a11y: "Resolve follow-up"; clicked => { root.resolve(t.id); } }
-        if root.followup-actions: MiniBtn { icon: Icons.copy; a11y: "Carry into current 1:1"; clicked => { root.carry(t.id); } }
-        MiniBtn { icon: Icons.notes; a11y: "Promote task to note"; clicked => { root.promote(t.id); } }
-        MiniBtn { icon: Icons.edit; a11y: "Edit task"; clicked => { root.edit(t.id); } }
-        MiniBtn { icon: Icons.external; a11y: "Open source note"; clicked => { root.open(t.id); } }
+        if root.followup-actions: MiniBtn { icon: Icons.check; a11y: "Resolve follow-up " + t.text; clicked => { root.resolve(t.id); } }
+        if root.followup-actions: MiniBtn { icon: Icons.copy; a11y: "Carry into current 1:1 " + t.text; clicked => { root.carry(t.id); } }
+        MiniBtn { icon: Icons.notes; a11y: "Promote task to note " + t.text; clicked => { root.promote(t.id); } }
+        MiniBtn { icon: Icons.edit; a11y: "Edit task " + t.text; clicked => { root.edit(t.id); } }
+        MiniBtn { icon: Icons.external; a11y: "Open source note for task " + t.text; clicked => { root.open(t.id); } }
     }
 }
 
@@ -542,6 +576,9 @@ component MenuItem inherits Rectangle {
     border-radius: 5px;
     background: mt.has-hover ? (root.danger ? #e7472622 : Theme.sel) : transparent;
     animate background { duration: 90ms; easing: ease-out; }
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
     HorizontalLayout {
         padding-left: 9px; padding-right: 11px; spacing: 9px;
         Image {
@@ -1443,6 +1480,10 @@ export component AppWindow inherits Window {
                                                             height: 38px;
                                                             border-radius: 5px;
                                                             background: srcrow.has-hover ? Theme.surface3 : transparent;
+                                                            accessible-role: button;
+                                                            accessible-label: "Open source note " + r.title;
+                                                            accessible-description: r.via;
+                                                            accessible-action-default => { root.workspace-switch("notes"); root.select-note(r.id); }
                                                             HorizontalLayout {
                                                                 padding: 6px; spacing: 6px;
                                                                 Text { text: r.title; font-size: (12px * Z.f); font-weight: 650; color: Theme.text; horizontal-stretch: 1; overflow: elide; }
@@ -1468,6 +1509,10 @@ export component AppWindow inherits Window {
                                                             height: 38px;
                                                             border-radius: 5px;
                                                             background: relrow.has-hover ? Theme.surface3 : transparent;
+                                                            accessible-role: button;
+                                                            accessible-label: "Link related note " + r.title;
+                                                            accessible-description: r.via;
+                                                            accessible-action-default => { root.link-related(r.id); }
                                                             HorizontalLayout {
                                                                 padding: 6px; spacing: 6px;
                                                                 Text { text: r.title; font-size: (12px * Z.f); font-weight: 650; color: Theme.text; horizontal-stretch: 1; overflow: elide; }
