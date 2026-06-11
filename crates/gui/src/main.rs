@@ -1052,223 +1052,9 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
     refresh_tabs(ui, state); // keep the open-notes tab strip in sync
 }
 
-fn md_blocks_model(
-    b: &Backend,
-    note_id: &str,
-    body: &str,
-    render_typst: bool,
-    folded: &std::collections::HashSet<usize>,
-) -> ModelRc<MdBlock> {
-    let todos = backend::parse_todos(note_id, body);
-    let mut ti = todos.iter();
-    let empty = slint::Image::default();
-    let mut out: Vec<MdBlock> = Vec::new();
-    let no_segs = || ModelRc::new(VecModel::from(Vec::<Segment>::new()));
-    let empty_task_fields = || {
-        (
-            SharedString::from(""),
-            SharedString::from(""),
-            SharedString::from(""),
-            SharedString::from(""),
-            SharedString::from(""),
-        )
-    };
-    let mut hide_level: Option<i32> = None; // hide blocks under a folded heading
-    for (idx, x) in backend::markdown_blocks(body).into_iter().enumerate() {
-        let level = match x.kind.as_str() {
-            "h1" => 1,
-            "h2" => 2,
-            "h3" => 3,
-            _ => 99,
-        };
-        // keep the todo iterator aligned even for hidden todo blocks
-        let todo = if x.kind == "todo" {
-            ti.next().cloned()
-        } else {
-            None
-        };
-        let hidden = match hide_level {
-            Some(l) if level <= l => {
-                hide_level = None;
-                false
-            }
-            Some(_) => true,
-            None => false,
-        };
-        if hidden {
-            continue;
-        }
-        let bid = idx as i32;
-        if x.kind == "typst" {
-            if render_typst {
-                if let Some(png) = b.render_typst_src(&x.text) {
-                    if let Ok(img) = slint::Image::load_from_path(&png) {
-                        let (task_kind, project, person, due, priority) = empty_task_fields();
-                        out.push(MdBlock {
-                            kind: "typst".into(),
-                            text: "".into(),
-                            indent: x.indent,
-                            img,
-                            todo_id: "".into(),
-                            done: false,
-                            status: "".into(),
-                            task_kind,
-                            project,
-                            person,
-                            due,
-                            priority,
-                            segments: no_segs(),
-                            block_id: bid,
-                            folded: false,
-                        });
-                        continue;
-                    }
-                }
-            }
-            let (task_kind, project, person, due, priority) = empty_task_fields();
-            out.push(MdBlock {
-                kind: "code".into(),
-                text: x.text.clone().into(),
-                indent: x.indent,
-                img: empty.clone(),
-                todo_id: "".into(),
-                done: false,
-                status: "".into(),
-                task_kind,
-                project,
-                person,
-                due,
-                priority,
-                segments: no_segs(),
-                block_id: bid,
-                folded: false,
-            });
-        } else if x.kind == "todo" {
-            let t = todo.as_ref();
-            let id = t.map(|t| t.id.clone()).unwrap_or_default();
-            let done = t.map(|t| t.done).unwrap_or(false);
-            let status = t.map(|t| t.status.clone()).unwrap_or_default();
-            let prio = t.map(|t| t.priority.clone()).unwrap_or_default();
-            out.push(MdBlock {
-                kind: "todo".into(),
-                text: t
-                    .map(|t| t.text.clone())
-                    .unwrap_or_else(|| x.text.clone())
-                    .into(),
-                indent: x.indent,
-                img: empty.clone(),
-                todo_id: id.into(),
-                done,
-                status: status.into(),
-                task_kind: t.map(|t| t.kind.clone()).unwrap_or_default().into(),
-                project: t.map(|t| t.project.clone()).unwrap_or_default().into(),
-                person: t.map(|t| t.person.clone()).unwrap_or_default().into(),
-                due: t.map(|t| t.due.clone()).unwrap_or_default().into(),
-                priority: prio.into(),
-                segments: no_segs(),
-                block_id: bid,
-                folded: false,
-            });
-        } else if x.kind == "code" || x.kind == "rule" {
-            let (task_kind, project, person, due, priority) = empty_task_fields();
-            out.push(MdBlock {
-                kind: x.kind.clone().into(),
-                text: x.text.clone().into(),
-                indent: x.indent,
-                img: empty.clone(),
-                todo_id: "".into(),
-                done: false,
-                status: "".into(),
-                task_kind,
-                project,
-                person,
-                due,
-                priority,
-                segments: no_segs(),
-                block_id: bid,
-                folded: false,
-            });
-        } else if level <= 3 {
-            let is_folded = folded.contains(&idx);
-            let (task_kind, project, person, due, priority) = empty_task_fields();
-            out.push(MdBlock {
-                kind: x.kind.clone().into(),
-                text: backend::clean_inline(&x.text).into(),
-                indent: x.indent,
-                img: empty.clone(),
-                todo_id: "".into(),
-                done: false,
-                status: "".into(),
-                task_kind,
-                project,
-                person,
-                due,
-                priority,
-                segments: no_segs(),
-                block_id: bid,
-                folded: is_folded,
-            });
-            if is_folded {
-                hide_level = Some(level);
-            }
-        } else {
-            let inline = matches!(x.kind.as_str(), "para" | "bullet" | "numbered" | "quote");
-            let segs = if inline {
-                backend::line_segments(&x.text)
-            } else {
-                Vec::new()
-            };
-            let has_link = segs.iter().any(|s| !s.kind.is_empty());
-            if has_link && x.text.chars().count() < 160 {
-                let sm: Vec<Segment> = segs
-                    .iter()
-                    .map(|s| Segment {
-                        text: s.text.clone().into(),
-                        kind: s.kind.clone().into(),
-                        value: s.value.clone().into(),
-                    })
-                    .collect();
-                let (task_kind, project, person, due, priority) = empty_task_fields();
-                out.push(MdBlock {
-                    kind: x.kind.clone().into(),
-                    text: "".into(),
-                    indent: x.indent,
-                    img: empty.clone(),
-                    todo_id: "".into(),
-                    done: false,
-                    status: "".into(),
-                    task_kind,
-                    project,
-                    person,
-                    due,
-                    priority,
-                    segments: ModelRc::new(VecModel::from(sm)),
-                    block_id: bid,
-                    folded: false,
-                });
-            } else {
-                let (task_kind, project, person, due, priority) = empty_task_fields();
-                out.push(MdBlock {
-                    kind: x.kind.clone().into(),
-                    text: backend::clean_inline(&x.text).into(),
-                    indent: x.indent,
-                    img: empty.clone(),
-                    todo_id: "".into(),
-                    done: false,
-                    status: "".into(),
-                    task_kind,
-                    project,
-                    person,
-                    due,
-                    priority,
-                    segments: no_segs(),
-                    block_id: bid,
-                    folded: false,
-                });
-            }
-        }
-    }
-    ModelRc::new(VecModel::from(out))
+fn typst_src_image(b: &Backend, src: &str) -> Option<slint::Image> {
+    b.render_typst_src(src)
+        .and_then(|png| slint::Image::load_from_path(&png).ok())
 }
 
 fn str_model(v: &[String]) -> ModelRc<SharedString> {
@@ -1379,7 +1165,13 @@ fn render_read(ui: &AppWindow, b: &Backend, note: &backend::Note) {
     }
     ui.set_current_is_typst(false);
     FOLDS.with(|f| {
-        ui.set_md_blocks(md_blocks_model(b, &note.id, &note.body, true, &f.borrow()));
+        ui.set_md_blocks(surface_adapters::markdown_blocks_model(
+            &note.id,
+            &note.body,
+            true,
+            &f.borrow(),
+            |src| typst_src_image(b, src),
+        ));
     });
     let (projects, people, tags) = backend::Backend::note_entities(&note.body);
     ui.set_current_projects(str_model(&projects));
@@ -2809,12 +2601,12 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                                 let id = ui.get_current_id().to_string();
                                 let s = state.borrow();
                                 FOLDS.with(|f| {
-                                    ui.set_md_blocks(md_blocks_model(
-                                        &s.backend,
+                                    ui.set_md_blocks(surface_adapters::markdown_blocks_model(
                                         &id,
                                         &body,
                                         false,
                                         &f.borrow(),
+                                        |src| typst_src_image(&s.backend, src),
                                     ));
                                 });
                             }

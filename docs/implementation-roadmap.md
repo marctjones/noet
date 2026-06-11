@@ -136,8 +136,9 @@ Initial adapter boundary:
   surfaces.
 - [x] Deterministic adapter test for calendar month cell placement.
 - [x] Deterministic adapter test for pinned and recent note tabs.
-- [ ] Continue extracting label and rendered Markdown block surfaces where GUI
-  code still owns query-specific assembly.
+- [x] Dedicated adapters for label review/context and rendered Markdown blocks.
+- [x] Deterministic adapter tests for label context and rendered Markdown block
+  assembly.
 
 Rules:
 

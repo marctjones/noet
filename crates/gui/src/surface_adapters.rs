@@ -1,11 +1,11 @@
 use chrono::{Datelike, Duration, NaiveDate};
 use noet_core::backend;
 use noet_core::backend::Filter;
-use slint::{ModelRc, VecModel};
+use slint::{Image, ModelRc, SharedString, VecModel};
 
 use crate::{
-    BoardColumn, CalCell, FacetItem, FilterChip, GanttItem, NoteItem, NoteRef, NoteTab, RelatedRef,
-    TodoItem,
+    BoardColumn, CalCell, FacetItem, FilterChip, GanttItem, MdBlock, NoteItem, NoteRef, NoteTab,
+    RelatedRef, Segment, TodoItem,
 };
 
 pub fn note_item(n: &backend::Note) -> NoteItem {
@@ -78,6 +78,18 @@ pub fn facet_tree_items(items: &[backend::Project], active: &str) -> Vec<FacetIt
         .collect()
 }
 
+pub fn label_review_items(review: &backend::LabelReview, active: &str) -> Vec<FacetItem> {
+    let items = review
+        .labels
+        .iter()
+        .map(|label| backend::Project {
+            name: label.name.clone(),
+            count: label.note_count,
+        })
+        .collect::<Vec<_>>();
+    facet_tree_items(&items, active)
+}
+
 pub fn todo_item(t: &backend::Todo) -> TodoItem {
     TodoItem {
         id: t.id.clone().into(),
@@ -118,6 +130,279 @@ pub fn task_items(tasks: &[backend::TaskFact]) -> Vec<TodoItem> {
     tasks.iter().map(todo_item_from_fact).collect()
 }
 
+fn empty_segments() -> ModelRc<Segment> {
+    ModelRc::new(VecModel::from(Vec::<Segment>::new()))
+}
+
+fn empty_task_fields() -> (
+    SharedString,
+    SharedString,
+    SharedString,
+    SharedString,
+    SharedString,
+) {
+    (
+        SharedString::from(""),
+        SharedString::from(""),
+        SharedString::from(""),
+        SharedString::from(""),
+        SharedString::from(""),
+    )
+}
+
+fn block_level(kind: &str) -> i32 {
+    match kind {
+        "h1" => 1,
+        "h2" => 2,
+        "h3" => 3,
+        _ => 99,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn markdown_block(
+    kind: impl Into<SharedString>,
+    text: impl Into<SharedString>,
+    indent: i32,
+    img: Image,
+    todo_id: impl Into<SharedString>,
+    done: bool,
+    status: impl Into<SharedString>,
+    task_kind: SharedString,
+    project: SharedString,
+    person: SharedString,
+    due: SharedString,
+    priority: SharedString,
+    segments: ModelRc<Segment>,
+    block_id: i32,
+    folded: bool,
+) -> MdBlock {
+    MdBlock {
+        kind: kind.into(),
+        text: text.into(),
+        indent,
+        img,
+        todo_id: todo_id.into(),
+        done,
+        status: status.into(),
+        task_kind,
+        project,
+        person,
+        due,
+        priority,
+        segments,
+        block_id,
+        folded,
+    }
+}
+
+pub fn markdown_blocks_model<F>(
+    note_id: &str,
+    body: &str,
+    render_typst: bool,
+    folded: &std::collections::HashSet<usize>,
+    mut typst_image: F,
+) -> ModelRc<MdBlock>
+where
+    F: FnMut(&str) -> Option<Image>,
+{
+    let todos = backend::parse_todos(note_id, body);
+    let mut todo_iter = todos.iter();
+    let empty = Image::default();
+    let mut out = Vec::new();
+    let mut hide_level: Option<i32> = None;
+
+    for (idx, block) in backend::markdown_blocks(body).into_iter().enumerate() {
+        let level = block_level(&block.kind);
+        let todo = if block.kind == "todo" {
+            todo_iter.next().cloned()
+        } else {
+            None
+        };
+        let hidden = match hide_level {
+            Some(active_level) if level <= active_level => {
+                hide_level = None;
+                false
+            }
+            Some(_) => true,
+            None => false,
+        };
+        if hidden {
+            continue;
+        }
+
+        let block_id = idx as i32;
+        if block.kind == "typst" {
+            if render_typst {
+                if let Some(img) = typst_image(&block.text) {
+                    let (task_kind, project, person, due, priority) = empty_task_fields();
+                    out.push(markdown_block(
+                        "typst",
+                        "",
+                        block.indent,
+                        img,
+                        "",
+                        false,
+                        "",
+                        task_kind,
+                        project,
+                        person,
+                        due,
+                        priority,
+                        empty_segments(),
+                        block_id,
+                        false,
+                    ));
+                    continue;
+                }
+            }
+            let (task_kind, project, person, due, priority) = empty_task_fields();
+            out.push(markdown_block(
+                "code",
+                block.text,
+                block.indent,
+                empty.clone(),
+                "",
+                false,
+                "",
+                task_kind,
+                project,
+                person,
+                due,
+                priority,
+                empty_segments(),
+                block_id,
+                false,
+            ));
+        } else if block.kind == "todo" {
+            let t = todo.as_ref();
+            let id = t.map(|t| t.id.clone()).unwrap_or_default();
+            let done = t.map(|t| t.done).unwrap_or(false);
+            let status = t.map(|t| t.status.clone()).unwrap_or_default();
+            let priority = t.map(|t| t.priority.clone()).unwrap_or_default();
+            out.push(markdown_block(
+                "todo",
+                t.map(|t| t.text.clone())
+                    .unwrap_or_else(|| block.text.clone()),
+                block.indent,
+                empty.clone(),
+                id,
+                done,
+                status,
+                t.map(|t| t.kind.clone()).unwrap_or_default().into(),
+                t.map(|t| t.project.clone()).unwrap_or_default().into(),
+                t.map(|t| t.person.clone()).unwrap_or_default().into(),
+                t.map(|t| t.due.clone()).unwrap_or_default().into(),
+                priority.into(),
+                empty_segments(),
+                block_id,
+                false,
+            ));
+        } else if block.kind == "code" || block.kind == "rule" {
+            let (task_kind, project, person, due, priority) = empty_task_fields();
+            out.push(markdown_block(
+                block.kind,
+                block.text,
+                block.indent,
+                empty.clone(),
+                "",
+                false,
+                "",
+                task_kind,
+                project,
+                person,
+                due,
+                priority,
+                empty_segments(),
+                block_id,
+                false,
+            ));
+        } else if level <= 3 {
+            let is_folded = folded.contains(&idx);
+            let (task_kind, project, person, due, priority) = empty_task_fields();
+            out.push(markdown_block(
+                block.kind,
+                backend::clean_inline(&block.text),
+                block.indent,
+                empty.clone(),
+                "",
+                false,
+                "",
+                task_kind,
+                project,
+                person,
+                due,
+                priority,
+                empty_segments(),
+                block_id,
+                is_folded,
+            ));
+            if is_folded {
+                hide_level = Some(level);
+            }
+        } else {
+            let inline = matches!(
+                block.kind.as_str(),
+                "para" | "bullet" | "numbered" | "quote"
+            );
+            let segments = if inline {
+                backend::line_segments(&block.text)
+            } else {
+                Vec::new()
+            };
+            let has_link = segments.iter().any(|segment| !segment.kind.is_empty());
+            let (task_kind, project, person, due, priority) = empty_task_fields();
+            if has_link && block.text.chars().count() < 160 {
+                let segments = segments
+                    .iter()
+                    .map(|segment| Segment {
+                        text: segment.text.clone().into(),
+                        kind: segment.kind.clone().into(),
+                        value: segment.value.clone().into(),
+                    })
+                    .collect::<Vec<_>>();
+                out.push(markdown_block(
+                    block.kind,
+                    "",
+                    block.indent,
+                    empty.clone(),
+                    "",
+                    false,
+                    "",
+                    task_kind,
+                    project,
+                    person,
+                    due,
+                    priority,
+                    ModelRc::new(VecModel::from(segments)),
+                    block_id,
+                    false,
+                ));
+            } else {
+                out.push(markdown_block(
+                    block.kind,
+                    backend::clean_inline(&block.text),
+                    block.indent,
+                    empty.clone(),
+                    "",
+                    false,
+                    "",
+                    task_kind,
+                    project,
+                    person,
+                    due,
+                    priority,
+                    empty_segments(),
+                    block_id,
+                    false,
+                ));
+            }
+        }
+    }
+
+    ModelRc::new(VecModel::from(out))
+}
+
 #[derive(Clone, Default)]
 pub struct AgendaSurface {
     pub overdue: Vec<TodoItem>,
@@ -155,6 +440,25 @@ pub fn workstream_surface(todos: &[backend::Todo], notes: &[backend::Note]) -> W
     WorkstreamSurface {
         todos: todo_items(todos),
         notes: note_refs_from_notes(notes),
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct LabelContextSurface {
+    pub label: String,
+    pub notes: Vec<NoteItem>,
+    pub open_tasks: Vec<TodoItem>,
+}
+
+pub fn label_context_surface(context: &backend::LabelContext) -> LabelContextSurface {
+    LabelContextSurface {
+        label: context.label.clone(),
+        notes: context
+            .notes
+            .iter()
+            .map(note_item_from_summary)
+            .collect::<Vec<_>>(),
+        open_tasks: task_items(&context.open_tasks),
     }
 }
 
@@ -623,8 +927,9 @@ pub fn filter_value_or_any(value: &str) -> String {
 mod tests {
     use super::*;
     use backend::{
-        NoteSummary, PropertyFact, RelatedNote, SourceRef, SourceSpan, TaskFact, TaskReview,
-        TaskSource, TaskStatus, TaskWorkflow, WaitingGroup, WaitingReview,
+        LabelContext, LabelReview, LabelSummary, NoteSummary, PropertyFact, RelatedNote, SourceRef,
+        SourceSpan, TaskFact, TaskReview, TaskSource, TaskStatus, TaskWorkflow, WaitingGroup,
+        WaitingReview,
     };
     use slint::Model;
     use std::path::PathBuf;
@@ -891,6 +1196,58 @@ mod tests {
     }
 
     #[test]
+    fn markdown_blocks_model_resolves_todos_segments_and_folds() {
+        let mut folded = std::collections::HashSet::new();
+        folded.insert(1);
+        let body = "\
+# Heading [[Client/Acme]]
+## Folded
+Hidden detail
+# Visible
+- [x] Close task #mine @[[Jane]] [[Client/Acme]] due:2026-06-20 priority:A
+See [[Client/Acme]] and https://example.test
+";
+
+        let blocks = markdown_blocks_model("n1", body, false, &folded, |_| None);
+        assert_eq!(blocks.row_count(), 5);
+        let h1 = blocks.row_data(0).unwrap();
+        assert_eq!(h1.kind.to_string(), "h1");
+        assert_eq!(h1.text.to_string(), "Heading Client/Acme");
+        assert!(!h1.folded);
+
+        let h2 = blocks.row_data(1).unwrap();
+        assert_eq!(h2.kind.to_string(), "h2");
+        assert_eq!(h2.text.to_string(), "Folded");
+        assert!(h2.folded);
+
+        let visible = blocks.row_data(2).unwrap();
+        assert_eq!(visible.kind.to_string(), "h1");
+        assert_eq!(visible.text.to_string(), "Visible");
+
+        let todo = blocks.row_data(3).unwrap();
+        assert_eq!(todo.kind.to_string(), "todo");
+        assert_eq!(todo.text.to_string(), "Close task");
+        assert_eq!(todo.todo_id.to_string(), "n1:4");
+        assert!(todo.done);
+        assert_eq!(todo.status.to_string(), "done");
+        assert_eq!(todo.task_kind.to_string(), "mine");
+        assert_eq!(todo.project.to_string(), "Client/Acme");
+        assert_eq!(todo.person.to_string(), "Jane");
+        assert_eq!(todo.due.to_string(), "2026-06-20");
+        assert_eq!(todo.priority.to_string(), "A");
+
+        let para = blocks.row_data(4).unwrap();
+        assert_eq!(para.kind.to_string(), "para");
+        assert_eq!(para.text.to_string(), "");
+        assert!(para.segments.row_count() > 1);
+        assert!(para
+            .segments
+            .row_data(0)
+            .map(|segment| segment.text.to_string().contains("See"))
+            .unwrap_or(false));
+    }
+
+    #[test]
     fn one_on_one_surface_groups_tasks_and_history() {
         let prior_followup = task(
             "old:1",
@@ -1136,6 +1493,54 @@ mod tests {
         assert_eq!(one_on_one.label.to_string(), "one-on-one");
         assert_eq!(one_on_one.depth, 1);
         assert!(one_on_one.active);
+    }
+
+    #[test]
+    fn label_review_and_context_surfaces_are_stable() {
+        let review = LabelReview {
+            labels: vec![
+                LabelSummary {
+                    name: "meeting".into(),
+                    note_count: 2,
+                    open_task_count: 0,
+                },
+                LabelSummary {
+                    name: "meeting/one-on-one".into(),
+                    note_count: 3,
+                    open_task_count: 2,
+                },
+            ],
+        };
+
+        let rows = label_review_items(&review, "meeting/one-on-one");
+        let meeting = rows
+            .iter()
+            .find(|row| row.name.to_string() == "meeting")
+            .unwrap();
+        assert_eq!(meeting.count, 5);
+        assert_eq!(meeting.label.to_string(), "meeting");
+        let one_on_one = rows
+            .iter()
+            .find(|row| row.name.to_string() == "meeting/one-on-one")
+            .unwrap();
+        assert_eq!(one_on_one.depth, 1);
+        assert!(one_on_one.active);
+
+        let context = LabelContext {
+            label: "meeting/one-on-one".into(),
+            notes: vec![note_summary("n1", "Jane 1:1")],
+            open_tasks: vec![task(
+                "n1:4",
+                "n1",
+                "Follow up",
+                TaskWorkflow::Followup,
+                TaskStatus::Todo,
+            )],
+        };
+        let surface = label_context_surface(&context);
+        assert_eq!(surface.label, "meeting/one-on-one");
+        assert_eq!(surface.notes[0].title.to_string(), "Jane 1:1");
+        assert_eq!(surface.open_tasks[0].text.to_string(), "Follow up");
     }
 
     #[test]

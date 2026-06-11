@@ -157,8 +157,8 @@ Covered tests:
   workstream hubs, trash refs, and active filter chips.
 - [x] Extract calendar month cell assembly into deterministic adapters.
 - [x] Extract open-note tab/history strip assembly into deterministic adapters.
-- [ ] Continue extracting label and rendered Markdown block surface assembly out
-  of renderer refresh code.
+- [x] Extract label context and rendered Markdown block surface assembly into
+  deterministic adapters.
 
 Current UX contract:
 
