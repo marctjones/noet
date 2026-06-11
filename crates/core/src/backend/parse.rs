@@ -35,6 +35,40 @@ pub struct ContactFact {
     pub span: SourceSpan,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InlineEntityKind {
+    MarkdownLink,
+    Url,
+    Email,
+    Social,
+    Project,
+    Person,
+    Tag,
+}
+
+impl InlineEntityKind {
+    pub fn segment_kind(self) -> &'static str {
+        match self {
+            InlineEntityKind::MarkdownLink | InlineEntityKind::Url => "url",
+            InlineEntityKind::Email => "email",
+            InlineEntityKind::Social => "social",
+            InlineEntityKind::Project => "project",
+            InlineEntityKind::Person => "person",
+            InlineEntityKind::Tag => "tag",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InlineEntity {
+    pub kind: InlineEntityKind,
+    pub text: String,
+    pub value: String,
+    pub span: SourceSpan,
+    pub char_start: usize,
+    pub char_end: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceLink {
     pub target: String,
@@ -161,30 +195,185 @@ fn sorted_dedup(mut values: Vec<String>) -> Vec<String> {
     values
 }
 
+fn char_offset(text: &str, byte_offset: usize) -> usize {
+    text[..byte_offset].chars().count()
+}
+
+fn trim_entity_end(text: &str, mut end: usize) -> usize {
+    while end > 0 && text[..end].ends_with(['.', ',']) {
+        end -= 1;
+    }
+    end
+}
+
+fn mk_inline_entity(
+    source: TextLine<'_>,
+    kind: InlineEntityKind,
+    text: String,
+    value: String,
+    byte_start: usize,
+    byte_end: usize,
+) -> InlineEntity {
+    InlineEntity {
+        kind,
+        text,
+        value,
+        span: SourceSpan {
+            line_no: source.line_no,
+            byte_start: source.byte_start + byte_start,
+            byte_end: source.byte_start + byte_end,
+        },
+        char_start: char_offset(source.line, byte_start),
+        char_end: char_offset(source.line, byte_end),
+    }
+}
+
+fn line_inline_entities(source: TextLine<'_>) -> Vec<InlineEntity> {
+    let mut entities = Vec::new();
+
+    for caps in inline_entity_re().captures_iter(source.line) {
+        let Some(full) = caps.get(0) else {
+            continue;
+        };
+
+        let entity = if let Some(m) = caps.name("mdlink") {
+            let raw = m.as_str();
+            let label = raw[1..].split(']').next().unwrap_or("").to_string();
+            let url = raw
+                .rsplit('(')
+                .next()
+                .unwrap_or("")
+                .trim_end_matches(')')
+                .to_string();
+            Some(mk_inline_entity(
+                source,
+                InlineEntityKind::MarkdownLink,
+                label,
+                url,
+                m.start(),
+                m.end(),
+            ))
+        } else if let Some(m) = caps.name("url") {
+            let byte_end = trim_entity_end(source.line, m.end());
+            let value = source.line[m.start()..byte_end].to_string();
+            Some(mk_inline_entity(
+                source,
+                InlineEntityKind::Url,
+                value.clone(),
+                value,
+                m.start(),
+                byte_end,
+            ))
+        } else if let Some(m) = caps.name("email") {
+            let value = m.as_str().to_string();
+            Some(mk_inline_entity(
+                source,
+                InlineEntityKind::Email,
+                value.clone(),
+                value,
+                m.start(),
+                m.end(),
+            ))
+        } else if let Some(m) = caps.name("social") {
+            if source.line[m.end()..].starts_with('@') {
+                None
+            } else {
+                let value = m.as_str().to_string();
+                Some(mk_inline_entity(
+                    source,
+                    InlineEntityKind::Social,
+                    value.clone(),
+                    value,
+                    m.start(),
+                    m.end(),
+                ))
+            }
+        } else if let Some(m) = caps.name("person") {
+            let inner = m.as_str().trim_start_matches('@');
+            let name = inner
+                .trim_start_matches("[[")
+                .trim_end_matches("]]")
+                .to_string();
+            Some(mk_inline_entity(
+                source,
+                InlineEntityKind::Person,
+                format!("@{name}"),
+                name,
+                m.start(),
+                m.end(),
+            ))
+        } else if let Some(m) = caps.name("project") {
+            let before = &source.line[..m.start()];
+            if before.ends_with('+') || before.ends_with("source:") {
+                None
+            } else {
+                let name = m
+                    .as_str()
+                    .trim_start_matches("[[")
+                    .trim_end_matches("]]")
+                    .to_string();
+                Some(mk_inline_entity(
+                    source,
+                    InlineEntityKind::Project,
+                    name.clone(),
+                    name,
+                    m.start(),
+                    m.end(),
+                ))
+            }
+        } else if let Some(m) = caps.name("tag") {
+            let name = m.as_str().trim_start_matches('#').to_string();
+            Some(mk_inline_entity(
+                source,
+                InlineEntityKind::Tag,
+                format!("#{name}"),
+                name,
+                m.start(),
+                m.end(),
+            ))
+        } else {
+            None
+        };
+
+        if let Some(entity) = entity {
+            debug_assert!(entity.span.byte_start >= source.byte_start + full.start());
+            entities.push(entity);
+        }
+    }
+
+    entities
+}
+
+pub fn parse_inline_entities(raw: &str) -> Vec<InlineEntity> {
+    line_inline_entities(TextLine {
+        line_no: 0,
+        line: raw,
+        byte_start: 0,
+        byte_end: raw.len(),
+    })
+}
+
 fn entity_tags(text: &str) -> Vec<String> {
-    tag_re()
-        .captures_iter(text)
-        .map(|c| c["t"].to_string())
+    parse_inline_entities(text)
+        .into_iter()
+        .filter(|entity| entity.kind == InlineEntityKind::Tag)
+        .map(|entity| entity.value)
         .collect()
 }
 
 fn entity_mentions(text: &str) -> Vec<String> {
-    person_re()
-        .captures_iter(text)
-        .map(|c| person_name(&c))
+    parse_inline_entities(text)
+        .into_iter()
+        .filter(|entity| entity.kind == InlineEntityKind::Person)
+        .map(|entity| entity.value)
         .collect()
 }
 
 fn entity_links(text: &str) -> Vec<String> {
-    link_re()
-        .captures_iter(text)
-        .filter(|c| {
-            c.get(0).is_some_and(|m| {
-                let before = &text[..m.start()];
-                !before.ends_with('@') && !before.ends_with('+') && !before.ends_with("source:")
-            })
-        })
-        .map(|c| c["t"].trim().to_string())
+    parse_inline_entities(text)
+        .into_iter()
+        .filter(|entity| entity.kind == InlineEntityKind::Project)
+        .map(|entity| entity.value)
         .collect()
 }
 
@@ -218,22 +407,14 @@ fn bare_mention_re() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r"(?:^|\s)(?P<h>@[A-Za-z][A-Za-z0-9_.\-]*)(?:\b|$)").unwrap())
 }
 
-fn federated_handle_re() -> &'static Regex {
+fn inline_entity_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"(?:^|\s)(?P<h>@[A-Za-z][A-Za-z0-9_.\-]*@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b")
-            .unwrap()
+        Regex::new(
+            r"(?P<mdlink>\[[^\]\n]+\]\([^\)\n]*\))|(?P<url>https?://[^\s<>\]\)]+)|(?P<person>@\[\[[^\]\n]+\]\])|(?P<project>\[\[[^\]\n]+\]\])|(?P<email>\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b)|(?:^|\s)(?P<social>@[A-Za-z][A-Za-z0-9_.\-]*(?:@[A-Za-z0-9.-]+\.[A-Za-z]{2,})?)\b|(?:^|\s)(?P<tag>#[A-Za-z][A-Za-z0-9_/-]*)",
+        )
+        .unwrap()
     })
-}
-
-fn email_re() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b").unwrap())
-}
-
-fn url_re() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"https?://[^\s<>\]\)]+").unwrap())
 }
 
 fn person_name(c: &regex::Captures) -> String {
@@ -272,13 +453,6 @@ pub fn clean_inline(s: &str) -> String {
 
 /// Split a raw line into plain text + clickable link/url/entity segments.
 pub fn line_segments(raw: &str) -> Vec<Segment> {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    let re = RE.get_or_init(|| {
-        Regex::new(
-            r"(?P<mdlink>\[[^\]]+\]\([^)]*\))|(?P<url>https?://[^\s)]+)|(?P<proj>\[\[[^\]]+\]\])|(?P<pers>@\[\[[^\]]+\]\])|(?P<tag>#[A-Za-z][A-Za-z0-9_/-]*)",
-        )
-        .unwrap()
-    });
     let mut segs = Vec::new();
     let mut last = 0usize;
     let push_plain = |segs: &mut Vec<Segment>, s: &str| {
@@ -290,65 +464,20 @@ pub fn line_segments(raw: &str) -> Vec<Segment> {
             });
         }
     };
-    for caps in re.captures_iter(raw) {
-        let m = caps.get(0).unwrap();
-        if m.start() > last {
-            push_plain(&mut segs, &raw[last..m.start()]);
+
+    for entity in parse_inline_entities(raw) {
+        if entity.span.byte_start > last {
+            push_plain(&mut segs, &raw[last..entity.span.byte_start]);
         }
-        let seg = if let Some(g) = caps.name("mdlink") {
-            let s = g.as_str();
-            let txt = s[1..].split(']').next().unwrap_or("").to_string();
-            let url = s
-                .rsplit('(')
-                .next()
-                .unwrap_or("")
-                .trim_end_matches(')')
-                .to_string();
-            Segment {
-                text: txt,
-                kind: "url".into(),
-                value: url,
-            }
-        } else if let Some(g) = caps.name("url") {
-            Segment {
-                text: g.as_str().into(),
-                kind: "url".into(),
-                value: g.as_str().into(),
-            }
-        } else if let Some(g) = caps.name("proj") {
-            let name = g
-                .as_str()
-                .trim_start_matches("[[")
-                .trim_end_matches("]]")
-                .to_string();
-            Segment {
-                text: name.clone(),
-                kind: "project".into(),
-                value: name,
-            }
-        } else if let Some(g) = caps.name("pers") {
-            let inner = g.as_str().trim_start_matches('@');
-            let name = inner
-                .trim_start_matches("[[")
-                .trim_end_matches("]]")
-                .to_string();
-            Segment {
-                text: format!("@{name}"),
-                kind: "person".into(),
-                value: name,
-            }
-        } else if let Some(g) = caps.name("tag") {
-            let name = g.as_str().trim_start_matches('#').to_string();
-            Segment {
-                text: format!("#{name}"),
-                kind: "tag".into(),
-                value: name,
-            }
-        } else {
+        if entity.span.byte_end <= entity.span.byte_start {
             continue;
-        };
-        segs.push(seg);
-        last = m.end();
+        }
+        segs.push(Segment {
+            text: entity.text,
+            kind: entity.kind.segment_kind().into(),
+            value: entity.value,
+        });
+        last = entity.span.byte_end;
     }
     if last < raw.len() {
         push_plain(&mut segs, &raw[last..]);
@@ -741,75 +870,6 @@ fn warning(code: &str, message: impl Into<String>, span: SourceSpan) -> ParseDia
     }
 }
 
-fn range_inside(range: (usize, usize), outer: (usize, usize)) -> bool {
-    range.0 >= outer.0 && range.1 <= outer.1
-}
-
-fn line_contacts(line: TextLine<'_>) -> Vec<ContactFact> {
-    let mut contacts = Vec::new();
-    let mut url_ranges = Vec::new();
-
-    for m in url_re().find_iter(line.line) {
-        url_ranges.push((m.start(), m.end()));
-        contacts.push(ContactFact {
-            kind: ContactKind::Url,
-            value: m.as_str().trim_end_matches(['.', ',']).to_string(),
-            span: span_for_match(line, m),
-        });
-    }
-
-    for m in email_re().find_iter(line.line) {
-        let range = (m.start(), m.end());
-        if line
-            .line
-            .as_bytes()
-            .get(m.start().saturating_sub(1))
-            .is_some_and(|b| *b == b'@')
-            || url_ranges.iter().any(|outer| range_inside(range, *outer))
-        {
-            continue;
-        }
-        contacts.push(ContactFact {
-            kind: ContactKind::Email,
-            value: m.as_str().to_string(),
-            span: span_for_match(line, m),
-        });
-    }
-
-    for caps in federated_handle_re().captures_iter(line.line) {
-        let Some(m) = caps.name("h") else {
-            continue;
-        };
-        contacts.push(ContactFact {
-            kind: ContactKind::Social,
-            value: m.as_str().to_string(),
-            span: span_for_match(line, m),
-        });
-    }
-
-    for caps in bare_mention_re().captures_iter(line.line) {
-        let Some(m) = caps.name("h") else {
-            continue;
-        };
-        if line.line[m.end()..].starts_with('@') {
-            continue;
-        }
-        contacts.push(ContactFact {
-            kind: ContactKind::Social,
-            value: m.as_str().to_string(),
-            span: span_for_match(line, m),
-        });
-    }
-
-    contacts.sort_by(|a, b| {
-        a.span
-            .byte_start
-            .cmp(&b.span.byte_start)
-            .then(a.value.cmp(&b.value))
-    });
-    contacts
-}
-
 fn valid_repeat(value: &str) -> bool {
     if value.len() < 2 {
         return false;
@@ -934,11 +994,31 @@ pub fn parse_markdown(note_id: &str, body: &str) -> ParsedMarkdown {
     let mut contacts = Vec::new();
     let mut diagnostics = Vec::new();
     for line in text_line_spans(body) {
-        labels.extend(entity_tags(line.line));
-        people.extend(entity_mentions(line.line));
-        workstreams.extend(entity_links(line.line));
+        for entity in line_inline_entities(line) {
+            match entity.kind {
+                InlineEntityKind::Tag => labels.push(entity.value),
+                InlineEntityKind::Person => people.push(entity.value),
+                InlineEntityKind::Project => workstreams.push(entity.value),
+                InlineEntityKind::MarkdownLink | InlineEntityKind::Url => {
+                    contacts.push(ContactFact {
+                        kind: ContactKind::Url,
+                        value: entity.value,
+                        span: entity.span,
+                    });
+                }
+                InlineEntityKind::Email => contacts.push(ContactFact {
+                    kind: ContactKind::Email,
+                    value: entity.value,
+                    span: entity.span,
+                }),
+                InlineEntityKind::Social => contacts.push(ContactFact {
+                    kind: ContactKind::Social,
+                    value: entity.value,
+                    span: entity.span,
+                }),
+            }
+        }
         properties.extend(entity_properties(line.line));
-        contacts.extend(line_contacts(line));
         diagnostics.extend(line_diagnostics(line));
     }
     let todos = parse_todo_lines(note_id, body);

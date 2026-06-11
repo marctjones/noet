@@ -280,6 +280,8 @@ read models, source links, and task write-back:
 
 - Markdown blocks: headings, paragraphs, lists, code blocks.
 - Noet entities: labels, people, links, URLs, emails, social handles.
+- Inline entities: source-spanned tokens with byte and character ranges for
+  read-mode rendering and editor highlighting.
 - Tasks: task marker, text, labels, people, links, properties, source span.
 - Contacts: URL, email, and social-handle facts with source spans.
 - Properties: key, value, scope, validation diagnostics.
@@ -297,9 +299,10 @@ gets a stable internal task id based on the anchor. Write-back commands resolve
 that anchor before falling back to line numbers, so completing or editing the
 task still works after lines are inserted above it.
 
-Indexing and workflow read models consume the typed parse result. Rendering and
-autocomplete should continue moving toward the same model as the editor layer is
-hardened. Avoid adding unrelated regex scans for each new feature.
+Indexing, workflow read models, read-mode inline rendering, and editor token
+highlighting consume typed parse results. Export, spellcheck, and autocomplete
+trigger detection should continue moving toward the same model where it is
+practical. Avoid adding unrelated regex scans for each new feature.
 
 Current parser diagnostics are warnings. They are intended to drive editor
 nudges and migration tools, not to make a plain Markdown note unreadable or

@@ -187,8 +187,10 @@ Daily-use quality means:
 - [x] Use typed parsed facts for indexing and workflow read models.
 - [x] Track stable task source spans and block anchors for write-back.
 - [x] Resolve anchored task ids before falling back to line-number write-back.
-- [ ] Replace remaining feature-specific regex scans in rendering and
-  autocomplete with structured parsed facts where practical.
+- [x] Move read-mode inline rendering and editor token highlighting onto typed
+  inline entity facts.
+- [ ] Continue moving export, spellcheck, and autocomplete edge scanners onto
+  structured parsed facts where practical.
 - [x] Add parser diagnostics for invalid properties, ambiguous people, duplicate
   anchors, and unsupported old syntax.
 - [x] Detect URLs, emails, and social handles as contact facts without promoting

@@ -1050,6 +1050,31 @@ fn ac_detect_grammar() {
     );
 }
 
+#[test]
+fn editor_token_matchers_use_core_inline_entities() {
+    let line = "See [[Acme]] @[[Jane]] @marctjones marc@joneslaw.io https://joneslaw.io.";
+
+    let projects = find_wikilinks(line);
+    assert_eq!(projects.len(), 1);
+    assert_eq!(projects[0].value, "Acme");
+
+    let people = find_mentions(line);
+    assert_eq!(people.len(), 1);
+    assert_eq!(people[0].value, "Jane");
+
+    let social = find_social_handles(line);
+    assert_eq!(social.len(), 1);
+    assert_eq!(social[0].value, "@marctjones");
+
+    let emails = find_emails(line);
+    assert_eq!(emails.len(), 1);
+    assert_eq!(emails[0].value, "marc@joneslaw.io");
+
+    let urls = find_urls(line);
+    assert_eq!(urls.len(), 1);
+    assert_eq!(urls[0].value, "https://joneslaw.io");
+}
+
 /// Char offset for "jump to a todo's line" when opening its note from a task/card.
 #[test]
 fn line_char_offset_lands_on_the_right_line() {

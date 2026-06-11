@@ -36,8 +36,10 @@ Remaining core work:
 - [x] Ensure task source spans are stable enough for anchored write-back and
   promotion.
 - [x] Promote inline task to task note while preserving source context.
-- [ ] Move rendering and autocomplete onto the typed parsed-note model where
-  practical.
+- [x] Move read-mode inline rendering and editor token highlighting onto typed
+  inline entity facts.
+- [ ] Continue moving export, spellcheck, and autocomplete edge scanners onto
+  typed parsed facts where practical.
 - [x] Add parser diagnostics for invalid properties, ambiguous people, duplicate
   task anchors, and unsupported old syntax.
 - [x] Detect URLs, emails, and social handles as source-spanned contact facts

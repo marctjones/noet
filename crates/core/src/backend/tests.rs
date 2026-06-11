@@ -135,6 +135,70 @@ Also see @marctjones and https://joneslaw.io with @[[Jane]].\n";
 }
 
 #[test]
+fn inline_entities_expose_typed_ranges_for_rendering_and_editor_tokens() {
+    let line = "See [[Acme]] @[[Jane]] #followup marc@joneslaw.io @marc@maston.social @marctjones https://joneslaw.io.";
+    let entities = parse_inline_entities(line);
+    let facts: Vec<_> = entities
+        .iter()
+        .map(|entity| {
+            (
+                entity.kind,
+                entity.text.as_str(),
+                entity.value.as_str(),
+                entity.char_start,
+                entity.char_end,
+            )
+        })
+        .collect();
+
+    assert!(facts.contains(&(InlineEntityKind::Project, "Acme", "Acme", 4, 12)));
+    assert!(facts.contains(&(InlineEntityKind::Person, "@Jane", "Jane", 13, 22)));
+    assert!(facts.contains(&(InlineEntityKind::Tag, "#followup", "followup", 23, 32)));
+    assert!(facts
+        .iter()
+        .any(|(kind, _, value, _, _)| *kind == InlineEntityKind::Email
+            && *value == "marc@joneslaw.io"));
+    assert!(facts
+        .iter()
+        .any(|(kind, _, value, _, _)| *kind == InlineEntityKind::Social
+            && *value == "@marc@maston.social"));
+    assert!(
+        facts
+            .iter()
+            .any(|(kind, _, value, _, _)| *kind == InlineEntityKind::Social
+                && *value == "@marctjones")
+    );
+    assert!(facts
+        .iter()
+        .any(|(kind, _, value, _, _)| *kind == InlineEntityKind::Url
+            && *value == "https://joneslaw.io"));
+    assert!(!facts
+        .iter()
+        .any(|(kind, _, value, _, _)| *kind == InlineEntityKind::Person && *value == "marctjones"));
+
+    let segments = line_segments(line);
+    assert!(segments
+        .iter()
+        .any(|segment| segment.kind == "email" && segment.value == "marc@joneslaw.io"));
+    assert!(segments
+        .iter()
+        .any(|segment| segment.kind == "social" && segment.value == "@marctjones"));
+}
+
+#[test]
+fn inline_entities_do_not_index_source_or_legacy_workstreams() {
+    let body = "source:[[Meeting Note#^launch-risks]]\n+[[Legacy Project]]\n[[Current Project]]\n";
+    let parsed = parse_markdown("N1", body);
+
+    assert_eq!(parsed.workstreams, vec!["Current Project"]);
+    assert_eq!(parsed.source_links.len(), 1);
+    assert!(parsed
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == "unsupported-old-workstream-syntax"));
+}
+
+#[test]
 fn parsed_markdown_warns_on_duplicate_task_anchors() {
     let body = "\
 - [ ] First task ^same-anchor\n\

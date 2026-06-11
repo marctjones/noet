@@ -406,108 +406,56 @@ fn rich_autocomplete_accept(ui: &AppWindow) {
     rich_after_edit(ui);
 }
 
-// ---- sred domain tokens: color `[[wikilink]]` / `@[[person]]` / `#tag` / url in
-// the editor and make them clickable (route to the existing facet filters). ----
+// ---- sred domain tokens: color typed Noet inline entities from noet-core in
+// the editor and make them clickable where a workflow action exists. ----
 
-/// Find `[[Name]]` runs in a line; value = the inner name.
+fn find_inline_kind(line: &str, kind: backend::InlineEntityKind) -> Vec<SredMatch> {
+    backend::parse_inline_entities(line)
+        .into_iter()
+        .filter(|entity| entity.kind == kind)
+        .map(|entity| SredMatch {
+            start: entity.char_start,
+            end: entity.char_end,
+            value: entity.value,
+        })
+        .collect()
+}
+
 fn find_wikilinks(line: &str) -> Vec<SredMatch> {
-    let c: Vec<char> = line.chars().collect();
-    let mut out = Vec::new();
-    let mut i = 0;
-    while i + 1 < c.len() {
-        if c[i] == '[' && c[i + 1] == '[' {
-            if let Some(close) =
-                (i + 2..c.len().saturating_sub(1)).find(|&k| c[k] == ']' && c[k + 1] == ']')
-            {
-                out.push(SredMatch {
-                    start: i,
-                    end: close + 2,
-                    value: c[i + 2..close].iter().collect(),
-                });
-                i = close + 2;
-                continue;
-            }
-        }
-        i += 1;
-    }
-    out
+    find_inline_kind(line, backend::InlineEntityKind::Project)
 }
 
-/// Find canonical `@[[Name]]` mentions.
 fn find_mentions(line: &str) -> Vec<SredMatch> {
-    let c: Vec<char> = line.chars().collect();
-    let mut out = Vec::new();
-    let mut i = 0;
-    while i < c.len() {
-        let boundary = i == 0 || c[i - 1].is_whitespace();
-        if boundary && c[i] == '@' {
-            if i + 2 < c.len() && c[i + 1] == '[' && c[i + 2] == '[' {
-                if let Some(close) =
-                    (i + 3..c.len().saturating_sub(1)).find(|&k| c[k] == ']' && c[k + 1] == ']')
-                {
-                    out.push(SredMatch {
-                        start: i,
-                        end: close + 2,
-                        value: c[i + 3..close].iter().collect(),
-                    });
-                    i = close + 2;
-                    continue;
-                }
-            }
-        }
-        i += 1;
-    }
-    out
+    find_inline_kind(line, backend::InlineEntityKind::Person)
 }
 
-/// Find `#tag` labels (word-boundary).
 fn find_tags(line: &str) -> Vec<SredMatch> {
-    let c: Vec<char> = line.chars().collect();
-    let mut out = Vec::new();
-    let mut i = 0;
-    while i < c.len() {
-        let boundary = i == 0 || c[i - 1].is_whitespace();
-        if boundary && c[i] == '#' && i + 1 < c.len() && c[i + 1].is_alphabetic() {
-            let mut j = i + 1;
-            while j < c.len() && (c[j].is_alphanumeric() || matches!(c[j], '_' | '-')) {
-                j += 1;
-            }
-            out.push(SredMatch {
-                start: i,
-                end: j,
-                value: c[i + 1..j].iter().collect(),
-            });
-            i = j;
-            continue;
-        }
-        i += 1;
-    }
-    out
+    find_inline_kind(line, backend::InlineEntityKind::Tag)
 }
 
-/// Find `http(s)://…` URLs.
 fn find_urls(line: &str) -> Vec<SredMatch> {
-    let c: Vec<char> = line.chars().collect();
-    let mut out = Vec::new();
-    let mut i = 0;
-    while i < c.len() {
-        let rest: String = c[i..].iter().collect();
-        if rest.starts_with("http://") || rest.starts_with("https://") {
-            let mut j = i;
-            while j < c.len() && !c[j].is_whitespace() {
-                j += 1;
-            }
-            out.push(SredMatch {
-                start: i,
-                end: j,
-                value: c[i..j].iter().collect(),
-            });
-            i = j;
-            continue;
-        }
-        i += 1;
-    }
-    out
+    backend::parse_inline_entities(line)
+        .into_iter()
+        .filter(|entity| {
+            matches!(
+                entity.kind,
+                backend::InlineEntityKind::MarkdownLink | backend::InlineEntityKind::Url
+            )
+        })
+        .map(|entity| SredMatch {
+            start: entity.char_start,
+            end: entity.char_end,
+            value: entity.value,
+        })
+        .collect()
+}
+
+fn find_emails(line: &str) -> Vec<SredMatch> {
+    find_inline_kind(line, backend::InlineEntityKind::Email)
+}
+
+fn find_social_handles(line: &str) -> Vec<SredMatch> {
+    find_inline_kind(line, backend::InlineEntityKind::Social)
 }
 
 /// Register Noet's domain tokens on the sred editor (call once at startup).
@@ -538,6 +486,18 @@ fn rich_register_tokens() {
             fg: [45, 108, 223, 255],
             bg: None,
             matcher: Box::new(find_urls),
+        });
+        e.register_token(SredToken {
+            id: "email".into(),
+            fg: [31, 91, 137, 255],
+            bg: Some([238, 246, 255, 255]),
+            matcher: Box::new(find_emails),
+        });
+        e.register_token(SredToken {
+            id: "social".into(),
+            fg: [71, 85, 105, 255],
+            bg: Some([238, 242, 247, 255]),
+            matcher: Box::new(find_social_handles),
         });
     });
 }
@@ -2162,6 +2122,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                     "tag" => ui.invoke_toggle_tag(value.into()),
                     "person" => ui.invoke_toggle_person(value.into()),
                     "url" => ui.invoke_open_url(value.into()),
+                    "email" => ui.invoke_open_url(format!("mailto:{value}").into()),
                     _ => {}
                 }
                 return;

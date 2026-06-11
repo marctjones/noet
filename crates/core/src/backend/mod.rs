@@ -30,9 +30,10 @@ pub use model::{
     STATUSES,
 };
 pub use parse::{
-    clean_inline, line_segments, markdown_blocks, parse_links, parse_markdown, parse_mentions,
-    parse_properties, parse_source_links, parse_tags, parse_todo_lines, parse_todos, ContactFact,
-    ContactKind, ParseDiagnostic, ParseSeverity, ParsedMarkdown, ParsedTodoLine, SourceLink,
+    clean_inline, line_segments, markdown_blocks, parse_inline_entities, parse_links,
+    parse_markdown, parse_mentions, parse_properties, parse_source_links, parse_tags,
+    parse_todo_lines, parse_todos, ContactFact, ContactKind, InlineEntity, InlineEntityKind,
+    ParseDiagnostic, ParseSeverity, ParsedMarkdown, ParsedTodoLine, SourceLink,
 };
 pub use settings::Settings;
 pub use vault::{detect_kind, effective_kind, markdown_title, set_markdown_title};

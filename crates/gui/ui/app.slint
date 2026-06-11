@@ -408,6 +408,8 @@ component SegmentSpan inherits Rectangle {
     background:
         !token ? transparent :
         seg.kind == "url" ? #efe7fd :
+        seg.kind == "email" ? #eef6ff :
+        seg.kind == "social" ? #eef2f7 :
         seg.kind == "project" ? #e7f7ec :
         seg.kind == "person" ? #fdeede :
         #f3ecfb;
@@ -425,6 +427,8 @@ component SegmentSpan inherits Rectangle {
         font-size: (13px * Z.f);
         color:
             root.seg.kind == "url" ? #5b1b9a :
+            root.seg.kind == "email" ? #1f5b89 :
+            root.seg.kind == "social" ? #475569 :
             root.seg.kind == "project" ? #1f7a44 :
             root.seg.kind == "person" ? #9a5b1b :
             root.seg.kind == "tag" ? #5b1b9a :
@@ -1670,6 +1674,7 @@ export component AppWindow inherits Window {
                                                         rich-ac-pick(i) => { root.rich-ac-pick(i); }
                                                         activate-segment(kind, value) => {
                                                             if (kind == "url") { root.open-url(value); }
+                                                            if (kind == "email") { root.open-url("mailto:" + value); }
                                                             if (kind == "project") { root.toggle-project(value); }
                                                             if (kind == "person") { root.toggle-person(value); }
                                                             if (kind == "tag") { root.toggle-tag(value); }
@@ -1726,6 +1731,7 @@ export component AppWindow inherits Window {
                                                         rich-ac-pick(i) => { root.rich-ac-pick(i); }
                                                         activate-segment(kind, value) => {
                                                             if (kind == "url") { root.open-url(value); }
+                                                            if (kind == "email") { root.open-url("mailto:" + value); }
                                                             if (kind == "project") { root.toggle-project(value); }
                                                             if (kind == "person") { root.toggle-person(value); }
                                                             if (kind == "tag") { root.toggle-tag(value); }
