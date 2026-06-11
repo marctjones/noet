@@ -1,10 +1,10 @@
-use chrono::{Duration, NaiveDate};
+use chrono::{Datelike, Duration, NaiveDate};
 use noet_core::backend;
 use noet_core::backend::Filter;
 use slint::{ModelRc, VecModel};
 
 use crate::{
-    BoardColumn, FacetItem, FilterChip, GanttItem, NoteItem, NoteRef, RelatedRef, TodoItem,
+    BoardColumn, CalCell, FacetItem, FilterChip, GanttItem, NoteItem, NoteRef, RelatedRef, TodoItem,
 };
 
 pub fn note_item(n: &backend::Note) -> NoteItem {
@@ -154,6 +154,92 @@ pub fn workstream_surface(todos: &[backend::Todo], notes: &[backend::Note]) -> W
     WorkstreamSurface {
         todos: todo_items(todos),
         notes: note_refs_from_notes(notes),
+    }
+}
+
+fn month_name(month: u32) -> &'static str {
+    [
+        "",
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    ]
+    .get(month as usize)
+    .copied()
+    .unwrap_or("")
+}
+
+#[derive(Clone)]
+pub struct CalendarSurface {
+    pub label: String,
+    pub cells: Vec<CalCell>,
+}
+
+pub fn calendar_surface(
+    todos: &[backend::Todo],
+    year: i32,
+    month: u32,
+    today: NaiveDate,
+) -> CalendarSurface {
+    let first = NaiveDate::from_ymd_opt(year, month, 1).unwrap_or_default();
+    let start_pad = first.weekday().num_days_from_monday() as usize;
+    let (next_year, next_month) = if month == 12 {
+        (year + 1, 1)
+    } else {
+        (year, month + 1)
+    };
+    let days = NaiveDate::from_ymd_opt(next_year, next_month, 1)
+        .unwrap_or_default()
+        .signed_duration_since(first)
+        .num_days() as usize;
+    let prefix = format!("{year}-{month:02}-");
+    let mut by_date: std::collections::HashMap<String, Vec<TodoItem>> =
+        std::collections::HashMap::new();
+    for todo in todos {
+        if todo.due.starts_with(&prefix) {
+            by_date
+                .entry(todo.due.clone())
+                .or_default()
+                .push(todo_item(todo));
+        }
+    }
+
+    let today = today.format("%Y-%m-%d").to_string();
+    let empty = || ModelRc::new(VecModel::from(Vec::<TodoItem>::new()));
+    let mut cells = Vec::with_capacity(42);
+    for idx in 0..42usize {
+        if idx < start_pad || idx >= start_pad + days {
+            cells.push(CalCell {
+                day: 0,
+                date: "".into(),
+                today: false,
+                items: empty(),
+            });
+        } else {
+            let day = (idx - start_pad + 1) as u32;
+            let date = format!("{year}-{month:02}-{day:02}");
+            let items = by_date.remove(&date).unwrap_or_default();
+            cells.push(CalCell {
+                day: day as i32,
+                date: date.clone().into(),
+                today: date == today,
+                items: ModelRc::new(VecModel::from(items)),
+            });
+        }
+    }
+
+    CalendarSurface {
+        label: format!("{} {year}", month_name(month)),
+        cells,
     }
 }
 
@@ -685,6 +771,43 @@ mod tests {
         let trash = trash_note_refs(&[("old.md".into(), "Deleted note".into())]);
         assert_eq!(trash[0].id.to_string(), "old.md");
         assert_eq!(trash[0].title.to_string(), "Deleted note");
+    }
+
+    #[test]
+    fn calendar_surface_builds_fixed_month_grid() {
+        let todos = vec![
+            todo("n1:1", "2026-06-11", "Due today"),
+            todo("n1:2", "2026-07-01", "Outside month"),
+        ];
+
+        let surface = calendar_surface(
+            &todos,
+            2026,
+            6,
+            NaiveDate::from_ymd_opt(2026, 6, 11).unwrap(),
+        );
+        assert_eq!(surface.label, "June 2026");
+        assert_eq!(surface.cells.len(), 42);
+        assert_eq!(surface.cells[0].day, 1);
+
+        let today = surface
+            .cells
+            .iter()
+            .find(|cell| cell.date.to_string() == "2026-06-11")
+            .unwrap();
+        assert!(today.today);
+        assert_eq!(today.items.row_count(), 1);
+        assert_eq!(
+            today.items.row_data(0).unwrap().text.to_string(),
+            "Due today"
+        );
+
+        let july_items = surface
+            .cells
+            .iter()
+            .filter(|cell| cell.items.row_count() > 0)
+            .count();
+        assert_eq!(july_items, 1);
     }
 
     #[test]

@@ -610,80 +610,6 @@ pub(crate) struct State {
     pub(crate) pinned: Vec<String>,
 }
 
-fn month_name(m: u32) -> &'static str {
-    [
-        "",
-        "January",
-        "February",
-        "March",
-        "April",
-        "May",
-        "June",
-        "July",
-        "August",
-        "September",
-        "October",
-        "November",
-        "December",
-    ]
-    .get(m as usize)
-    .copied()
-    .unwrap_or("")
-}
-
-fn build_calendar(b: &Backend, f: &Filter, year: i32, month: u32) -> (String, ModelRc<CalCell>) {
-    use chrono::{Datelike, NaiveDate};
-    let first = NaiveDate::from_ymd_opt(year, month, 1).unwrap_or_default();
-    let start_pad = first.weekday().num_days_from_monday() as usize;
-    let (ny, nm) = if month == 12 {
-        (year + 1, 1)
-    } else {
-        (year, month + 1)
-    };
-    let days = NaiveDate::from_ymd_opt(ny, nm, 1)
-        .unwrap_or_default()
-        .signed_duration_since(first)
-        .num_days() as usize;
-    let prefix = format!("{year}-{month:02}-");
-    let mut by_date: std::collections::HashMap<String, Vec<TodoItem>> =
-        std::collections::HashMap::new();
-    for t in b.query_todos(f).unwrap_or_default().iter() {
-        if t.due.starts_with(&prefix) {
-            by_date
-                .entry(t.due.clone())
-                .or_default()
-                .push(surface_adapters::todo_item(t));
-        }
-    }
-    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-    let empty = || ModelRc::new(VecModel::from(Vec::<TodoItem>::new()));
-    let mut cells: Vec<CalCell> = Vec::with_capacity(42);
-    for i in 0..42usize {
-        if i < start_pad || i >= start_pad + days {
-            cells.push(CalCell {
-                day: 0,
-                date: "".into(),
-                today: false,
-                items: empty(),
-            });
-        } else {
-            let d = (i - start_pad + 1) as u32;
-            let date = format!("{year}-{month:02}-{d:02}");
-            let items = by_date.remove(&date).unwrap_or_default();
-            cells.push(CalCell {
-                day: d as i32,
-                today: date == today,
-                date: date.into(),
-                items: ModelRc::new(VecModel::from(items)),
-            });
-        }
-    }
-    (
-        format!("{} {year}", month_name(month)),
-        ModelRc::new(VecModel::from(cells)),
-    )
-}
-
 /// Resolve the vault location. Precedence: an explicit `$NOET_VAULT` (transient
 /// override) → the persisted `settings.json` → the default under Documents. The
 /// default is written to settings.json on first run so the location is explicit
@@ -1008,9 +934,15 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
     }
     ui.set_smart_lists(str_model(&b.list_smart_lists()));
     if view == "calendar" {
-        let (cl, cc) = build_calendar(b, f, state.cal_year, state.cal_month);
-        ui.set_cal_label(cl.into());
-        ui.set_cal_cells(cc);
+        let todos = b.query_todos(f).unwrap_or_default();
+        let calendar = surface_adapters::calendar_surface(
+            &todos,
+            state.cal_year,
+            state.cal_month,
+            chrono::Local::now().date_naive(),
+        );
+        ui.set_cal_label(calendar.label.into());
+        ui.set_cal_cells(ModelRc::new(VecModel::from(calendar.cells)));
     }
 
     // Standalone 1:1 workspace, keyed by the selected person.
