@@ -13,7 +13,7 @@ use super::*;
 use i_slint_backend_testing as itest;
 use itest::{AccessibleRole, ElementHandle, ElementQuery};
 use slint::platform::{Key, WindowEvent};
-use slint::{ComponentHandle, Model, SharedString};
+use slint::{ComponentHandle, LogicalSize, Model, SharedString};
 
 #[test]
 fn headless_ui_smoke() {
@@ -751,6 +751,33 @@ fn headless_ui_smoke() {
         ui.get_notes().row_count() >= 1,
         "workspace refresh populates note browser data"
     );
+    resize_window(ui, 720.0, 560.0);
+    itest::mock_elapsed_time(std::time::Duration::from_millis(16));
+    assert!(ui.get_workspace_tight(), "720px is a tight workspace");
+    assert!(ui.get_workspace_short(), "560px is a short workspace");
+    assert!(
+        !ui.get_workspace_left_eff_open(),
+        "tight workspaces hide the navigation drawer"
+    );
+    assert!(
+        !ui.get_workspace_right_eff_open(),
+        "compact workspaces hide the context pane"
+    );
+    assert!(
+        !ui.get_workspace_bottom_eff_open(),
+        "short workspaces hide the queue pane"
+    );
+    resize_window(ui, 1280.0, 820.0);
+    itest::mock_elapsed_time(std::time::Duration::from_millis(16));
+    assert!(
+        ui.get_workspace_left_eff_open() && ui.get_workspace_right_eff_open(),
+        "wide workspaces show side panes when their pane state is open"
+    );
+    assert!(
+        ui.get_workspace_bottom_eff_open(),
+        "tall workspaces show the queue when its pane state is open"
+    );
+
     send_key_combo(ui, &[Key::Control.into(), "2".into()]);
     assert_eq!(
         ui.get_workspace_primary(),
@@ -985,6 +1012,12 @@ fn send_key_combo(ui: &AppWindow, keys: &[SharedString]) {
     for key in keys.iter().rev() {
         window.dispatch_event(WindowEvent::KeyReleased { text: key.clone() });
     }
+}
+
+fn resize_window(ui: &AppWindow, width: f32, height: f32) {
+    ui.window().dispatch_event(WindowEvent::Resized {
+        size: LogicalSize::new(width, height),
+    });
 }
 
 /// Integration guard for the opt-in Typst fragment renderer: the hook Noet wires

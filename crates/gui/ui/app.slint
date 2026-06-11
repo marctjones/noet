@@ -729,6 +729,7 @@ export component AppWindow inherits Window {
     // creates a binding loop (root.width → eff flag → child max-width →
     // layoutinfo-h → root.width). The imperative mirror breaks that cycle.
     property <length> win-w: 1280px;
+    property <length> win-h: 820px;
     out property <bool> nav-eff-collapsed: root.nav-collapsed || root.win-w < 720px;
     out property <bool> rail-eff-hidden: root.rail-hidden || root.focus-mode || root.win-w < 860px;
     in-out property <string> open-menu: ""; // which menu-bar dropdown is open ("" = none)
@@ -797,6 +798,18 @@ export component AppWindow inherits Window {
     in-out property <length> workspace-left-width: 260px;
     in-out property <length> workspace-right-width: 340px;
     in-out property <length> workspace-bottom-height: 190px;
+    out property <bool> workspace-compact: root.win-w < 960px;
+    out property <bool> workspace-tight: root.win-w < 760px;
+    out property <bool> workspace-short: root.win-h < 620px;
+    out property <bool> workspace-left-eff-open: root.workspace-left-open && !root.focus-mode && !root.workspace-tight;
+    out property <bool> workspace-right-eff-open: root.workspace-right-open && !root.focus-mode && !root.workspace-compact;
+    out property <bool> workspace-bottom-eff-open: root.workspace-bottom-open && !root.focus-mode && !root.workspace-short;
+    out property <length> workspace-left-eff-width: min(root.workspace-left-width, max(180px, root.win-w * 0.30));
+    out property <length> workspace-right-eff-width: min(root.workspace-right-width, max(220px, root.win-w * 0.34));
+    out property <length> workspace-bottom-eff-height: min(root.workspace-bottom-height, max(120px, root.win-h * 0.34));
+    out property <length> workspace-pad: root.workspace-tight ? 6px : 10px;
+    out property <length> workspace-gap: root.workspace-tight ? 6px : 8px;
+    out property <length> workspace-rail-gap: root.workspace-tight ? 6px : 10px;
     callback workspace-switch(string);
     callback workspace-open-pane(string);
     callback workspace-close-pane(string);
@@ -957,6 +970,7 @@ export component AppWindow inherits Window {
     // This is a one-way imperative push, so the responsive breakpoints can read it
     // without forming a layout binding loop.
     changed width => { root.win-w = root.width; }
+    changed height => { root.win-h = root.height; }
 
     // The sred editor renders to a bitmap (not reactive to Theme), so re-render it
     // when the color scheme flips — at OS-scheme detection on launch *and* on the
@@ -1043,7 +1057,7 @@ export component AppWindow inherits Window {
                 vertical-stretch: 1;
                 background: Theme.bg;
                 HorizontalLayout {
-                    padding: 10px;
+                    padding: root.workspace-pad;
                     spacing: 0px;
 
                     // App navigation is a workspace picker, not a page owner.
@@ -1076,20 +1090,20 @@ export component AppWindow inherits Window {
                         }
                     }
 
-                    if !root.focus-mode: Rectangle { width: 10px; }
+                    if !root.focus-mode: Rectangle { width: root.workspace-rail-gap; }
 
-                    if root.workspace-left-open && !root.focus-mode: Rectangle {
-                        preferred-width: root.workspace-left-width;
-                        min-width: 190px;
-                        max-width: root.workspace-left-width;
+                    if root.workspace-left-eff-open: Rectangle {
+                        preferred-width: root.workspace-left-eff-width;
+                        min-width: min(180px, root.workspace-left-eff-width);
+                        max-width: root.workspace-left-eff-width;
                         background: Theme.surface2;
                         border-radius: 8px;
                         border-width: 1px;
                         border-color: Theme.border;
                         clip: true;
                         VerticalLayout {
-                            padding: 10px;
-                            spacing: 8px;
+                            padding: root.workspace-pad;
+                            spacing: root.workspace-gap;
                             HorizontalLayout {
                                 SectionTitle { title: "NAVIGATION"; detail: root.workspace-nav-surface; accent: Theme.accent; horizontal-stretch: 1; }
                                 CloseX { a11y: "Close navigation drawer"; closed => { root.workspace-close-pane(root.workspace-left-pane-id); } }
@@ -1186,7 +1200,7 @@ export component AppWindow inherits Window {
                         }
                     }
 
-                    if root.workspace-left-open && !root.focus-mode: Rectangle {
+                    if root.workspace-left-eff-open: Rectangle {
                         width: 9px;
                         background: (leftResize.has-hover || leftResize.pressed) ? #c8d0d9 : transparent;
                         leftResize := TouchArea {
@@ -1210,11 +1224,11 @@ export component AppWindow inherits Window {
                         horizontal-stretch: 1;
                         background: transparent;
                         VerticalLayout {
-                            spacing: 8px;
+                            spacing: root.workspace-gap;
                             Rectangle {
                                 vertical-stretch: 1;
                                 HorizontalLayout {
-                                    spacing: 8px;
+                                    spacing: root.workspace-gap;
                                     Rectangle {
                                         horizontal-stretch: 1;
                                         background: Theme.surface;
@@ -1223,8 +1237,8 @@ export component AppWindow inherits Window {
                                         border-color: Theme.border;
                                         clip: true;
                                         VerticalLayout {
-                                            padding: 10px;
-                                            spacing: 8px;
+                                            padding: root.workspace-pad;
+                                            spacing: root.workspace-gap;
                                             HorizontalLayout {
                                                 SectionTitle {
                                                     title: root.workspace-primary == "oneonone" ? "1:1 FOCUS" : (root.workspace-primary == "notes" ? "NOTES" : (root.workspace-primary == "tasks" ? "TASKS" : (root.workspace-primary == "board" ? "BOARD" : (root.workspace-primary == "settings" ? "SETTINGS" : "REVIEW"))));
@@ -1232,9 +1246,9 @@ export component AppWindow inherits Window {
                                                     accent: Theme.accent;
                                                     horizontal-stretch: 1;
                                                 }
-                                                ActionButton { icon: Icons.people; label: root.workspace-left-open ? "" : "Nav"; a11y: "Show navigation drawer"; clicked => { root.workspace-open-pane(root.workspace-left-pane-id); } }
-                                                ActionButton { icon: Icons.panel-right; label: root.workspace-right-open ? "" : "Context"; a11y: "Show context pane"; clicked => { root.workspace-open-pane(root.workspace-right-pane-id); } }
-                                                ActionButton { icon: Icons.tasks; label: root.workspace-bottom-open ? "" : "Queue"; a11y: "Show queue pane"; clicked => { root.workspace-open-pane(root.workspace-bottom-pane-id); } }
+                                                ActionButton { icon: Icons.people; label: root.workspace-left-eff-open ? "" : "Nav"; a11y: "Show navigation drawer"; clicked => { root.workspace-open-pane(root.workspace-left-pane-id); } }
+                                                ActionButton { icon: Icons.panel-right; label: root.workspace-right-eff-open ? "" : "Context"; a11y: "Show context pane"; clicked => { root.workspace-open-pane(root.workspace-right-pane-id); } }
+                                                ActionButton { icon: Icons.tasks; label: root.workspace-bottom-eff-open ? "" : "Queue"; a11y: "Show queue pane"; clicked => { root.workspace-open-pane(root.workspace-bottom-pane-id); } }
                                             }
                                             HorizontalLayout {
                                                 spacing: 5px;
@@ -1453,7 +1467,7 @@ export component AppWindow inherits Window {
                                         }
                                     }
 
-                                    if root.workspace-right-open && !root.focus-mode: Rectangle {
+                                    if root.workspace-right-eff-open: Rectangle {
                                         width: 9px;
                                         background: (rightResize.has-hover || rightResize.pressed) ? #c8d0d9 : transparent;
                                         rightResize := TouchArea {
@@ -1473,18 +1487,18 @@ export component AppWindow inherits Window {
                                         }
                                     }
 
-                                    if root.workspace-right-open && !root.focus-mode: Rectangle {
-                                        preferred-width: root.workspace-right-width;
-                                        min-width: 240px;
-                                        max-width: root.workspace-right-width;
+                                    if root.workspace-right-eff-open: Rectangle {
+                                        preferred-width: root.workspace-right-eff-width;
+                                        min-width: min(220px, root.workspace-right-eff-width);
+                                        max-width: root.workspace-right-eff-width;
                                         background: Theme.surface2;
                                         border-radius: 8px;
                                         border-width: 1px;
                                         border-color: Theme.border;
                                         clip: true;
                                         VerticalLayout {
-                                            padding: 10px;
-                                            spacing: 8px;
+                                            padding: root.workspace-pad;
+                                            spacing: root.workspace-gap;
                                             HorizontalLayout {
                                                 SectionTitle { title: "CONTEXT"; detail: root.workspace-primary; accent: #7a5b9a; horizontal-stretch: 1; }
                                                 CloseX { a11y: "Close context pane"; closed => { root.workspace-close-pane(root.workspace-right-pane-id); } }
@@ -1558,7 +1572,7 @@ export component AppWindow inherits Window {
                                 }
                             }
 
-                            if root.workspace-bottom-open && !root.focus-mode: Rectangle {
+                            if root.workspace-bottom-eff-open: Rectangle {
                                 height: 9px;
                                 background: (bottomResize.has-hover || bottomResize.pressed) ? #c8d0d9 : transparent;
                                 bottomResize := TouchArea {
@@ -1578,16 +1592,16 @@ export component AppWindow inherits Window {
                                 }
                             }
 
-                            if root.workspace-bottom-open && !root.focus-mode: Rectangle {
-                                height: root.workspace-bottom-height;
+                            if root.workspace-bottom-eff-open: Rectangle {
+                                height: root.workspace-bottom-eff-height;
                                 background: Theme.surface2;
                                 border-radius: 8px;
                                 border-width: 1px;
                                 border-color: Theme.border;
                                 clip: true;
                                 VerticalLayout {
-                                    padding: 10px;
-                                    spacing: 8px;
+                                    padding: root.workspace-pad;
+                                    spacing: root.workspace-gap;
                                     HorizontalLayout {
                                         SectionTitle { title: "QUEUE"; detail: "follow-up work"; accent: #b8742e; horizontal-stretch: 1; }
                                         CloseX { a11y: "Close queue pane"; closed => { root.workspace-close-pane(root.workspace-bottom-pane-id); } }

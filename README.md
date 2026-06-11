@@ -45,6 +45,9 @@ Implemented foundation:
 - The workspace shell has keyboard shortcuts for command palette, shortcut
   help, focus mode, switching primary surfaces, and toggling navigation,
   context, and queue panes.
+- Pane visibility and density respond to window size: compact windows hide
+  context first, tight windows hide navigation drawers, and short windows hide
+  the queue while preserving the primary work surface.
 - Tasks, Board, and Review surfaces now consume workflow read models instead of
   ad hoc GUI todo queries.
 - Inline tasks can be promoted into full task notes while leaving a linked
