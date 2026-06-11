@@ -77,7 +77,11 @@ NOET_VAULT=/tmp/noet-review-vault cargo run -p noet-gui
 - Tasks surface lists open tasks with status, person, project, due date, and
   priority where present.
 - Status checkbox cycles task status and writes back to Markdown.
+- Task write-back failures show a status message instead of silently failing.
 - Open task jumps to the source note line.
+- Review actions can advance task status and the change survives reindexing.
+- Board move and drop actions update the source task line and survive
+  reindexing.
 - Promote task creates a standalone task note with a source link.
 - Edit task opens the task editor without exposing fake default project values.
 

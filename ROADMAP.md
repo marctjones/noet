@@ -200,6 +200,15 @@ Current Notes progress:
   selection preservation.
 - [ ] Manual review read/edit/source/context workflow on a non-empty vault.
 
+Current Tasks/Review/Board progress:
+
+- [x] GUI task mutation callbacks share one write-back/refresh/error path.
+- [x] GUI smoke tests cover task toggling from Tasks, status cycling from
+  Review, and Board move/drop write-back against Markdown source.
+- [ ] Task editing UX still needs a daily-use pass for low-friction status,
+  workflow, due, priority, person, and workstream edits.
+- [ ] Manual review task/review/board flows against a realistic vault.
+
 Daily-use quality means:
 
 - keyboard and pointer actions work without raw Markdown leaks outside source mode

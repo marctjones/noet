@@ -1103,6 +1103,113 @@ fn headless_ui_smoke() {
         );
     }
 
+    // ----- Level 15: task/review/board actions write back to Markdown -----
+    let task_action_note_id;
+    {
+        let mut st = ctx.state.borrow_mut();
+        let n = st.backend.new_note().unwrap();
+        st.backend
+            .save_note(
+                &n.id,
+                "Task writeback",
+                "# Task writeback\n\n- [ ] task list toggle #mine [[Ops]]\n- [ ] review cycle #mine due:2000-01-01\n- [ ] board move #mine [[Ops]]\n- [ ] board drop #mine [[Ops]]\n",
+            )
+            .unwrap();
+        task_action_note_id = n.id.clone();
+    }
+    ctx.state.borrow_mut().backend.reindex_all().unwrap();
+    refresh(ui, &ctx.state.borrow());
+
+    let task_toggle_id = format!("{task_action_note_id}:2");
+    ui.invoke_workspace_switch("tasks".into());
+    assert_eq!(ui.get_workspace_primary(), "tasks");
+    assert!(
+        (0..ui.get_tasks().row_count()).any(|i| {
+            let task = ui.get_tasks().row_data(i).unwrap();
+            task.id == task_toggle_id && task.text == "task list toggle"
+        }),
+        "Tasks workspace lists the Markdown-backed task"
+    );
+    ui.invoke_toggle_todo(task_toggle_id.clone().into());
+    let toggled = ctx
+        .state
+        .borrow()
+        .backend
+        .get_todo(&task_toggle_id)
+        .unwrap();
+    assert!(toggled.done, "Tasks action toggles the task on disk");
+    assert_eq!(ui.get_status_text(), "Task toggled");
+
+    let review_cycle_id = format!("{task_action_note_id}:3");
+    ui.invoke_workspace_switch("review".into());
+    assert_eq!(ui.get_workspace_primary(), "review");
+    assert!(
+        (0..ui.get_review_overdue().row_count()).any(|i| {
+            let task = ui.get_review_overdue().row_data(i).unwrap();
+            task.id == review_cycle_id && task.text == "review cycle"
+        }),
+        "Review workspace exposes the overdue Markdown-backed task"
+    );
+    ui.invoke_cycle_todo(review_cycle_id.clone().into());
+    let cycled = ctx
+        .state
+        .borrow()
+        .backend
+        .get_todo(&review_cycle_id)
+        .unwrap();
+    assert_eq!(cycled.status, "doing", "Review action cycles task status");
+    assert_eq!(ui.get_status_text(), "Task advanced");
+
+    let board_move_id = format!("{task_action_note_id}:4");
+    let board_drop_id = format!("{task_action_note_id}:5");
+    ui.invoke_workspace_switch("board".into());
+    ui.invoke_set_group_by("status".into());
+    assert_eq!(ui.get_workspace_primary(), "board");
+    assert!(
+        (0..ui.get_board_columns().row_count()).any(|i| {
+            let column = ui.get_board_columns().row_data(i).unwrap();
+            column.key == "todo"
+                && (0..column.cards.row_count()).any(|j| {
+                    let card = column.cards.row_data(j).unwrap();
+                    card.id == board_move_id && card.text == "board move"
+                })
+        }),
+        "Board workspace groups open tasks by status"
+    );
+    ui.invoke_board_move(board_move_id.clone().into(), 1);
+    let moved = ctx.state.borrow().backend.get_todo(&board_move_id).unwrap();
+    assert_eq!(
+        moved.status, "doing",
+        "Board move writes status to Markdown"
+    );
+    ui.invoke_drop_card(board_drop_id.clone().into(), "done".into());
+    let dropped = ctx.state.borrow().backend.get_todo(&board_drop_id).unwrap();
+    assert!(
+        dropped.done,
+        "Board drop writes the target column to Markdown"
+    );
+    let writeback_note = ctx
+        .state
+        .borrow()
+        .backend
+        .load_note(&task_action_note_id)
+        .unwrap();
+    assert!(
+        writeback_note.body.contains("- [x] task list toggle")
+            && writeback_note.body.contains("- [/] review cycle")
+            && writeback_note.body.contains("- [/] board move")
+            && writeback_note.body.contains("- [x] board drop"),
+        "task/review/board actions rewrite the source Markdown: {:?}",
+        writeback_note.body
+    );
+    ui.invoke_toggle_todo("missing-note:99".into());
+    assert!(
+        ui.get_status_text()
+            .to_string()
+            .starts_with("Task update failed:"),
+        "task write-back errors are visible in app status"
+    );
+
     // (Slint's lightweight testing backend renders no pixels — its window is a
     // measurement-only renderer — so Window::take_snapshot is unavailable here.
     // Pixel/visual-regression testing would need the software-renderer backend +

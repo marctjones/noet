@@ -1100,6 +1100,28 @@ fn open_in_editor(ui: &AppWindow, b: &Backend, note_id: &str) {
     }
 }
 
+fn refresh_after_task_writeback<F>(
+    ui: &AppWindow,
+    state: &mut State,
+    todo_id: &str,
+    success_message: &str,
+    op: F,
+) where
+    F: FnOnce(&mut Backend) -> anyhow::Result<()>,
+{
+    match op(&mut state.backend) {
+        Ok(()) => {
+            let current = ui.get_current_id().to_string();
+            if !current.is_empty() && todo_id.starts_with(&format!("{current}:")) {
+                open_in_editor(ui, &state.backend, &current);
+            }
+            ui.set_status_text(success_message.into());
+        }
+        Err(e) => ui.set_status_text(format!("Task update failed: {e}").into()),
+    }
+    refresh(ui, state);
+}
+
 /// Char offset of the start of a 0-based `line` in `text` (sred cursor offsets are
 /// char-based). Clamped to the end if `line` is past the last line.
 fn line_char_offset(text: &str, line: usize) -> usize {
@@ -2028,12 +2050,10 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_toggle_todo(move |id: SharedString| {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
-            let _ = s.backend.toggle_todo(&id);
-            let current = ui.get_current_id().to_string();
-            if !current.is_empty() && id.starts_with(&format!("{current}:")) {
-                open_in_editor(&ui, &s.backend, &current);
-            }
-            refresh(&ui, &s);
+            let todo_id = id.to_string();
+            refresh_after_task_writeback(&ui, &mut s, &todo_id, "Task toggled", |backend| {
+                backend.toggle_todo(&todo_id)
+            });
         });
     }
 
@@ -2274,14 +2294,11 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let ui = ui_w.unwrap();
             let group_by = ui.get_group_by().to_string();
             let mut s = state.borrow_mut();
-            let _ = s
-                .backend
-                .board_move(&id, surface_adapters::board_group_key(&group_by), dir);
-            let current = ui.get_current_id().to_string();
-            if !current.is_empty() && id.starts_with(&format!("{current}:")) {
-                open_in_editor(&ui, &s.backend, &current);
-            }
-            refresh(&ui, &s);
+            let todo_id = id.to_string();
+            let board_group = surface_adapters::board_group_key(&group_by).to_string();
+            refresh_after_task_writeback(&ui, &mut s, &todo_id, "Task moved", |backend| {
+                backend.board_move(&todo_id, &board_group, dir)
+            });
         });
     }
 
@@ -2322,14 +2339,12 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let ui = ui_w.unwrap();
             let group_by = ui.get_group_by().to_string();
             let mut s = state.borrow_mut();
-            let _ = s
-                .backend
-                .drop_card(&id, surface_adapters::board_group_key(&group_by), &key);
-            let current = ui.get_current_id().to_string();
-            if !current.is_empty() && id.starts_with(&format!("{current}:")) {
-                open_in_editor(&ui, &s.backend, &current);
-            }
-            refresh(&ui, &s);
+            let todo_id = id.to_string();
+            let board_group = surface_adapters::board_group_key(&group_by).to_string();
+            let target_key = key.to_string();
+            refresh_after_task_writeback(&ui, &mut s, &todo_id, "Task moved", |backend| {
+                backend.drop_card(&todo_id, &board_group, &target_key)
+            });
         });
     }
 
@@ -3148,12 +3163,10 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_cycle_todo(move |id: SharedString| {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
-            let _ = s.backend.cycle_todo(&id);
-            let current = ui.get_current_id().to_string();
-            if !current.is_empty() && id.starts_with(&format!("{current}:")) {
-                open_in_editor(&ui, &s.backend, &current);
-            }
-            refresh(&ui, &s);
+            let todo_id = id.to_string();
+            refresh_after_task_writeback(&ui, &mut s, &todo_id, "Task advanced", |backend| {
+                backend.cycle_todo(&todo_id)
+            });
         });
     }
 
