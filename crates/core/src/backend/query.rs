@@ -59,15 +59,6 @@ impl Backend {
             .join(",")
     }
 
-    #[allow(dead_code)] // superseded by query_notes; kept for tests/back-compat
-    pub fn list_notes(&self) -> Result<Vec<Note>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id,title,path,created,updated,kind FROM notes ORDER BY updated DESC, title ASC",
-        )?;
-        let rows = stmt.query_map([], Self::note_row)?;
-        Ok(rows.filter_map(|r| r.ok()).collect())
-    }
-
     pub fn list_projects(&self) -> Result<Vec<Project>> {
         let mut stmt = self
             .conn
@@ -298,45 +289,6 @@ impl Backend {
             ak.cmp(bk)
         });
         Ok(items)
-    }
-
-    /// Back-compat string-filter helper used by tests.
-    #[cfg(test)]
-    pub fn list_todos(&self, filter: &str) -> Result<Vec<Todo>> {
-        if filter == "stale" {
-            let cutoff = (Utc::now() - chrono::Duration::days(STALE_DAYS))
-                .format("%Y-%m-%dT%H:%M:%S")
-                .to_string();
-            let sql = format!(
-                "SELECT {} FROM todos t JOIN notes n ON t.note_id = n.id \
-                 WHERE t.done = 0 AND t.kind IN ('followup','delegated') AND n.updated < ? \
-                 ORDER BY n.updated ASC",
-                Self::todo_cols("t.")
-            );
-            let mut stmt = self.conn.prepare(&sql)?;
-            let rows = stmt.query_map([cutoff], Self::row_to_todo)?;
-            return Ok(rows.filter_map(|r| r.ok()).collect());
-        }
-        let f = if filter == "all" {
-            Filter::default()
-        } else if let Some(p) = filter.strip_prefix("person:") {
-            Filter {
-                person: p.into(),
-                status: "open".into(),
-                ..Default::default()
-            }
-        } else if let Some(p) = filter.strip_prefix("project:") {
-            Filter {
-                project: p.into(),
-                ..Default::default()
-            }
-        } else {
-            Filter {
-                kind: filter.into(),
-                ..Default::default()
-            }
-        };
-        self.query_todos(&f)
     }
 
     /// "Waiting on" — open delegated todos (things you handed off), clustered by

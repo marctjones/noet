@@ -4,15 +4,17 @@ This roadmap translates [Product Architecture](product-architecture.md) into an
 implementation sequence. It intentionally does not preserve the old page-based
 GUI shell.
 
-## Target Layering
+## Current Layering
 
 ```text
 noet-gui -> noet-app -> noet-core
 ```
 
-The major missing piece is `noet-app`: a testable application model between the
-backend and Slint. Workspaces, panes, surfaces, selection state, and commands
-belong there.
+`noet-app` now exists as the testable application model between the backend and
+Slint. The remaining implementation work is less about creating the shell and
+more about hardening the workflow surfaces, reducing Slint-owned product logic,
+and making the typed parsed-note model the shared contract for indexing,
+rendering, autocomplete, and write-back.
 
 ## Phase 1 - Stabilize The Core Contract
 
@@ -31,7 +33,7 @@ Remaining core work:
 - [ ] Define a typed parsed-note model that all queries, mutations, rendering,
   autocomplete, and indexing consume.
 - [ ] Ensure task source spans are stable enough for write-back and promotion.
-- [ ] Promote inline task to task note while preserving source context.
+- [x] Promote inline task to task note while preserving source context.
 
 ## Phase 2 - Add The App Model
 
@@ -39,14 +41,14 @@ Create a testable application layer.
 
 Objects:
 
-- `AppModel`
-- `SelectionState`
-- `NavigationState`
-- `WorkspaceRegistry`
-- `Workspace`
-- `Pane`
-- `Surface`
-- `Command`
+- [x] `AppModel`
+- [x] `SelectionState`
+- [x] `NavigationState`
+- [x] `WorkspaceRegistry`
+- [x] `Workspace`
+- [x] `Pane`
+- [x] `Surface`
+- [x] `Command`
 
 Minimum commands:
 
@@ -63,13 +65,13 @@ Minimum commands:
 - carry over follow-up
 - promote task
 
-Tests:
+Covered tests:
 
-- selecting a person does not change pane layout by accident
-- selecting a person can open/update a 1:1 surface
-- closing a navigation pane does not close the primary work pane
-- pane resize clamps to min/max
-- workspace presets contain expected panes and surfaces
+- [x] selecting a person does not change pane layout by accident
+- [x] selecting a person can open/update a 1:1 surface
+- [x] closing a navigation pane does not close the primary work pane
+- [x] pane resize clamps to min/max
+- [x] workspace presets contain expected panes and surfaces
 
 ## Phase 3 - Workflow Read Models
 
@@ -77,12 +79,12 @@ Move workflow assembly out of Slint-facing code.
 
 Read models:
 
-- `OneOnOneContext`
-- `TaskReview`
-- `WaitingReview`
-- `BoardModel`
-- `LabelReview`
-- `NoteContext`
+- [x] `OneOnOneContext`
+- [x] `TaskReview`
+- [x] `WaitingReview`
+- [x] `BoardModel`
+- [x] `LabelReview`
+- [x] `NoteContext`
 
 `OneOnOneContext` should include:
 
@@ -94,29 +96,24 @@ Read models:
 - related notes
 - source context for promoted or inline tasks
 
-Tests:
+Covered tests:
 
-- previous 1:1 notes sort correctly
-- unresolved prior follow-ups continue to appear
-- carried-over items preserve source context
-- delegated/waiting items group by person
-- board groups derive from Markdown-backed task facts
+- [x] previous 1:1 notes sort correctly
+- [x] unresolved prior follow-ups continue to appear
+- [x] carried-over items preserve source context
+- [x] delegated/waiting items group by person
+- [x] board groups derive from Markdown-backed task facts
 
 ## Phase 4 - Surface Adapters
 
 Surface adapters convert core/app read models into GUI-ready models.
 
-Initial adapters:
+Initial adapter boundary:
 
-- `PersonBrowserAdapter`
-- `NoteBrowserAdapter`
-- `NoteEditorAdapter`
-- `OneOnOneAdapter`
-- `TaskListAdapter`
-- `BoardAdapter`
-- `HistoryAdapter`
-- `BacklinksAdapter`
-- `FollowupQueueAdapter`
+- [x] Workspace/pane adapter from `noet-app` into Slint models.
+- [ ] Dedicated surface adapters for each workflow surface.
+- [ ] Deterministic adapter tests for 1:1, notes, tasks, board, review, labels,
+  history, backlinks, and queues.
 
 Rules:
 
@@ -130,33 +127,37 @@ The GUI should render app state and send commands.
 
 Renderer responsibilities:
 
-- render workspace picker
-- render pane layout
-- render pane chrome
-- render each surface
-- forward commands
-- host `SredEditorAdapter`
-- provide keyboard shortcuts for command palette, shortcut help, focus mode,
+- [x] render workspace picker
+- [x] render pane layout
+- [x] render pane chrome
+- [x] render current workflow surfaces
+- [x] forward workspace and pane commands
+- [x] host `SredEditorAdapter`
+- [x] provide keyboard shortcuts for command palette, shortcut help, focus mode,
   primary surface switching, and pane visibility toggles
-- adapt pane visibility, clamped pane dimensions, and chrome density at compact,
+- [x] adapt pane visibility, clamped pane dimensions, and chrome density at compact,
   tight, and short window breakpoints
-- expose accessibility roles, labels, checked state, and default actions for
+- [x] expose accessibility roles, labels, checked state, and default actions for
   pane controls, surface switchers, note rows, task rows, task status controls,
   and context rows
+- [x] render Markdown read surfaces outside source mode
+- [x] expose an in-window menu system
 
 The GUI should not own product decisions such as what counts as a 1:1 note or
 which follow-ups belong to a person.
 
-Tests:
+Covered tests:
 
-- app boots into a workspace
-- navigation pane can close independently
-- context pane can close independently
-- queue pane can close independently
-- selecting a person updates the 1:1 surface
-- keyboard shortcuts can switch surfaces and toggle panes
-- responsive breakpoints preserve the primary work surface
-- critical controls are present in the accessibility tree
+- [x] app boots into a workspace
+- [x] navigation pane can close independently
+- [x] context pane can close independently
+- [x] queue pane can close independently
+- [x] selecting a person updates the 1:1 surface
+- [x] keyboard shortcuts can switch surfaces and toggle panes
+- [x] responsive breakpoints preserve the primary work surface
+- [x] critical controls are present in the accessibility tree
+- [x] rendered Markdown read mode is mounted
+- [x] top-level menus are visible and actionable
 
 ## Phase 6 - Workflow Quality
 

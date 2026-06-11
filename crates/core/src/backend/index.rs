@@ -203,14 +203,6 @@ impl Backend {
     pub fn open_lazy_at(vault: PathBuf, index_dir: PathBuf) -> Result<Self> {
         std::fs::create_dir_all(vault.join("notes"))?;
         std::fs::create_dir_all(&index_dir)?;
-        // Migration: the index used to live inside the vault (`<vault>/.index`),
-        // which meant it synced. If a stale in-vault index exists and we're now
-        // storing elsewhere, delete it — the index is disposable and rebuilt
-        // from the markdown files, so there's nothing to lose.
-        let legacy = vault.join(".index");
-        if legacy != index_dir && legacy.exists() {
-            let _ = std::fs::remove_dir_all(&legacy);
-        }
         let conn = Connection::open(index_dir.join("index.db"))?;
         // WAL lets a background reindex (separate connection) write while the UI
         // connection keeps reading without blocking — keeps the event loop snappy.

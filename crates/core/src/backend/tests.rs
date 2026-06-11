@@ -120,7 +120,7 @@ fn backend_roundtrip_and_toggle() {
     let mut b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();
 
     // start clean (Backend::open doesn't seed)
-    assert!(b.list_notes().unwrap().is_empty());
+    assert!(b.query_notes(&Filter::default()).unwrap().is_empty());
 
     let note = b.new_note().unwrap();
     b.save_note(
@@ -130,21 +130,26 @@ fn backend_roundtrip_and_toggle() {
     )
     .unwrap();
 
-    assert_eq!(b.list_notes().unwrap().len(), 1);
+    assert_eq!(b.query_notes(&Filter::default()).unwrap().len(), 1);
 
     let projects = b.list_projects().unwrap();
     let names: Vec<_> = projects.iter().map(|p| p.name.as_str()).collect();
     assert!(names.contains(&"Acme"));
     assert!(names.contains(&"Roadmap"));
 
-    let todos = b.list_todos("do").unwrap();
+    let todos = b
+        .query_todos(&Filter {
+            kind: "do".into(),
+            ..Default::default()
+        })
+        .unwrap();
     assert_eq!(todos.len(), 1);
     assert!(!todos[0].done);
     let todo_id = todos[0].id.clone();
 
     // toggle marks done and rewrites the file
     b.toggle_todo(&todo_id).unwrap();
-    let todos = b.list_todos("all").unwrap();
+    let todos = b.query_todos(&Filter::default()).unwrap();
     assert!(todos[0].done);
     let on_disk = std::fs::read_to_string(&note.path).unwrap();
     assert!(on_disk.contains("- [x] ship it"));
@@ -152,7 +157,7 @@ fn backend_roundtrip_and_toggle() {
 
     // reindex from files reproduces the same state (index is disposable)
     b.reindex_all().unwrap();
-    assert!(b.list_todos("all").unwrap()[0].done);
+    assert!(b.query_todos(&Filter::default()).unwrap()[0].done);
 
     std::fs::remove_dir_all(&dir).ok();
 }
@@ -187,17 +192,31 @@ fn people_stale_and_project_filters() {
     assert_eq!(people.len(), 1);
     assert_eq!(people[0].name, "Jane");
 
-    let janes = b.list_todos("person:Jane").unwrap();
+    let janes = b
+        .query_todos(&Filter {
+            person: "Jane".into(),
+            status: "open".into(),
+            ..Default::default()
+        })
+        .unwrap();
     assert_eq!(janes.len(), 1);
     assert!(janes[0].text.contains("chase Jane"));
 
     // stale view: only the old follow-up qualifies (fresh do-item excluded)
-    let stale = b.list_todos("stale").unwrap();
+    let stale = b.stale_todos().unwrap();
     assert_eq!(stale.len(), 1);
     assert_eq!(stale[0].note_id, "old");
 
     // project view: Acme has both todos
-    assert_eq!(b.list_todos("project:Acme").unwrap().len(), 2);
+    assert_eq!(
+        b.query_todos(&Filter {
+            project: "Acme".into(),
+            ..Default::default()
+        })
+        .unwrap()
+        .len(),
+        2
+    );
 
     std::fs::remove_dir_all(&dir).ok();
 }
@@ -257,7 +276,12 @@ fn incremental_reindex_only_touches_changed_files() {
         "changed title reindexed"
     );
     assert_eq!(
-        b.list_todos("project:P").unwrap().len(),
+        b.query_todos(&Filter {
+            project: "P".into(),
+            ..Default::default()
+        })
+        .unwrap()
+        .len(),
         2,
         "a's new todo + b's todo"
     );
@@ -275,7 +299,16 @@ fn incremental_reindex_only_touches_changed_files() {
         notes.iter().all(|n| n.id != "B"),
         "deleted file removed from the index"
     );
-    assert_eq!(b.list_todos("project:P").unwrap().len(), 1, "b's todo gone");
+    assert_eq!(
+        b.query_todos(&Filter {
+            project: "P".into(),
+            ..Default::default()
+        })
+        .unwrap()
+        .len(),
+        1,
+        "b's todo gone"
+    );
 
     // Add c.md → indexed; exactly one file re-parsed.
     write("c.md", "---\nkind: markdown\n---\n# Gamma\n\nbody c\n");
@@ -905,12 +938,12 @@ fn open_lazy_skips_indexing_until_reindex() {
 
     let mut b = Backend::open_lazy_at(dir.clone(), dir.join(".index")).unwrap();
     // lazy open does NOT index, but the file IS on disk
-    assert!(b.list_notes().unwrap().is_empty());
+    assert!(b.query_notes(&Filter::default()).unwrap().is_empty());
     assert!(!b.is_vault_empty());
 
     // an explicit reindex picks the file up
     b.reindex_all().unwrap();
-    assert_eq!(b.list_notes().unwrap().len(), 1);
+    assert_eq!(b.query_notes(&Filter::default()).unwrap().len(), 1);
 
     // background_reindex (separate connection) also reflects on a fresh open
     let (index_dir, vault, fts) = b.reindex_params();
@@ -975,28 +1008,25 @@ fn settings_roundtrip() {
 }
 
 #[test]
-fn index_lives_outside_vault_and_migrates_legacy() {
+fn index_lives_outside_vault_without_managing_old_in_vault_state() {
     let dir = std::env::temp_dir().join(format!("noet-test-{}", ulid::Ulid::new()));
     let vault = dir.join("vault");
     let index_dir = dir.join("cache"); // distinct from <vault>/.index
     std::fs::create_dir_all(vault.join("notes")).unwrap();
 
-    // Simulate a stale in-vault index left over from the old layout.
-    let legacy = vault.join(".index");
-    std::fs::create_dir_all(&legacy).unwrap();
-    std::fs::write(legacy.join("index.db"), b"stale").unwrap();
+    let old_in_vault_index = vault.join(".index");
+    std::fs::create_dir_all(&old_in_vault_index).unwrap();
+    std::fs::write(old_in_vault_index.join("index.db"), b"stale").unwrap();
 
     let mut b = Backend::open_at(vault.clone(), index_dir.clone()).unwrap();
     let note = b.new_note().unwrap();
     b.save_note(&note.id, "Hi", "body\n").unwrap();
 
-    // index.db is built in the cache dir, and the synced vault holds no index.
+    // index.db is built in the cache dir. Noet does not create or own an
+    // in-vault index as part of the clean runtime contract.
     assert_eq!(b.index_dir(), index_dir);
     assert!(index_dir.join("index.db").exists());
-    assert!(
-        !legacy.exists(),
-        "stale in-vault .index should be removed on migrate"
-    );
+    assert!(old_in_vault_index.exists());
 
     // reindex_params reports the cache dir, and a background reindex against it works.
     let (reported_index, reported_vault, fts) = b.reindex_params();

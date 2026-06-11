@@ -102,18 +102,20 @@ Initial surfaces:
 
 ## Phase 2 - Extract The App Model
 
-- [ ] Add a `noet-app` crate or equivalent module boundary.
-- [ ] Implement `SelectionState`.
-- [ ] Implement `Command`.
-- [ ] Implement `Workspace`.
-- [ ] Implement `Pane`.
-- [ ] Implement `Surface`.
-- [ ] Implement workspace presets.
-- [ ] Add app-model tests independent of Slint.
+- [x] Add the `noet-app` crate as the model boundary between core and GUI.
+- [x] Implement `SelectionState`.
+- [x] Implement `NavigationState`.
+- [x] Implement `Command`.
+- [x] Implement `Workspace`.
+- [x] Implement `Pane`.
+- [x] Implement `Surface`.
+- [x] Implement workspace presets.
+- [x] Add app-model tests independent of Slint.
 
-Required tests:
+Covered tests:
 
-- selecting a person does not mutate layout
+- selecting a person does not mutate layout by accident
+- selecting a person updates 1:1 surfaces
 - closing a navigation pane does not close work
 - pane resize clamps to min/max
 - workspace presets contain expected panes
@@ -121,53 +123,79 @@ Required tests:
 
 ## Phase 3 - Build Workflow Models
 
-- [ ] Build `OneOnOneContext`.
-- [ ] Build task review model.
-- [ ] Build waiting/follow-up model.
-- [ ] Build board grouping model.
-- [ ] Build label/workstream review model.
-- [ ] Build note context model: backlinks, related notes, source tasks.
+- [x] Build `ParsedNote` and typed note/task facts.
+- [x] Build `OneOnOneContext`.
+- [x] Build task review model.
+- [x] Build waiting/follow-up model.
+- [x] Build board grouping model.
+- [x] Build label/workstream review model.
+- [x] Build note context model: backlinks, related notes, source tasks.
+- [x] Promote inline tasks into task notes with source links.
 
-Required tests:
+Covered tests:
 
 - 1:1 context finds prior notes and active follow-ups
 - unresolved follow-ups continue to surface
 - carried-over follow-ups preserve source context
-- waiting review groups by person and age
+- waiting review groups by person
 - board grouping derives from Markdown-backed task facts
+- promoted task notes link back to source anchors
 
 ## Phase 4 - Rebuild The GUI On The App Model
 
-- [ ] Render `Workspace` from app state.
-- [ ] Render `Pane` from pane state.
-- [ ] Render each `Surface` through a reusable surface renderer.
-- [ ] Route GUI events through commands instead of direct product mutations.
-- [ ] Keep `sred` behind `SredEditorAdapter`.
-- [ ] Add GUI tests for pane visibility, focus, resize, and accessibility.
+- [x] Render workspace pane state from `noet-app`.
+- [x] Render reusable pane chrome for navigation, primary, context, and queue panes.
+- [x] Route workspace pane operations through app commands.
+- [x] Keep `sred` behind the editor adapter.
+- [x] Add GUI tests for pane visibility, shortcuts, resize behavior, rendered
+  Markdown, menus, and accessibility.
+- [x] Add responsive pane behavior for compact and short windows.
+- [x] Add rendered Markdown read surfaces with explicit source/edit modes.
 
-Minimum UX contract:
+Current UX contract:
 
 - People navigation can close while 1:1 stays open.
 - Filters can close without changing selected person, note, or task.
 - The current note editor is a work surface, not a page.
-- Context and queue panes resize independently.
-- Board and task views share task source behavior.
+- Context and queue panes can hide independently from primary work.
+- Board, task, and review views share task workflow read models.
 
-## Phase 5 - Restore And Improve Workflows
+## Phase 5 - Workflow Quality
 
 - [ ] 1:1 Focus reaches daily-use quality.
 - [ ] Notes workspace reaches daily-use quality.
 - [ ] Tasks workspace reaches daily-use quality.
-- [ ] Review workspace covers waiting, stale, due, and delegated items.
-- [ ] Board workspace writes task movement back to Markdown.
+- [ ] Review workspace covers waiting, stale, due, and delegated items in a
+  daily-use review flow.
+- [ ] Board workspace writes task movement back to Markdown from the new shell.
 - [ ] Labels/workstreams support cleanup and review.
-- [ ] Inline task promotion creates task notes with source links.
+- [x] Inline task promotion creates task notes with source links.
 
-## Phase 6 - Packaging And Platform Polish
+Daily-use quality means:
 
-- [ ] Package macOS `.app` and `.dmg` from a stable checkpoint.
-- [ ] Keep ad-hoc signing acceptable until Developer ID exists.
-- [ ] Document unsigned macOS install behavior.
+- keyboard and pointer actions work without raw Markdown leaks outside source mode
+- primary work remains usable when navigation and context panes are closed
+- pane sizes and visibility are predictable across window sizes
+- workflow actions write back to Markdown and survive reindexing
+- the workflow is covered by app-model tests, GUI smoke tests, and the manual
+  review checklist
+
+## Phase 6 - Parser And Write-Back Hardening
+
+- [ ] Make the typed parsed-note model the shared source for indexing,
+  rendering, autocomplete, and write-back.
+- [ ] Replace feature-specific regex scans with structured parsed facts where
+  practical.
+- [ ] Track stable task source spans and block anchors for write-back.
+- [ ] Add parser diagnostics for invalid properties, ambiguous people, and
+  unsupported old syntax.
+- [ ] Detect URLs, emails, and social handles as non-person contact entities.
+
+## Phase 7 - Packaging And Platform Polish
+
+- [x] Package macOS `.app` and `.dmg` from a stable checkpoint.
+- [x] Keep ad-hoc signing acceptable until Developer ID exists.
+- [x] Document unsigned macOS install behavior.
 - [ ] Add Windows packaging after the workspace shell is stable.
 - [ ] Add Linux packaging after the workspace shell is stable.
 
