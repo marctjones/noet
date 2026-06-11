@@ -227,8 +227,11 @@ Current Notes progress:
 Current Tasks/Review/Board progress:
 
 - [x] GUI task mutation callbacks share one write-back/refresh/error path.
+- [x] Add/edit task editor is mounted in the new shell with empty-text
+  validation and focused workflow/status controls.
 - [x] GUI smoke tests cover task toggling from Tasks, status cycling from
-  Review, and Board move/drop write-back against Markdown source.
+  Review, Board move/drop write-back, and add/edit task dialog write-back
+  against Markdown source.
 - [ ] Task editing UX still needs a daily-use pass for low-friction status,
   workflow, due, priority, person, and workstream edits.
 - [ ] Manual review still needs to verify task, review, and board workflows on a

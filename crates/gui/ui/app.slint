@@ -2160,6 +2160,125 @@ export component AppWindow inherits Window {
             }
         }
 
+        // ===== Task editor =====
+        if root.form-visible: Rectangle {
+            background: #00000066;
+            TouchArea { clicked => { root.form-visible = false; } }
+            Rectangle {
+                width: min(680px, parent.width - 36px);
+                height: min(root.form-show-details ? 560px : 438px, parent.height - 70px);
+                x: (parent.width - self.width) / 2;
+                y: max(34px, (parent.height - self.height) / 2);
+                background: Theme.surface;
+                border-radius: 10px;
+                border-width: 1px;
+                border-color: Theme.border;
+                drop-shadow-blur: 24px;
+                drop-shadow-color: #00000055;
+                accessible-role: groupbox;
+                accessible-label: "Task editor";
+                forward-focus: taskText;
+                TouchArea {}
+                VerticalLayout {
+                    padding: 14px;
+                    spacing: 10px;
+                    HorizontalLayout {
+                        spacing: 10px;
+                        Text {
+                            text: root.form-is-new ? "New task" : "Edit task";
+                            font-size: (18px * Z.f);
+                            font-weight: 760;
+                            color: Theme.text;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                        }
+                        CloseX { a11y: "Close task editor"; closed => { root.form-visible = false; } }
+                    }
+                    Field {
+                        label: "Task";
+                        taskText := LineEdit {
+                            text <=> root.form-text;
+                            placeholder-text: "What needs to happen?";
+                            font-size: (15px * Z.f);
+                            accepted => { root.save-todo(); }
+                        }
+                    }
+                    Field {
+                        label: "Workflow";
+                        HorizontalLayout {
+                            spacing: 6px;
+                            SegBtn { label: "Do"; active: root.form-kind == "do"; clicked => { root.form-kind = "do"; } }
+                            SegBtn { label: "Mine"; active: root.form-kind == "mine"; clicked => { root.form-kind = "mine"; } }
+                            SegBtn { label: "Follow up"; active: root.form-kind == "followup"; clicked => { root.form-kind = "followup"; } }
+                            SegBtn { label: "Delegated"; active: root.form-kind == "delegated"; clicked => { root.form-kind = "delegated"; } }
+                            SegBtn { label: "Waiting"; active: root.form-kind == "waiting"; clicked => { root.form-kind = "waiting"; } }
+                            SegBtn { label: "Someday"; active: root.form-kind == "someday"; clicked => { root.form-kind = "someday"; } }
+                        }
+                    }
+                    Field {
+                        label: "Status";
+                        HorizontalLayout {
+                            spacing: 6px;
+                            SegBtn { label: "Todo"; active: root.form-status == "todo"; clicked => { root.form-status = "todo"; } }
+                            SegBtn { label: "Doing"; active: root.form-status == "doing"; clicked => { root.form-status = "doing"; } }
+                            SegBtn { label: "Done"; active: root.form-status == "done"; clicked => { root.form-status = "done"; } }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 10px;
+                        Field {
+                            label: "Person";
+                            LineEdit { text <=> root.form-person; placeholder-text: "Jane Doe"; }
+                        }
+                        Field {
+                            label: "Workstream";
+                            LineEdit { text <=> root.form-project; placeholder-text: "Client/Acme"; }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 10px;
+                        Field {
+                            label: "Due";
+                            LineEdit { text <=> root.form-due; placeholder-text: "YYYY-MM-DD"; }
+                        }
+                        Field {
+                            label: "Priority";
+                            HorizontalLayout {
+                                spacing: 6px;
+                                SegBtn { label: "None"; active: root.form-priority == ""; clicked => { root.form-priority = ""; } }
+                                SegBtn { label: "A"; active: root.form-priority == "A"; clicked => { root.form-priority = "A"; } }
+                                SegBtn { label: "B"; active: root.form-priority == "B"; clicked => { root.form-priority = "B"; } }
+                                SegBtn { label: "C"; active: root.form-priority == "C"; clicked => { root.form-priority = "C"; } }
+                            }
+                        }
+                    }
+                    if root.form-show-details: HorizontalLayout {
+                        spacing: 10px;
+                        Field {
+                            label: "Start";
+                            LineEdit { text <=> root.form-start; placeholder-text: "YYYY-MM-DD"; }
+                        }
+                        Field {
+                            label: "Repeat";
+                            LineEdit { text <=> root.form-repeat; placeholder-text: "1w"; }
+                        }
+                    }
+                    if root.form-show-details: Field {
+                        label: "External ref";
+                        LineEdit { text <=> root.form-external; placeholder-text: "https://..."; }
+                    }
+                    Rectangle { vertical-stretch: 1; }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Button { text: root.form-show-details ? "Fewer fields" : "More fields"; clicked => { root.form-show-details = !root.form-show-details; } }
+                        Rectangle { horizontal-stretch: 1; }
+                        Button { text: "Cancel"; clicked => { root.form-visible = false; } }
+                        Button { text: root.form-is-new ? "Add task" : "Save task"; accessible-label: root.form-is-new ? "Add task from editor" : "Save task from editor"; clicked => { root.save-todo(); } }
+                    }
+                }
+            }
+        }
+
         // ===== Top-level application menus =====
         if root.open-menu != "": TouchArea {
             x: 0; y: 0; width: root.width; height: root.height;

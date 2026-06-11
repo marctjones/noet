@@ -82,6 +82,9 @@ NOET_VAULT=/tmp/noet-review-vault cargo run -p noet-gui
 - Review actions can advance task status and the change survives reindexing.
 - Board move and drop actions update the source task line and survive
   reindexing.
+- Add task opens the task editor, blocks empty task text, and writes the new
+  task to the current note.
+- Edit task opens the same editor with the selected task fields populated.
 - Promote task creates a standalone task note with a source link.
 - Edit task opens the task editor without exposing fake default project values.
 

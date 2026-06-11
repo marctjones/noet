@@ -1202,6 +1202,54 @@ fn headless_ui_smoke() {
         "task/review/board actions rewrite the source Markdown: {:?}",
         writeback_note.body
     );
+
+    ui.invoke_select_note(task_action_note_id.clone().into());
+    ui.invoke_open_add_todo();
+    assert!(ui.get_form_visible(), "Add task opens the task editor");
+    ElementHandle::find_by_accessible_label(ui, "Task editor")
+        .find(|e| e.accessible_role() == Some(AccessibleRole::Groupbox))
+        .expect("task editor modal is mounted");
+    ui.set_form_text("   ".into());
+    ui.invoke_save_todo();
+    assert!(
+        ui.get_form_visible(),
+        "blank task text keeps the editor open"
+    );
+    assert_eq!(ui.get_status_text(), "Task needs text");
+    ui.set_form_text("created through dialog".into());
+    ui.set_form_kind("followup".into());
+    ui.set_form_person("Casey".into());
+    ui.set_form_project("Ops".into());
+    ui.set_form_due("2026-07-10".into());
+    ui.set_form_priority("B".into());
+    ui.invoke_save_todo();
+    assert!(!ui.get_form_visible(), "saving closes the task editor");
+    let dialog_note = ctx
+        .state
+        .borrow()
+        .backend
+        .load_note(&task_action_note_id)
+        .unwrap();
+    assert!(
+        dialog_note.body.contains(
+            "- [ ] created through dialog @[[Casey]] [[Ops]] #followup priority:B due:2026-07-10"
+        ),
+        "dialog-created task is written as Markdown: {:?}",
+        dialog_note.body
+    );
+
+    ui.invoke_edit_todo(board_move_id.clone().into());
+    assert!(ui.get_form_visible(), "Edit task opens the task editor");
+    assert_eq!(ui.get_form_text(), "board move");
+    ui.set_form_kind("waiting".into());
+    ui.set_form_status("todo".into());
+    ui.set_form_due("2026-07-11".into());
+    ui.invoke_save_todo();
+    let edited = ctx.state.borrow().backend.get_todo(&board_move_id).unwrap();
+    assert_eq!(edited.kind, "waiting");
+    assert_eq!(edited.status, "todo");
+    assert_eq!(edited.due, "2026-07-11");
+
     ui.invoke_toggle_todo("missing-note:99".into());
     assert!(
         ui.get_status_text()
