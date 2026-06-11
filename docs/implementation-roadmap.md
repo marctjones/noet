@@ -124,9 +124,12 @@ Surface adapters convert core/app read models into GUI-ready models.
 Initial adapter boundary:
 
 - [x] Workspace/pane adapter from `noet-app` into Slint models.
-- [ ] Dedicated surface adapters for each workflow surface.
-- [ ] Deterministic adapter tests for 1:1, notes, tasks, board, review, labels,
-  history, backlinks, and queues.
+- [x] Dedicated adapters for 1:1, board, review, waiting queues, and note
+  context references.
+- [x] Deterministic adapter tests for 1:1, board, review, waiting queues,
+  backlinks, related notes, and source links.
+- [ ] Continue extracting note, task, label, and history surfaces where GUI code
+  still owns query-specific assembly.
 
 Rules:
 

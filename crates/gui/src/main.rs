@@ -1063,126 +1063,33 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
         } else {
             b.one_on_one_context(&workspace_person).ok()
         };
-        let empty_todos = || ModelRc::new(VecModel::from(Vec::<TodoItem>::new()));
-        let empty_notes = || ModelRc::new(VecModel::from(Vec::<NoteItem>::new()));
-        if let Some(oneonone_context) = oneonone_context {
-            let mut discuss = oneonone_context.followups.clone();
-            discuss.extend(oneonone_context.waiting.clone());
-            ui.set_person_discuss(ModelRc::new(VecModel::from(
-                discuss
-                    .iter()
-                    .map(surface_adapters::todo_item_from_fact)
-                    .collect::<Vec<_>>(),
-            )));
-            ui.set_person_delegated(ModelRc::new(VecModel::from(
-                oneonone_context
-                    .delegated
-                    .iter()
-                    .map(surface_adapters::todo_item_from_fact)
-                    .collect::<Vec<_>>(),
-            )));
-            ui.set_person_delegated_history(ModelRc::new(VecModel::from(
-                oneonone_context
-                    .open_items
-                    .iter()
-                    .filter(|t| {
-                        matches!(
-                            &t.workflow,
-                            backend::TaskWorkflow::Delegated
-                                | backend::TaskWorkflow::Followup
-                                | backend::TaskWorkflow::Waiting
-                        )
-                    })
-                    .map(surface_adapters::todo_item_from_fact)
-                    .collect::<Vec<_>>(),
-            )));
-            ui.set_person_other(ModelRc::new(VecModel::from(
-                oneonone_context
-                    .open_items
-                    .iter()
-                    .filter(|t| {
-                        !matches!(
-                            &t.workflow,
-                            backend::TaskWorkflow::Delegated
-                                | backend::TaskWorkflow::Followup
-                                | backend::TaskWorkflow::Waiting
-                        )
-                    })
-                    .map(surface_adapters::todo_item_from_fact)
-                    .collect::<Vec<_>>(),
-            )));
-            let oneonone_notes = oneonone_context.history.clone();
-            let current_id = ui.get_current_id().to_string();
-            let current_idx = oneonone_notes
-                .iter()
-                .position(|n| n.id == current_id)
-                .unwrap_or(0);
-            let current_oneonone = oneonone_notes.get(current_idx);
-            let prev_oneonone = if current_idx > 0 {
-                oneonone_notes.get(current_idx - 1)
-            } else {
-                None
-            };
-            let next_oneonone = oneonone_notes.get(current_idx + 1);
-            let last_oneonone = next_oneonone;
-            let last_followups = if let Some(prev) = last_oneonone {
-                oneonone_context
-                    .open_items
-                    .iter()
-                    .filter(|t| {
-                        t.source.note_id == prev.id
-                            && matches!(
-                                &t.workflow,
-                                backend::TaskWorkflow::Followup
-                                    | backend::TaskWorkflow::Delegated
-                                    | backend::TaskWorkflow::Waiting
-                            )
-                    })
-                    .map(surface_adapters::todo_item_from_fact)
-                    .collect::<Vec<_>>()
-            } else {
-                Vec::new()
-            };
-            if let Some(n) = current_oneonone {
-                ui.set_person_current_oneonone_id(n.id.clone().into());
-                ui.set_person_current_oneonone_title(n.title.clone().into());
-                if current_id != n.id {
-                    open_in_editor(ui, b, &n.id);
-                    if view == "oneonone" {
-                        ui.set_view("oneonone".into());
-                    }
-                }
-            } else {
-                ui.set_person_current_oneonone_id("".into());
-                ui.set_person_current_oneonone_title("".into());
+        let current_id = ui.get_current_id().to_string();
+        let oneonone_surface =
+            surface_adapters::one_on_one_surface(oneonone_context.as_ref(), &current_id);
+        ui.set_person_discuss(ModelRc::new(VecModel::from(oneonone_surface.discuss)));
+        ui.set_person_delegated(ModelRc::new(VecModel::from(oneonone_surface.delegated)));
+        ui.set_person_delegated_history(ModelRc::new(VecModel::from(
+            oneonone_surface.delegated_history,
+        )));
+        ui.set_person_other(ModelRc::new(VecModel::from(oneonone_surface.other)));
+        ui.set_person_current_oneonone_id(oneonone_surface.current_id.clone().into());
+        ui.set_person_current_oneonone_title(oneonone_surface.current_title.clone().into());
+        ui.set_person_last_oneonone_title(oneonone_surface.last_title.clone().into());
+        ui.set_person_prev_oneonone_id(oneonone_surface.prev_id.clone().into());
+        ui.set_person_next_oneonone_id(oneonone_surface.next_id.clone().into());
+        ui.set_person_oneonone_index(oneonone_surface.index);
+        ui.set_person_oneonone_count(oneonone_surface.count);
+        ui.set_person_last_followups(ModelRc::new(VecModel::from(
+            oneonone_surface.last_followups,
+        )));
+        ui.set_person_oneonone_notes(ModelRc::new(VecModel::from(oneonone_surface.history_notes)));
+        if !oneonone_surface.current_id.is_empty() && current_id != oneonone_surface.current_id {
+            open_in_editor(ui, b, &oneonone_surface.current_id);
+            if view == "oneonone" {
+                ui.set_view("oneonone".into());
             }
-            ui.set_person_last_oneonone_title(
-                last_oneonone
-                    .map(|n| n.title.clone())
-                    .unwrap_or_default()
-                    .into(),
-            );
-            ui.set_person_prev_oneonone_id(
-                prev_oneonone
-                    .map(|n| n.id.clone())
-                    .unwrap_or_default()
-                    .into(),
-            );
-            ui.set_person_next_oneonone_id(
-                next_oneonone
-                    .map(|n| n.id.clone())
-                    .unwrap_or_default()
-                    .into(),
-            );
-            ui.set_person_oneonone_index(current_idx as i32);
-            ui.set_person_oneonone_count(oneonone_notes.len() as i32);
-            ui.set_person_last_followups(ModelRc::new(VecModel::from(last_followups)));
-            ui.set_person_oneonone_notes(ModelRc::new(VecModel::from(
-                oneonone_notes
-                    .iter()
-                    .map(surface_adapters::note_item_from_summary)
-                    .collect::<Vec<_>>(),
-            )));
+        }
+        if oneonone_context.is_some() {
             let pnotes = b
                 .query_notes(&Filter {
                     person: workspace_person.clone(),
@@ -1196,104 +1103,30 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
                     .collect::<Vec<_>>(),
             )));
         } else {
-            ui.set_person_discuss(empty_todos());
-            ui.set_person_delegated(empty_todos());
-            ui.set_person_delegated_history(empty_todos());
-            ui.set_person_other(empty_todos());
-            ui.set_person_current_oneonone_id("".into());
-            ui.set_person_current_oneonone_title("".into());
-            ui.set_person_last_oneonone_title("".into());
-            ui.set_person_prev_oneonone_id("".into());
-            ui.set_person_next_oneonone_id("".into());
-            ui.set_person_oneonone_index(0);
-            ui.set_person_oneonone_count(0);
-            ui.set_person_last_followups(empty_todos());
-            ui.set_person_oneonone_notes(empty_notes());
-            ui.set_person_notes(empty_notes());
+            ui.set_person_notes(ModelRc::new(VecModel::from(Vec::<NoteItem>::new())));
         }
     }
 
     if surface_visible("board") {
         let group_by = ui.get_group_by().to_string();
         if let Ok(board) = b.board_model(surface_adapters::board_group_key(&group_by), f) {
-            let items: Vec<BoardColumn> = board
-                .columns
-                .into_iter()
-                .map(|col| {
-                    let cards: Vec<TodoItem> = col
-                        .tasks
-                        .iter()
-                        .map(surface_adapters::todo_item_from_fact)
-                        .collect();
-                    BoardColumn {
-                        title: col.label.into(),
-                        key: col.key.into(),
-                        count: cards.len() as i32,
-                        cards: ModelRc::new(VecModel::from(cards)),
-                    }
-                })
-                .collect();
-            ui.set_board_columns(ModelRc::new(VecModel::from(items)));
+            ui.set_board_columns(ModelRc::new(VecModel::from(
+                surface_adapters::board_columns(&board),
+            )));
         }
     }
 
     if surface_visible("review") {
         if let Ok(review) = b.task_review() {
-            let overdue_ids = review
-                .overdue
-                .iter()
-                .map(|task| task.id.as_str())
-                .collect::<std::collections::HashSet<_>>();
-            let due = review
-                .due
-                .iter()
-                .filter(|task| !overdue_ids.contains(task.id.as_str()))
-                .map(surface_adapters::todo_item_from_fact)
-                .collect::<Vec<_>>();
-            ui.set_review_overdue(ModelRc::new(VecModel::from(
-                review
-                    .overdue
-                    .iter()
-                    .map(surface_adapters::todo_item_from_fact)
-                    .collect::<Vec<_>>(),
-            )));
-            ui.set_review_due(ModelRc::new(VecModel::from(due)));
-            ui.set_review_stale(ModelRc::new(VecModel::from(
-                review
-                    .stale
-                    .iter()
-                    .map(surface_adapters::todo_item_from_fact)
-                    .collect::<Vec<_>>(),
-            )));
-            ui.set_review_followups(ModelRc::new(VecModel::from(
-                review
-                    .followups
-                    .iter()
-                    .map(surface_adapters::todo_item_from_fact)
-                    .collect::<Vec<_>>(),
-            )));
-            ui.set_review_someday(ModelRc::new(VecModel::from(
-                review
-                    .someday
-                    .iter()
-                    .map(surface_adapters::todo_item_from_fact)
-                    .collect::<Vec<_>>(),
-            )));
+            let review_surface = surface_adapters::task_review_surface(&review);
+            ui.set_review_overdue(ModelRc::new(VecModel::from(review_surface.overdue)));
+            ui.set_review_due(ModelRc::new(VecModel::from(review_surface.due)));
+            ui.set_review_stale(ModelRc::new(VecModel::from(review_surface.stale)));
+            ui.set_review_followups(ModelRc::new(VecModel::from(review_surface.followups)));
+            ui.set_review_someday(ModelRc::new(VecModel::from(review_surface.someday)));
         }
         if let Ok(waiting) = b.waiting_review() {
-            let mut tasks = waiting
-                .groups
-                .into_iter()
-                .flat_map(|group| group.tasks)
-                .map(|task| surface_adapters::todo_item_from_fact(&task))
-                .collect::<Vec<_>>();
-            tasks.extend(
-                waiting
-                    .unassigned
-                    .iter()
-                    .map(surface_adapters::todo_item_from_fact)
-                    .collect::<Vec<_>>(),
-            );
+            let tasks = surface_adapters::waiting_review_items(&waiting);
             ui.set_review_waiting(ModelRc::new(VecModel::from(tasks.clone())));
             ui.set_waiting_todos(ModelRc::new(VecModel::from(tasks)));
         }
@@ -1701,46 +1534,23 @@ fn render_read(ui: &AppWindow, b: &Backend, note: &backend::Note) {
     ui.set_current_people(str_model(&people));
     ui.set_current_tags(str_model(&tags));
     // backlinks: notes that link to this note's title
-    let backs: Vec<NoteRef> = b
+    let backs = b
         .backlinks(&note.title)
         .unwrap_or_default()
         .into_iter()
         .filter(|n| n.id != note.id)
-        .map(|n| NoteRef {
-            id: n.id.into(),
-            title: n.title.into(),
-        })
-        .collect();
-    ui.set_current_backlinks(ModelRc::new(VecModel::from(backs)));
+        .collect::<Vec<_>>();
+    ui.set_current_backlinks(ModelRc::new(VecModel::from(
+        surface_adapters::note_refs_from_notes(&backs),
+    )));
     // related prior meetings: notes sharing a workstream/person/tag, to one-click link
-    let related: Vec<RelatedRef> = b
-        .related_notes(&note.id, 8)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|r| RelatedRef {
-            id: r.id.into(),
-            title: r.title.into(),
-            via: r.shared.join(", ").into(),
-        })
-        .collect();
-    ui.set_current_related(ModelRc::new(VecModel::from(related)));
-    let sources: Vec<RelatedRef> = b
+    let related = b.related_notes(&note.id, 8).unwrap_or_default();
+    ui.set_current_related(ModelRc::new(VecModel::from(
+        surface_adapters::related_refs(&related),
+    )));
+    let sources = b
         .note_context(&note.id)
-        .map(|context| {
-            context
-                .sources
-                .into_iter()
-                .map(|source| RelatedRef {
-                    id: source.id.into(),
-                    title: source.title.into(),
-                    via: if source.anchor.is_empty() {
-                        "source".into()
-                    } else {
-                        format!("^{}", source.anchor).into()
-                    },
-                })
-                .collect()
-        })
+        .map(|context| surface_adapters::source_refs(&context.sources))
         .unwrap_or_default();
     ui.set_current_sources(ModelRc::new(VecModel::from(sources)));
 }

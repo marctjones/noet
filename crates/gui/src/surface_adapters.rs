@@ -1,8 +1,9 @@
 use chrono::NaiveDate;
 use noet_core::backend;
 use noet_core::backend::Filter;
+use slint::{ModelRc, VecModel};
 
-use crate::{FacetItem, GanttItem, NoteItem, TodoItem};
+use crate::{BoardColumn, FacetItem, GanttItem, NoteItem, NoteRef, RelatedRef, TodoItem};
 
 pub fn note_item(n: &backend::Note) -> NoteItem {
     NoteItem {
@@ -98,6 +99,223 @@ pub fn todo_item_from_fact(t: &backend::TaskFact) -> TodoItem {
     }
 }
 
+#[derive(Clone)]
+pub struct OneOnOneSurface {
+    pub discuss: Vec<TodoItem>,
+    pub delegated: Vec<TodoItem>,
+    pub delegated_history: Vec<TodoItem>,
+    pub other: Vec<TodoItem>,
+    pub current_id: String,
+    pub current_title: String,
+    pub last_title: String,
+    pub prev_id: String,
+    pub next_id: String,
+    pub index: i32,
+    pub count: i32,
+    pub last_followups: Vec<TodoItem>,
+    pub history_notes: Vec<NoteItem>,
+}
+
+impl Default for OneOnOneSurface {
+    fn default() -> Self {
+        Self {
+            discuss: Vec::new(),
+            delegated: Vec::new(),
+            delegated_history: Vec::new(),
+            other: Vec::new(),
+            current_id: String::new(),
+            current_title: String::new(),
+            last_title: String::new(),
+            prev_id: String::new(),
+            next_id: String::new(),
+            index: 0,
+            count: 0,
+            last_followups: Vec::new(),
+            history_notes: Vec::new(),
+        }
+    }
+}
+
+fn is_followup_history_workflow(workflow: &backend::TaskWorkflow) -> bool {
+    matches!(
+        workflow,
+        backend::TaskWorkflow::Delegated
+            | backend::TaskWorkflow::Followup
+            | backend::TaskWorkflow::Waiting
+    )
+}
+
+pub fn one_on_one_surface(
+    context: Option<&backend::OneOnOneContext>,
+    current_note_id: &str,
+) -> OneOnOneSurface {
+    let Some(context) = context else {
+        return OneOnOneSurface::default();
+    };
+
+    let mut discuss = context.followups.clone();
+    discuss.extend(context.waiting.clone());
+
+    let history = &context.history;
+    let current_idx = history
+        .iter()
+        .position(|n| n.id == current_note_id)
+        .unwrap_or(0);
+    let current = history.get(current_idx);
+    let prev = if current_idx > 0 {
+        history.get(current_idx - 1)
+    } else {
+        None
+    };
+    let next = history.get(current_idx + 1);
+    let last = next;
+    let last_followups = last
+        .map(|last_note| {
+            context
+                .open_items
+                .iter()
+                .filter(|task| {
+                    task.source.note_id == last_note.id
+                        && is_followup_history_workflow(&task.workflow)
+                })
+                .map(todo_item_from_fact)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    OneOnOneSurface {
+        discuss: discuss.iter().map(todo_item_from_fact).collect(),
+        delegated: context.delegated.iter().map(todo_item_from_fact).collect(),
+        delegated_history: context
+            .open_items
+            .iter()
+            .filter(|task| is_followup_history_workflow(&task.workflow))
+            .map(todo_item_from_fact)
+            .collect(),
+        other: context
+            .open_items
+            .iter()
+            .filter(|task| !is_followup_history_workflow(&task.workflow))
+            .map(todo_item_from_fact)
+            .collect(),
+        current_id: current.map(|n| n.id.clone()).unwrap_or_default(),
+        current_title: current.map(|n| n.title.clone()).unwrap_or_default(),
+        last_title: last.map(|n| n.title.clone()).unwrap_or_default(),
+        prev_id: prev.map(|n| n.id.clone()).unwrap_or_default(),
+        next_id: next.map(|n| n.id.clone()).unwrap_or_default(),
+        index: current_idx as i32,
+        count: history.len() as i32,
+        last_followups,
+        history_notes: history.iter().map(note_item_from_summary).collect(),
+    }
+}
+
+pub fn board_columns(board: &backend::BoardModel) -> Vec<BoardColumn> {
+    board
+        .columns
+        .iter()
+        .map(|col| {
+            let cards = col
+                .tasks
+                .iter()
+                .map(todo_item_from_fact)
+                .collect::<Vec<_>>();
+            BoardColumn {
+                title: col.label.clone().into(),
+                key: col.key.clone().into(),
+                count: cards.len() as i32,
+                cards: ModelRc::new(VecModel::from(cards)),
+            }
+        })
+        .collect()
+}
+
+#[derive(Clone, Default)]
+pub struct TaskReviewSurface {
+    pub overdue: Vec<TodoItem>,
+    pub due: Vec<TodoItem>,
+    pub stale: Vec<TodoItem>,
+    pub followups: Vec<TodoItem>,
+    pub someday: Vec<TodoItem>,
+}
+
+pub fn task_review_surface(review: &backend::TaskReview) -> TaskReviewSurface {
+    let overdue_ids = review
+        .overdue
+        .iter()
+        .map(|task| task.id.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    TaskReviewSurface {
+        overdue: review.overdue.iter().map(todo_item_from_fact).collect(),
+        due: review
+            .due
+            .iter()
+            .filter(|task| !overdue_ids.contains(task.id.as_str()))
+            .map(todo_item_from_fact)
+            .collect(),
+        stale: review.stale.iter().map(todo_item_from_fact).collect(),
+        followups: review.followups.iter().map(todo_item_from_fact).collect(),
+        someday: review.someday.iter().map(todo_item_from_fact).collect(),
+    }
+}
+
+pub fn waiting_review_items(waiting: &backend::WaitingReview) -> Vec<TodoItem> {
+    let mut tasks = waiting
+        .groups
+        .iter()
+        .flat_map(|group| group.tasks.iter())
+        .map(todo_item_from_fact)
+        .collect::<Vec<_>>();
+    tasks.extend(waiting.unassigned.iter().map(todo_item_from_fact));
+    tasks
+}
+
+pub fn note_refs_from_summaries(notes: &[backend::NoteSummary]) -> Vec<NoteRef> {
+    notes
+        .iter()
+        .map(|n| NoteRef {
+            id: n.id.clone().into(),
+            title: n.title.clone().into(),
+        })
+        .collect()
+}
+
+pub fn note_refs_from_notes(notes: &[backend::Note]) -> Vec<NoteRef> {
+    notes
+        .iter()
+        .map(|n| NoteRef {
+            id: n.id.clone().into(),
+            title: n.title.clone().into(),
+        })
+        .collect()
+}
+
+pub fn related_refs(notes: &[backend::RelatedNote]) -> Vec<RelatedRef> {
+    notes
+        .iter()
+        .map(|r| RelatedRef {
+            id: r.id.clone().into(),
+            title: r.title.clone().into(),
+            via: r.shared.join(", ").into(),
+        })
+        .collect()
+}
+
+pub fn source_refs(sources: &[backend::SourceRef]) -> Vec<RelatedRef> {
+    sources
+        .iter()
+        .map(|source| RelatedRef {
+            id: source.id.clone().into(),
+            title: source.title.clone().into(),
+            via: if source.anchor.is_empty() {
+                "source".into()
+            } else {
+                format!("^{}", source.anchor).into()
+            },
+        })
+        .collect()
+}
+
 fn day(s: &str) -> Option<NaiveDate> {
     NaiveDate::parse_from_str(s, "%Y-%m-%d").ok()
 }
@@ -180,8 +398,63 @@ pub fn active_summary(f: &Filter) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use backend::{PropertyFact, SourceSpan, TaskFact, TaskSource, TaskStatus, TaskWorkflow};
+    use backend::{
+        NoteSummary, PropertyFact, RelatedNote, SourceRef, SourceSpan, TaskFact, TaskReview,
+        TaskSource, TaskStatus, TaskWorkflow, WaitingGroup, WaitingReview,
+    };
+    use slint::Model;
     use std::path::PathBuf;
+
+    fn source(note_id: &str, title: &str) -> TaskSource {
+        TaskSource {
+            note_id: note_id.into(),
+            note_title: title.into(),
+            note_updated: "2026-06-11T10:30:00".into(),
+            line_no: 4,
+            anchor: format!("{note_id}-anchor"),
+            span: SourceSpan {
+                line_no: 4,
+                byte_start: 100,
+                byte_end: 140,
+            },
+        }
+    }
+
+    fn task(
+        id: &str,
+        note_id: &str,
+        text: &str,
+        workflow: TaskWorkflow,
+        status: TaskStatus,
+    ) -> TaskFact {
+        TaskFact {
+            id: id.into(),
+            source: source(note_id, note_id),
+            text: text.into(),
+            status,
+            workflow,
+            people: vec!["Jane".into()],
+            workstreams: vec!["Client/Acme".into()],
+            labels: Vec::new(),
+            properties: Vec::new(),
+            start: String::new(),
+            due: "2026-06-20".into(),
+            priority: "B".into(),
+            external: String::new(),
+            repeat: String::new(),
+        }
+    }
+
+    fn note_summary(id: &str, title: &str) -> NoteSummary {
+        NoteSummary {
+            id: id.into(),
+            title: title.into(),
+            updated: "2026-06-11T10:30:00".into(),
+            labels: Vec::new(),
+            people: Vec::new(),
+            workstreams: Vec::new(),
+        }
+    }
 
     #[test]
     fn note_and_todo_rows_are_stable() {
@@ -226,6 +499,176 @@ mod tests {
         assert_eq!(row.kind.to_string(), "followup");
         assert_eq!(row.person.to_string(), "Jane");
         assert!(!row.done);
+    }
+
+    #[test]
+    fn one_on_one_surface_groups_tasks_and_history() {
+        let prior_followup = task(
+            "old:1",
+            "old",
+            "Revisit budget",
+            TaskWorkflow::Followup,
+            TaskStatus::Todo,
+        );
+        let waiting = task(
+            "cur:2",
+            "cur",
+            "Waiting on plan",
+            TaskWorkflow::Waiting,
+            TaskStatus::Todo,
+        );
+        let delegated = task(
+            "cur:3",
+            "cur",
+            "Send draft",
+            TaskWorkflow::Delegated,
+            TaskStatus::Doing,
+        );
+        let mine = task(
+            "cur:4",
+            "cur",
+            "My prep",
+            TaskWorkflow::Mine,
+            TaskStatus::Todo,
+        );
+        let context = backend::OneOnOneContext {
+            person: "Jane".into(),
+            current_note: None,
+            history: vec![
+                note_summary("cur", "Current 1:1"),
+                note_summary("old", "Old 1:1"),
+            ],
+            previous_notes: vec![note_summary("old", "Old 1:1")],
+            open_items: vec![
+                prior_followup.clone(),
+                waiting.clone(),
+                delegated.clone(),
+                mine.clone(),
+            ],
+            followups: vec![prior_followup],
+            delegated: vec![delegated],
+            waiting: vec![waiting],
+        };
+
+        let surface = one_on_one_surface(Some(&context), "cur");
+        assert_eq!(surface.current_id, "cur");
+        assert_eq!(surface.current_title, "Current 1:1");
+        assert_eq!(surface.next_id, "old");
+        assert_eq!(surface.last_title, "Old 1:1");
+        assert_eq!(surface.count, 2);
+        assert_eq!(surface.discuss.len(), 2);
+        assert_eq!(surface.delegated.len(), 1);
+        assert_eq!(surface.delegated_history.len(), 3);
+        assert_eq!(surface.other.len(), 1);
+        assert_eq!(surface.other[0].text.to_string(), "My prep");
+        assert_eq!(surface.last_followups.len(), 1);
+        assert_eq!(surface.last_followups[0].text.to_string(), "Revisit budget");
+        assert_eq!(surface.history_notes[0].title.to_string(), "Current 1:1");
+
+        let empty = one_on_one_surface(None, "");
+        assert_eq!(empty.count, 0);
+        assert!(empty.discuss.is_empty());
+    }
+
+    #[test]
+    fn board_review_and_waiting_surfaces_are_deterministic() {
+        let overdue = task(
+            "n1:1",
+            "n1",
+            "Overdue",
+            TaskWorkflow::Mine,
+            TaskStatus::Todo,
+        );
+        let due = task(
+            "n2:1",
+            "n2",
+            "Due soon",
+            TaskWorkflow::Followup,
+            TaskStatus::Todo,
+        );
+        let someday = task(
+            "n3:1",
+            "n3",
+            "Someday",
+            TaskWorkflow::Someday,
+            TaskStatus::Todo,
+        );
+
+        let board = backend::BoardModel {
+            group_by: "kind".into(),
+            columns: vec![backend::BoardColumn {
+                label: "Mine".into(),
+                key: "mine".into(),
+                tasks: vec![overdue.clone(), due.clone()],
+            }],
+        };
+        let columns = board_columns(&board);
+        assert_eq!(columns.len(), 1);
+        assert_eq!(columns[0].title.to_string(), "Mine");
+        assert_eq!(columns[0].count, 2);
+        assert_eq!(columns[0].cards.row_count(), 2);
+
+        let review = TaskReview {
+            open: vec![overdue.clone(), due.clone(), someday.clone()],
+            overdue: vec![overdue.clone()],
+            due: vec![overdue.clone(), due.clone()],
+            stale: vec![due.clone()],
+            mine: vec![overdue.clone()],
+            followups: vec![due.clone()],
+            delegated: Vec::new(),
+            waiting: Vec::new(),
+            someday: vec![someday.clone()],
+        };
+        let surface = task_review_surface(&review);
+        assert_eq!(surface.overdue.len(), 1);
+        assert_eq!(surface.due.len(), 1, "overdue tasks are excluded from due");
+        assert_eq!(surface.due[0].text.to_string(), "Due soon");
+        assert_eq!(surface.someday[0].text.to_string(), "Someday");
+
+        let waiting = WaitingReview {
+            groups: vec![WaitingGroup {
+                person: "Jane".into(),
+                tasks: vec![due.clone()],
+            }],
+            unassigned: vec![someday],
+        };
+        let waiting_rows = waiting_review_items(&waiting);
+        assert_eq!(waiting_rows.len(), 2);
+        assert_eq!(waiting_rows[0].text.to_string(), "Due soon");
+        assert_eq!(waiting_rows[1].text.to_string(), "Someday");
+    }
+
+    #[test]
+    fn note_context_refs_are_stable() {
+        let summaries = vec![note_summary("n1", "Backlink")];
+        let refs = note_refs_from_summaries(&summaries);
+        assert_eq!(refs[0].id.to_string(), "n1");
+        assert_eq!(refs[0].title.to_string(), "Backlink");
+
+        let related = vec![RelatedNote {
+            id: "n2".into(),
+            title: "Related".into(),
+            updated: "2026-06-11T10:30:00".into(),
+            shared: vec!["Jane".into(), "Client/Acme".into()],
+        }];
+        let related_rows = related_refs(&related);
+        assert_eq!(related_rows[0].via.to_string(), "Jane, Client/Acme");
+
+        let sources = vec![
+            SourceRef {
+                id: "n3".into(),
+                title: "Meeting".into(),
+                anchor: "followup".into(),
+            },
+            SourceRef {
+                id: "n4".into(),
+                title: "Plain Source".into(),
+                anchor: String::new(),
+            },
+        ];
+        let source_rows = source_refs(&sources);
+        assert_eq!(source_rows[0].via.to_string(), "^followup");
+        assert_eq!(source_rows[1].via.to_string(), "source");
     }
 
     #[test]
