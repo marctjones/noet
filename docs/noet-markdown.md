@@ -285,8 +285,8 @@ read models, source links, and task write-back:
 - Tasks: task marker, text, labels, people, links, properties, source span.
 - Contacts: URL, email, and social-handle facts with source spans.
 - Properties: key, value, scope, validation diagnostics.
-- Diagnostics: invalid properties, ambiguous bare people, duplicate anchors, and
-  unsupported old syntax.
+- Diagnostics: invalid properties, ambiguous bare people, malformed source
+  links, duplicate anchors, and unsupported old syntax.
 
 Task source spans include the source line number, byte range, and optional block
 anchor. A task line with a block anchor:

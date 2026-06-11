@@ -79,6 +79,33 @@ fn parsed_markdown_exposes_task_spans_and_source_links() {
 }
 
 #[test]
+fn parsed_markdown_reports_malformed_source_links() {
+    let body = "\
+source:[[Missing close\n\
+source:[[]]\n\
+source:[[Meeting#^]]\n\
+source:[[Good Meeting#^good-anchor]]\n";
+    let parsed = parse_markdown("N1", body);
+
+    assert_eq!(parsed.source_links.len(), 1);
+    assert_eq!(parsed.source_links[0].title, "Good Meeting");
+    assert_eq!(parsed.source_links[0].anchor, "good-anchor");
+    assert_eq!(
+        parsed
+            .diagnostics
+            .iter()
+            .filter(|d| d.code == "malformed-source-link")
+            .count(),
+        3
+    );
+    assert!(parsed
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == "malformed-source-link")
+        .all(|d| d.severity == ParseSeverity::Warning && d.span.byte_end > d.span.byte_start));
+}
+
+#[test]
 fn parsed_markdown_reports_diagnostics_for_invalid_and_legacy_syntax() {
     let body = "\
 TODO(followup) old task\n\

@@ -824,14 +824,22 @@ pub fn parse_source_links(body: &str) -> Vec<SourceLink> {
         let Some(rest) = trimmed.strip_prefix("source:[[") else {
             continue;
         };
-        let Some(target) = rest.split("]]").next().map(str::trim) else {
+        let Some((target, _)) = rest.split_once("]]") else {
             continue;
         };
+        let target = target.trim();
         if target.is_empty() {
             continue;
         }
         let (title, anchor) = match target.split_once("#^") {
-            Some((title, anchor)) => (title.trim().to_string(), anchor.trim().to_string()),
+            Some((title, anchor)) => {
+                let title = title.trim();
+                let anchor = anchor.trim();
+                if title.is_empty() || anchor.is_empty() {
+                    continue;
+                }
+                (title.to_string(), anchor.to_string())
+            }
             None => (target.trim().to_string(), String::new()),
         };
         let byte_start = line.byte_start + leading;
@@ -847,6 +855,51 @@ pub fn parse_source_links(body: &str) -> Vec<SourceLink> {
         });
     }
     links
+}
+
+fn source_link_diagnostic(line: TextLine<'_>) -> Option<ParseDiagnostic> {
+    let trimmed = line.line.trim_start();
+    let leading = line.line.len() - trimmed.len();
+    if !trimmed.starts_with("source:") {
+        return None;
+    }
+    let span = SourceSpan {
+        line_no: line.line_no,
+        byte_start: line.byte_start + leading,
+        byte_end: line.byte_end,
+    };
+    let Some(rest) = trimmed.strip_prefix("source:[[") else {
+        return Some(warning(
+            "malformed-source-link",
+            "Source links must use source:[[Note Title#^anchor]]",
+            span,
+        ));
+    };
+    let Some((target, _)) = rest.split_once("]]") else {
+        return Some(warning(
+            "malformed-source-link",
+            "Source link is missing a closing ]]",
+            span,
+        ));
+    };
+    let target = target.trim();
+    if target.is_empty() {
+        return Some(warning(
+            "malformed-source-link",
+            "Source link target cannot be empty",
+            span,
+        ));
+    }
+    if let Some((title, anchor)) = target.split_once("#^") {
+        if title.trim().is_empty() || anchor.trim().is_empty() {
+            return Some(warning(
+                "malformed-source-link",
+                "Source link anchors must include both a note title and block anchor",
+                span,
+            ));
+        }
+    }
+    None
 }
 
 fn span_for_range(line: TextLine<'_>, start: usize, end: usize) -> SourceSpan {
@@ -909,6 +962,10 @@ fn invalid_property_message(key: &str, value: &str) -> Option<String> {
 
 fn line_diagnostics(line: TextLine<'_>) -> Vec<ParseDiagnostic> {
     let mut diagnostics = Vec::new();
+
+    if let Some(diagnostic) = source_link_diagnostic(line) {
+        diagnostics.push(diagnostic);
+    }
 
     if let Some(m) = old_task_re().find(line.line) {
         diagnostics.push(warning(

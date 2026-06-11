@@ -182,8 +182,9 @@ Daily-use quality means:
 
 ## Phase 6 - Parser And Write-Back Hardening
 
-- [ ] Make the typed parsed-note model the shared source for indexing,
-  rendering, autocomplete, and write-back.
+- [x] Make the typed parsed-note model the shared source for indexing,
+  rendering, editor highlighting, export, spellcheck, workflow read models, and
+  write-back.
 - [x] Use typed parsed facts for indexing and workflow read models.
 - [x] Track stable task source spans and block anchors for write-back.
 - [x] Resolve anchored task ids before falling back to line-number write-back.
@@ -191,10 +192,10 @@ Daily-use quality means:
   inline entity facts.
 - [x] Move PDF export and spellcheck entity skipping onto typed inline entity
   facts.
-- [ ] Keep autocomplete trigger detection isolated as an editor-only scanner for
+- [x] Keep autocomplete trigger detection isolated as an editor-only scanner for
   incomplete in-progress tokens.
-- [x] Add parser diagnostics for invalid properties, ambiguous people, duplicate
-  anchors, and unsupported old syntax.
+- [x] Add parser diagnostics for invalid properties, ambiguous people,
+  malformed source links, duplicate anchors, and unsupported old syntax.
 - [x] Detect URLs, emails, and social handles as contact facts without promoting
   them to canonical people.
 

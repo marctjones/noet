@@ -30,8 +30,9 @@ The core contract is mostly independent of the GUI rewrite.
 
 Remaining core work:
 
-- [ ] Define a typed parsed-note model that all queries, mutations, rendering,
-  autocomplete, and indexing consume.
+- [x] Define a typed parsed-note model that queries, mutations, rendering,
+  editor highlighting, export, spellcheck, workflow read models, indexing, and
+  write-back consume where complete tokens are available.
 - [x] Use the typed parsed-note model for indexing and workflow read models.
 - [x] Ensure task source spans are stable enough for anchored write-back and
   promotion.
@@ -40,10 +41,10 @@ Remaining core work:
   inline entity facts.
 - [x] Move PDF export and spellcheck entity skipping onto typed inline entity
   facts.
-- [ ] Keep autocomplete trigger detection isolated as an editor-only scanner for
+- [x] Keep autocomplete trigger detection isolated as an editor-only scanner for
   incomplete in-progress tokens.
-- [x] Add parser diagnostics for invalid properties, ambiguous people, duplicate
-  task anchors, and unsupported old syntax.
+- [x] Add parser diagnostics for invalid properties, ambiguous people,
+  malformed source links, duplicate task anchors, and unsupported old syntax.
 - [x] Detect URLs, emails, and social handles as source-spanned contact facts
   without promoting them to canonical people.
 
