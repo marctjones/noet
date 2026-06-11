@@ -402,17 +402,27 @@ component SegmentSpan inherits Rectangle {
     in property <Segment> seg;
     callback activate(string, string);
     property <bool> token: seg.kind != "";
+    property <color> token-bg:
+        !token ? transparent :
+        seg.kind == "url" ? (Theme.dark ? #322a43 : #efe7fd) :
+        seg.kind == "email" ? (Theme.dark ? #203245 : #eef6ff) :
+        seg.kind == "social" ? (Theme.dark ? #2b323d : #eef2f7) :
+        seg.kind == "project" ? (Theme.dark ? #17382d : #e7f7ec) :
+        seg.kind == "person" ? (Theme.dark ? #3d2b1f : #fdeede) :
+        Theme.dark ? #332344 : #f3ecfb;
+    property <color> token-fg:
+        !token ? Theme.text :
+        seg.kind == "url" ? (Theme.dark ? #caa7ff : #5b1b9a) :
+        seg.kind == "email" ? (Theme.dark ? #9ccfff : #1f5b89) :
+        seg.kind == "social" ? (Theme.dark ? #c3ccd8 : #475569) :
+        seg.kind == "project" ? (Theme.dark ? #8fe5b0 : #1f7a44) :
+        seg.kind == "person" ? (Theme.dark ? #f0b679 : #9a5b1b) :
+        seg.kind == "tag" ? (Theme.dark ? #d5a6ff : #5b1b9a) :
+        Theme.text;
     height: 22px;
     width: token ? label.preferred-width + 14px : label.preferred-width;
     border-radius: 4px;
-    background:
-        !token ? transparent :
-        seg.kind == "url" ? #efe7fd :
-        seg.kind == "email" ? #eef6ff :
-        seg.kind == "social" ? #eef2f7 :
-        seg.kind == "project" ? #e7f7ec :
-        seg.kind == "person" ? #fdeede :
-        #f3ecfb;
+    background: token-bg;
     accessible-role: text;
     accessible-label: seg.text;
     accessible-action-default => {
@@ -425,14 +435,7 @@ component SegmentSpan inherits Rectangle {
         y: (parent.height - self.height) / 2;
         text: root.seg.text;
         font-size: (13px * Z.f);
-        color:
-            root.seg.kind == "url" ? #5b1b9a :
-            root.seg.kind == "email" ? #1f5b89 :
-            root.seg.kind == "social" ? #475569 :
-            root.seg.kind == "project" ? #1f7a44 :
-            root.seg.kind == "person" ? #9a5b1b :
-            root.seg.kind == "tag" ? #5b1b9a :
-            Theme.text;
+        color: root.token-fg;
         font-weight: root.token ? 650 : 400;
     }
     ss := TouchArea {

@@ -209,7 +209,14 @@ fn inline_entities_expose_typed_ranges_for_rendering_and_editor_tokens() {
         .any(|segment| segment.kind == "email" && segment.value == "marc@joneslaw.io"));
     assert!(segments
         .iter()
+        .any(|segment| segment.kind == "person" && segment.text == "@Jane"));
+    assert!(segments
+        .iter()
         .any(|segment| segment.kind == "social" && segment.value == "@marctjones"));
+    assert!(
+        !segments.iter().any(|segment| segment.text.contains("@[[")),
+        "render/display segments must hide canonical person markup"
+    );
 }
 
 #[test]

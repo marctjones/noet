@@ -112,10 +112,10 @@ export component RichTextEditor inherits Rectangle {
             if (event.text == Key.Delete)      { root.special("delete");    return EventResult.accept; }
             if (event.text == Key.LeftArrow)   { root.special(event.modifiers.shift ? "select-left" : "left");   return EventResult.accept; }
             if (event.text == Key.RightArrow)  { root.special(event.modifiers.shift ? "select-right" : "right"); return EventResult.accept; }
-            if (event.text == Key.UpArrow)     { root.special("up");   return EventResult.accept; }
-            if (event.text == Key.DownArrow)   { root.special("down"); return EventResult.accept; }
-            if (event.text == Key.Home)        { root.special("home"); return EventResult.accept; }
-            if (event.text == Key.End)         { root.special("end");  return EventResult.accept; }
+            if (event.text == Key.UpArrow)     { root.special(event.modifiers.shift ? "select-up" : "up");       return EventResult.accept; }
+            if (event.text == Key.DownArrow)   { root.special(event.modifiers.shift ? "select-down" : "down");   return EventResult.accept; }
+            if (event.text == Key.Home)        { root.special(event.modifiers.shift ? "select-home" : "home");   return EventResult.accept; }
+            if (event.text == Key.End)         { root.special(event.modifiers.shift ? "select-end" : "end");     return EventResult.accept; }
             if (event.text == Key.Tab)         { root.special(event.modifiers.shift ? "outdent" : "indent"); return EventResult.accept; }
             if (event.text == Key.Return)      { root.insert-text("\n"); return EventResult.accept; }
             if (event.text != "") {

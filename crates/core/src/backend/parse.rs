@@ -456,9 +456,10 @@ pub fn line_segments(raw: &str) -> Vec<Segment> {
     let mut segs = Vec::new();
     let mut last = 0usize;
     let push_plain = |segs: &mut Vec<Segment>, s: &str| {
-        if !s.is_empty() {
+        let text = strip_inline(s);
+        if !text.is_empty() {
             segs.push(Segment {
-                text: strip_inline(s),
+                text,
                 kind: String::new(),
                 value: String::new(),
             });

@@ -304,6 +304,35 @@ fn headless_ui_smoke() {
         .match_descendants()
         .match_accessible_role(AccessibleRole::Button)
         .find_all();
+    SredEditorAdapter::load_note_body(ui, "alpha\nbeta\ngamma\n");
+    RICH.with(|r| {
+        r.borrow_mut()
+            .core_mut()
+            .set_cursor("alpha".chars().count())
+    });
+    ui.invoke_rich_special("select-home".into());
+    assert_eq!(
+        RICH.with(|r| r.borrow().selected_text()),
+        "alpha",
+        "Shift+Home selects back to the start of the line"
+    );
+    RICH.with(|r| r.borrow_mut().core_mut().set_cursor(0));
+    ui.invoke_rich_special("select-end".into());
+    assert_eq!(
+        RICH.with(|r| r.borrow().selected_text()),
+        "alpha",
+        "Shift+End selects to the end of the line"
+    );
+    RICH.with(|r| {
+        let mut e = r.borrow_mut();
+        e.set_viewport(400, 400.0);
+        e.core_mut().set_cursor(1);
+    });
+    ui.invoke_rich_special("select-down".into());
+    assert!(
+        !RICH.with(|r| r.borrow().selected_text()).is_empty(),
+        "Shift+Down extends the selection using the editor's visual line motion"
+    );
 
     // Selecting an existing note leaves edit mode and should render Markdown
     // instead of showing raw source markers in a plain TextEdit.
@@ -315,7 +344,7 @@ fn headless_ui_smoke() {
             .save_note(
                 &n.id,
                 "Rendered Markdown",
-                "# Rendered Markdown\n\nThis is **bold** and [[Acme]] #urgent\n\n- [ ] Call client @[[Jane]] [[Acme]] #followup due:2026-07-01 priority:A\n",
+                "# Rendered Markdown\n\nThis is **bold** and [[Acme]] #urgent\n\nDiscuss with @[[Jane]] about launch.\n\n- [ ] Call client @[[Jane]] [[Acme]] #followup due:2026-07-01 priority:A\n",
             )
             .unwrap();
         rendered_id = n.id.clone();
@@ -335,6 +364,25 @@ fn headless_ui_smoke() {
         .next()
         .expect("rendered Markdown heading is exposed without the raw # marker");
     let blocks = ui.get_md_blocks();
+    assert!(
+        (0..blocks.row_count()).any(|i| {
+            let block = blocks.row_data(i).unwrap();
+            (0..block.segments.row_count()).any(|j| {
+                let segment = block.segments.row_data(j).unwrap();
+                segment.kind == "person" && segment.text == "@Jane" && segment.value == "Jane"
+            })
+        }),
+        "rendered Markdown segments hide @[[Person]] syntax while preserving the person token"
+    );
+    assert!(
+        !(0..blocks.row_count()).any(|i| {
+            let block = blocks.row_data(i).unwrap();
+            block.text.contains("@[[")
+                || (0..block.segments.row_count())
+                    .any(|j| block.segments.row_data(j).unwrap().text.contains("@[["))
+        }),
+        "rendered Markdown read model must not leak raw person extension syntax"
+    );
     let todo_block = (0..blocks.row_count())
         .filter_map(|i| blocks.row_data(i))
         .find(|b| b.kind == "todo")

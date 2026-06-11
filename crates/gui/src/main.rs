@@ -468,45 +468,76 @@ fn find_social_handles(line: &str) -> Vec<SredMatch> {
     find_inline_kind(line, backend::InlineEntityKind::Social)
 }
 
-/// Register Noet's domain tokens on the sred editor (call once at startup).
-fn rich_register_tokens() {
+/// Register Noet's domain tokens on the sred editor.
+fn rich_register_tokens(dark: bool) {
+    let (project_fg, project_bg) = if dark {
+        ([143, 229, 176, 255], [23, 56, 45, 255])
+    } else {
+        ([31, 122, 68, 255], [231, 247, 236, 255])
+    };
+    let (person_fg, person_bg) = if dark {
+        ([240, 182, 121, 255], [61, 43, 31, 255])
+    } else {
+        ([154, 91, 27, 255], [253, 238, 222, 255])
+    };
+    let (tag_fg, tag_bg) = if dark {
+        ([213, 166, 255, 255], [51, 35, 68, 255])
+    } else {
+        ([91, 27, 154, 255], [243, 236, 251, 255])
+    };
+    let (email_fg, email_bg) = if dark {
+        ([156, 207, 255, 255], [32, 50, 69, 255])
+    } else {
+        ([31, 91, 137, 255], [238, 246, 255, 255])
+    };
+    let (social_fg, social_bg) = if dark {
+        ([195, 204, 216, 255], [43, 50, 61, 255])
+    } else {
+        ([71, 85, 105, 255], [238, 242, 247, 255])
+    };
+    let url_fg = if dark {
+        [128, 180, 255, 255]
+    } else {
+        [45, 108, 223, 255]
+    };
+
     RICH.with(|r| {
         let mut e = r.borrow_mut();
         e.clear_tokens();
         e.register_token(SredToken {
             id: "project".into(),
-            fg: [31, 122, 68, 255],
-            bg: Some([231, 247, 236, 255]),
+            fg: project_fg,
+            bg: Some(project_bg),
             matcher: Box::new(find_wikilinks),
         });
         e.register_token(SredToken {
             id: "person".into(),
-            fg: [154, 91, 27, 255],
-            bg: Some([253, 238, 222, 255]),
+            fg: person_fg,
+            bg: Some(person_bg),
             matcher: Box::new(find_mentions),
         });
         e.register_token(SredToken {
             id: "tag".into(),
-            fg: [91, 27, 154, 255],
-            bg: Some([243, 236, 251, 255]),
+            fg: tag_fg,
+            bg: Some(tag_bg),
             matcher: Box::new(find_tags),
         });
         e.register_token(SredToken {
             id: "url".into(),
-            fg: [45, 108, 223, 255],
+            fg: url_fg,
             bg: None,
             matcher: Box::new(find_urls),
         });
         e.register_token(SredToken {
             id: "email".into(),
-            fg: [31, 91, 137, 255],
-            bg: Some([238, 246, 255, 255]),
+            fg: email_fg,
+            bg: Some(email_bg),
             matcher: Box::new(find_emails),
         });
         e.register_token(SredToken {
             id: "social".into(),
-            fg: [71, 85, 105, 255],
-            bg: Some([238, 242, 247, 255]),
+            fg: social_fg,
+            bg: Some(social_bg),
             matcher: Box::new(find_social_handles),
         });
     });
@@ -1371,6 +1402,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         let state = state.clone();
         ui.on_theme_changed(move || {
             let ui = ui_w.unwrap();
+            rich_register_tokens(ui.global::<Theme>().get_dark());
             rich_render(&ui, false);
             render_split(&ui, &state.borrow().backend); // reference pane follows the theme too
             chrome::apply(ui.global::<Theme>().get_dark());
@@ -1500,6 +1532,30 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                         e.apply(SredCmd::Select(SredMotion::Right));
                         false
                     }
+                    "select-up" => {
+                        let anchor = e.carets().first().copied().unwrap_or(0);
+                        e.move_vertical(false);
+                        let target = e.carets().first().copied().unwrap_or(anchor);
+                        e.core_mut().set_cursor(anchor);
+                        e.core_mut().extend_to(target);
+                        false
+                    }
+                    "select-down" => {
+                        let anchor = e.carets().first().copied().unwrap_or(0);
+                        e.move_vertical(true);
+                        let target = e.carets().first().copied().unwrap_or(anchor);
+                        e.core_mut().set_cursor(anchor);
+                        e.core_mut().extend_to(target);
+                        false
+                    }
+                    "select-home" => {
+                        e.apply(SredCmd::Select(SredMotion::LineStart));
+                        false
+                    }
+                    "select-end" => {
+                        e.apply(SredCmd::Select(SredMotion::LineEnd));
+                        false
+                    }
                     "up" => {
                         e.move_vertical(false);
                         false
@@ -1565,7 +1621,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             rich_render(&ui, false);
         });
     }
-    rich_register_tokens();
+    rich_register_tokens(ui.global::<Theme>().get_dark());
     // Spellcheck: build the bundled dictionary once and register it on the editor.
     // sred re-runs the closure (cached by content hash) and draws red squiggles.
     if let Ok(dict) = spellbook::Dictionary::new(DICT_AFF, DICT_DIC) {
