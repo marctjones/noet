@@ -24,6 +24,8 @@ The current direction:
 - Markdown files are the source of truth.
 - SQLite is a rebuildable local index.
 - The app is local-only for now.
+- AI work is local open-weight execution first; hosted APIs and account-provider
+  integrations are deferred.
 - The UX should be built from workspaces, panes, and reusable surfaces, not
   hard-coded pages.
 - Navigation panes help find context; they do not own the work being edited.
@@ -223,6 +225,11 @@ noet-gui -> noet-app -> noet-core
 `sred` is an editor engine used by the note editor surface. It should not know
 about vaults, people, labels, tasks, panes, or workspaces.
 
+Future AI work should live behind a local-only `noet-ai` boundary. Local model
+execution may help with agenda drafting, label suggestions, meeting summaries,
+and housekeeping proposals, but cloud model providers are not part of the current
+scope. See [Local AI Architecture](docs/local-ai-architecture.md).
+
 ## Build From Source
 
 Requires a recent stable Rust toolchain. Linux GUI builds may need
@@ -257,6 +264,7 @@ visual checkpoint, and packaging details.
 - [Product Architecture](docs/product-architecture.md)
 - [Noet Markdown](docs/noet-markdown.md)
 - [Implementation Roadmap](docs/implementation-roadmap.md)
+- [Local AI Architecture](docs/local-ai-architecture.md)
 - [UX Redesign Plan](docs/ux-redesign-plan.md)
 - [Manual Review Checklist](docs/manual-review-checklist.md)
 - [Local Run And Release](docs/local-run-and-release.md)

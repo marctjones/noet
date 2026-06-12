@@ -34,6 +34,10 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$DMG_ROOT"
 cargo build --release -p noet-gui
 cp target/release/noet "$APP/Contents/MacOS/noet"
 chmod +x "$APP/Contents/MacOS/noet"
+if [[ ! -f "$ROOT/assets/app-icon/Noet.icns" ]]; then
+  "$ROOT/scripts/generate-macos-icon.sh"
+fi
+cp "$ROOT/assets/app-icon/Noet.icns" "$APP/Contents/Resources/Noet.icns"
 
 PL="$APP/Contents/Info.plist"
 {
@@ -44,6 +48,7 @@ PL="$APP/Contents/Info.plist"
   echo '<key>CFBundleDisplayName</key><string>Noet</string>'
   echo '<key>CFBundleExecutable</key><string>noet</string>'
   echo '<key>CFBundleIdentifier</key><string>cl.skpt.noet</string>'
+  echo '<key>CFBundleIconFile</key><string>Noet</string>'
   echo "<key>CFBundleVersion</key><string>${BUNDLE_VERSION}</string>"
   echo "<key>CFBundleShortVersionString</key><string>${BUNDLE_VERSION}</string>"
   echo '<key>CFBundlePackageType</key><string>APPL</string>'

@@ -1,0 +1,13 @@
+[package]
+name = "noet-ai"
+version = "0.7.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "Noet local AI contracts: local model profiles, runtime capabilities, tools, proposals, and housekeeping jobs."
+
+[lib]
+name = "noet_ai"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }

@@ -237,6 +237,45 @@ Current Tasks/Review/Board progress:
 - [ ] Manual review still needs to verify task, review, and board workflows on a
   realistic vault.
 
+## Phase 7 - Local AI Foundation
+
+AI work starts with local open-weight execution only. Hosted APIs, OAuth login,
+cloud fallback, and account-provider integrations are deferred.
+
+Architecture:
+
+- [x] Add `noet-ai` as a UI-independent crate.
+- [x] Define local model profiles for light, default, and heavy GGUF chat tiers.
+- [ ] Define local embedding model profiles.
+- [ ] Define local runtime contracts for chat, embeddings, structured responses,
+  and tool calls.
+- [x] Define reviewable proposal types for AI-suggested Markdown changes.
+- [x] Define background housekeeping jobs as explicit local jobs with visible
+  status.
+- [x] Add local-only safety tests that prevent network/provider fallback from
+  entering the first AI phase.
+
+First workflows:
+
+- [ ] Draft next 1:1 agenda from prior 1:1 notes, unresolved follow-ups,
+  delegated tasks, waiting items, and related notes.
+- [ ] Suggest labels, workstreams, people, and due-date cleanup for the current
+  note.
+- [ ] Summarize a meeting note into decisions, risks, open questions, and
+  commitments.
+- [ ] Find stale follow-ups and propose resolve, carry forward, demote to
+  someday, or keep open.
+- [ ] Promote important inline tasks into full task notes while preserving source
+  context.
+
+Implementation order:
+
+1. Add local-only `noet-ai` contracts and tests.
+2. Add local embedding/index refresh job.
+3. Add read-only 1:1 agenda draft workflow.
+4. Add proposal review UI for AI-suggested changes.
+5. Add local chat model runtime behind the same contracts.
+
 ## Release Gate
 
 Do not cut a release just because the app compiles.
@@ -260,6 +299,7 @@ and packaging policy is documented in
 
 - account connectors
 - cloud sync
+- hosted AI providers, OAuth login, and cloud fallback
 - Windows installer
 - Linux installer
 - full docking system

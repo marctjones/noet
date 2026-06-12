@@ -63,6 +63,18 @@ Outputs:
 - `noet-v<version>-local-macos-arm64.dmg`
 - `noet-v<version>-local-macos-arm64.tar.gz`
 
+The app icon source lives at `assets/app-icon/noet-icon.svg`. The generated
+macOS icon file lives at `assets/app-icon/Noet.icns` and is copied into
+`Noet.app/Contents/Resources`. If the `.icns` file is missing, the packaging
+script regenerates it with:
+
+```bash
+./scripts/generate-macos-icon.sh
+```
+
+The icon generator uses macOS `qlmanage`, `sips`, and `iconutil`, so it only runs
+on macOS.
+
 The script ad-hoc signs by default. A Developer ID is optional and should not
 block local use or review. If a Developer ID identity is available, pass it with:
 

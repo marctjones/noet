@@ -60,6 +60,7 @@ configuration project.
 - Closing a navigation pane must never close the work being edited.
 - Task state must write back to Markdown, not disappear into a hidden database.
 - Local-first comes before connectors, accounts, sync, and automation.
+- AI assistance should start with local open-weight model execution only.
 - The UI should be calm, dense, native, and task-focused.
 
 ## Data Model
@@ -603,6 +604,13 @@ noet-app
   surface model
   surface adapters
 
+noet-ai
+  local model profiles
+  local runtime abstraction
+  AI tool contracts
+  proposal contracts
+  background job policy
+
 noet-gui
   Slint renderer
   platform integration
@@ -613,11 +621,13 @@ Dependency direction:
 
 ```text
 gui -> app -> core
+          -> ai -> core
 ```
 
 The reverse dependencies should not exist. Core should not know about Slint.
 Workspace state should not know about Markdown parsing internals. Markdown should
-not know about panes.
+not know about panes. AI may consume core query/read-model contracts, but core
+must not depend on AI.
 
 ### noet-core
 
@@ -656,6 +666,26 @@ Owns rendering and desktop integration:
 
 The GUI should mostly render tested app state and send commands back to
 `noet-app`.
+
+### noet-ai
+
+Owns local open-weight AI integration:
+
+- local model profile configuration
+- local runtime abstraction
+- prompt and structured response contracts
+- Noet tool schemas
+- reviewable proposal types
+- background housekeeping job policy
+- local-only safety policy
+
+The AI layer should not directly edit Markdown files. It should use `noet-core`
+queries for context and return proposals or typed tool requests that `noet-app`
+can present, validate, and apply through existing Markdown mutation paths.
+
+Hosted providers, API keys, OAuth login, and cloud fallback are outside the AI
+phase. The product source of truth for this boundary is
+[Local AI Architecture](local-ai-architecture.md).
 
 ## Editor Boundary
 
@@ -759,6 +789,7 @@ Behavior:
 
 - Do not build cloud sync.
 - Do not add Jira, Outlook, Gmail, or other connectors.
+- Do not add hosted AI provider integrations, OAuth login, or cloud fallback.
 - Do not build a full plugin system.
 - Do not build an IDE-grade arbitrary docking system yet.
 - Do not preserve old page-based UX behavior.

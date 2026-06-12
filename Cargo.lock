@@ -4016,6 +4016,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "noet-ai"
+version = "0.7.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "noet-app"
 version = "0.7.0"
 dependencies = [
