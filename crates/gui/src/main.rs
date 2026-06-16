@@ -2142,10 +2142,8 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
     // size; the first index runs on a background thread (set up by the caller).
     let mut backend = Backend::open_lazy(vault.clone())?;
 
-    if backend.is_vault_empty() {
-        let note = backend.new_note()?;
-        backend.save_note(&note.id, WELCOME_TITLE, WELCOME_BODY)?;
-    }
+    noet_app::seed_note_if_vault_empty(&mut backend, WELCOME_TITLE, WELCOME_BODY)
+        .map_err(anyhow::Error::msg)?;
 
     let ui = AppWindow::new()?;
     let now = chrono::Local::now();
@@ -3872,7 +3870,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_apply_smart_list(move |name: SharedString| {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
-            if let Some(f) = s.backend.get_smart_list(&name) {
+            if let Some(f) = noet_app::apply_smart_list(&s.backend, &name) {
                 s.filter = f;
                 ui.set_status_filter(s.filter.status.clone().into());
                 ui.set_search(s.filter.search.clone().into());
@@ -3887,7 +3885,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let ui = ui_w.unwrap();
             let s = state.borrow();
             if !name.trim().is_empty() {
-                let _ = s.backend.save_smart_list(&name, &s.filter);
+                let _ = noet_app::save_smart_list(&s.backend, &name, &s.filter);
                 ui.set_status_text(format!("Saved smart list: {}", name.trim()).into());
             }
             ui.set_smartlist_input("".into());
@@ -3900,7 +3898,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_delete_smart_list(move |name: SharedString| {
             let ui = ui_w.unwrap();
             let s = state.borrow();
-            let _ = s.backend.delete_smart_list(&name);
+            let _ = noet_app::delete_smart_list(&s.backend, &name);
             refresh(&ui, &s);
         });
     }

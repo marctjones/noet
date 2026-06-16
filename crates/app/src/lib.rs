@@ -15,6 +15,7 @@ pub mod model;
 pub mod navigation;
 pub mod note_workflow;
 pub mod selection;
+pub mod smart_list_workflow;
 pub mod task_workflow;
 pub mod workspace;
 
@@ -35,9 +36,10 @@ pub use navigation::{FilterToken, NavigationState};
 pub use note_workflow::{
     add_tag_to_note, archive_note, attach_path_to_note, create_note, create_note_from_body,
     create_note_from_template, create_note_in_workstream, create_related_note, delete_note,
-    file_note, restore_note, save_note, set_note_kind,
+    file_note, restore_note, save_note, seed_note_if_vault_empty, set_note_kind,
 };
 pub use selection::SelectionState;
+pub use smart_list_workflow::{apply_smart_list, delete_smart_list, save_smart_list};
 pub use task_workflow::{
     add_task, carry_task_to_note, cycle_task, defer_task_to_someday, drop_task_on_board,
     move_task_on_board, promote_task_to_note, reopen_task, resolve_task, toggle_task, update_task,

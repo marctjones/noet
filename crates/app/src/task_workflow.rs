@@ -210,7 +210,7 @@ mod tests {
         let notes = dir.join("notes");
         std::fs::create_dir_all(&notes).unwrap();
         std::fs::write(notes.join("note.md"), body).unwrap();
-        let mut backend = Backend::open(dir.clone()).unwrap();
+        let mut backend = Backend::open_at(dir.clone(), dir.join("cache")).unwrap();
         backend.reindex_all().unwrap();
         (backend, dir)
     }

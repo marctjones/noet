@@ -4,6 +4,17 @@ pub fn create_note(backend: &mut Backend) -> Result<Note, String> {
     backend.new_note().map_err(|err| err.to_string())
 }
 
+pub fn seed_note_if_vault_empty(
+    backend: &mut Backend,
+    title: &str,
+    body: &str,
+) -> Result<Option<Note>, String> {
+    if !backend.is_vault_empty() {
+        return Ok(None);
+    }
+    create_note_from_body(backend, title, body).map(Some)
+}
+
 pub fn create_note_in_workstream(backend: &mut Backend, workstream: &str) -> Result<Note, String> {
     let note = create_note(backend)?;
     if !workstream.trim().is_empty() {
@@ -155,6 +166,11 @@ mod tests {
     fn note_creation_helpers_preserve_expected_body_shapes() {
         let (mut backend, dir) = backend();
 
+        let welcome = seed_note_if_vault_empty(&mut backend, "Welcome", "# Welcome\n\n").unwrap();
+        assert!(welcome.is_some());
+        let skipped = seed_note_if_vault_empty(&mut backend, "Welcome", "# Welcome\n\n").unwrap();
+        assert!(skipped.is_none());
+
         let captured =
             create_note_from_body(&mut backend, "Capture", "Capture this thought\n").unwrap();
         assert_eq!(captured.title, "Capture this thought");
@@ -179,7 +195,7 @@ mod tests {
                 .unwrap_or_default()
         ));
         std::fs::create_dir_all(dir.join("notes")).unwrap();
-        let mut backend = Backend::open(dir.clone()).unwrap();
+        let mut backend = Backend::open_at(dir.clone(), dir.join("cache")).unwrap();
         backend.reindex_all().unwrap();
         (backend, dir)
     }
