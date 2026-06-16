@@ -1378,9 +1378,12 @@ fn run_local_semantic_search(
 fn open_semantic_result(ui: &AppWindow, state: &mut State, note_id: &str) {
     let current = ui.get_current_id().to_string();
     if ui.get_editing() && !current.is_empty() && current != note_id {
-        let _ = state
-            .backend
-            .save_note(&current, &ui.get_current_title(), &ui.get_current_body());
+        let _ = noet_app::save_note(
+            &mut state.backend,
+            &current,
+            &ui.get_current_title(),
+            &ui.get_current_body(),
+        );
     }
     FOLDS.with(|f| f.borrow_mut().clear());
     ui.set_note_return_view("".into());
@@ -2760,13 +2763,10 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_new_note(move || {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
-            if let Ok(n) = s.backend.new_note() {
+            let proj = s.filter.project.clone();
+            if let Ok(n) = noet_app::create_note_in_workstream(&mut s.backend, &proj) {
                 let id = n.id.clone();
                 // inherit the active workstream context so the note is auto-filed
-                let proj = s.filter.project.clone();
-                if !proj.is_empty() {
-                    let _ = s.backend.add_link(&id, &proj);
-                }
                 open_in_editor(&ui, &s.backend, &id);
                 s.app.apply(AppCommand::OpenNote(id));
                 ui.set_status_text(if proj.is_empty() {
@@ -2793,9 +2793,12 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             // persist in-progress edits to the previously open note before switching
             let cur = ui.get_current_id().to_string();
             if ui.get_editing() && !cur.is_empty() && cur != id.as_str() {
-                let _ = s
-                    .backend
-                    .save_note(&cur, &ui.get_current_title(), &ui.get_current_body());
+                let _ = noet_app::save_note(
+                    &mut s.backend,
+                    &cur,
+                    &ui.get_current_title(),
+                    &ui.get_current_body(),
+                );
             }
             FOLDS.with(|f| f.borrow_mut().clear()); // fresh folds per note
             open_in_editor(&ui, &s.backend, &id); // records the recent (tab strip)
@@ -2888,7 +2891,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let mut s = state.borrow_mut();
             let note_id = ui.get_current_id().to_string();
             if !note_id.is_empty() && !tag.trim().is_empty() {
-                let _ = s.backend.add_tag(&note_id, &tag);
+                let _ = noet_app::add_tag_to_note(&mut s.backend, &note_id, &tag);
                 open_in_editor(&ui, &s.backend, &note_id);
                 ui.set_status_text(format!("Added #{}", tag.trim().trim_start_matches('#')).into());
             }
@@ -2905,7 +2908,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             move |id: SharedString, title: SharedString, body: SharedString| {
                 let ui = ui_w.unwrap();
                 let mut s = state.borrow_mut();
-                match s.backend.save_note(&id, &title, &body) {
+                match noet_app::save_note(&mut s.backend, &id, &title, &body) {
                     Ok(()) => ui.set_status_text("Saved".into()),
                     Err(e) => ui.set_status_text(format!("Error: {e}").into()),
                 }
@@ -3379,7 +3382,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let mut s = state.borrow_mut();
             // Need a note to attach the todo to; make one if none is open.
             if ui.get_current_id().is_empty() {
-                if let Ok(n) = s.backend.new_note() {
+                if let Ok(n) = noet_app::create_note(&mut s.backend) {
                     ui.set_current_id(n.id.into());
                     ui.set_current_title(n.title.into());
                     ui.set_current_body(n.body.into());
@@ -3692,7 +3695,8 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                     let mut s = state.borrow_mut();
                     let id = ui.get_current_id().to_string();
                     if !id.is_empty() {
-                        let _ = s.backend.save_note(
+                        let _ = noet_app::save_note(
+                            &mut s.backend,
                             &id,
                             &ui.get_current_title(),
                             &ui.get_current_body(),
@@ -3909,7 +3913,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let id = ui.get_current_id().to_string();
             if !id.is_empty() && !path.trim().is_empty() {
                 let mut s = state.borrow_mut();
-                let _ = s.backend.attach_path(&id, &path);
+                let _ = noet_app::attach_path_to_note(&mut s.backend, &id, &path);
                 open_in_editor(&ui, &s.backend, &id);
                 ui.set_attach_input("".into());
                 ui.set_status_text("Attached".into());
@@ -3926,30 +3930,20 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
             let started_in_workspace = ui.get_view().to_string() == "workspace";
-            if let Ok(n) = s.backend.new_from_template(&t) {
-                let mut id = n.id.clone();
-                if t.as_str() == "oneonone" {
-                    let person = if ui.get_selected_person().is_empty() {
-                        s.filter.person.trim().to_string()
-                    } else {
-                        ui.get_selected_person().to_string()
-                    };
-                    if !person.is_empty() {
-                        let title = format!("1:1 — {person}");
-                        let body = format!(
-                            "# {title}\n\n#meeting/one-on-one\n@[[{person}]]\n\n## Updates\n\n## To discuss\n- [ ]  @[[{person}]] #followup\n\n## Delegated / awaiting\n- [ ]  @[[{person}]] #delegated\n"
-                        );
-                        if s.backend.save_note(&n.id, &title, &body).is_ok() {
-                            id = n.id.clone();
-                        }
-                    }
-                }
+            let person = if ui.get_selected_person().is_empty() {
+                s.filter.person.trim().to_string()
+            } else {
+                ui.get_selected_person().to_string()
+            };
+            if let Ok(n) = noet_app::create_note_from_template(&mut s.backend, &t, Some(&person)) {
+                let id = n.id.clone();
                 open_in_editor(&ui, &s.backend, &id);
                 s.app.apply(AppCommand::OpenNote(id.clone()));
                 if t.as_str() == "oneonone" {
                     if !ui.get_selected_person().is_empty() {
-                        s.app
-                            .apply(AppCommand::SelectPerson(ui.get_selected_person().to_string()));
+                        s.app.apply(AppCommand::SelectPerson(
+                            ui.get_selected_person().to_string(),
+                        ));
                     }
                     s.app
                         .apply(AppCommand::SwitchWorkspace("one-on-one-focus".into()));
@@ -3981,7 +3975,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 return;
             }
             let mut s = state.borrow_mut();
-            let _ = s.backend.delete_note(&id);
+            let _ = noet_app::delete_note(&mut s.backend, &id);
             match s
                 .backend
                 .query_notes(&Filter::default())
@@ -4011,7 +4005,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 return;
             }
             let mut s = state.borrow_mut();
-            let _ = s.backend.delete_note(&id);
+            let _ = noet_app::delete_note(&mut s.backend, &id);
             RECENTS.with(|r| r.borrow_mut().retain(|x| *x != id));
             s.pinned.retain(|x| *x != id);
             persist_pins(&s);
@@ -4046,7 +4040,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_restore_note(move |filename: SharedString| {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
-            let _ = s.backend.restore_note(&filename);
+            let _ = noet_app::restore_note(&mut s.backend, &filename);
             ui.set_status_text("Restored from trash".into());
             refresh(&ui, &s);
         });
@@ -4073,7 +4067,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             }
             let mut s = state.borrow_mut();
             if ui.get_current_id().is_empty() {
-                if let Ok(n) = s.backend.new_note() {
+                if let Ok(n) = noet_app::create_note(&mut s.backend) {
                     open_in_editor(&ui, &s.backend, &n.id);
                 }
             }
@@ -4111,15 +4105,14 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 return;
             }
             let mut s = state.borrow_mut();
-            if let Ok(n) = s.backend.new_note() {
-                let title: String = text
-                    .lines()
-                    .find(|l| !l.trim().is_empty())
-                    .unwrap_or("Note")
-                    .chars()
-                    .take(60)
-                    .collect();
-                let _ = s.backend.save_note(&n.id, &title, &text);
+            let title: String = text
+                .lines()
+                .find(|l| !l.trim().is_empty())
+                .unwrap_or("Note")
+                .chars()
+                .take(60)
+                .collect();
+            if let Ok(n) = noet_app::create_note_from_body(&mut s.backend, &title, &text) {
                 open_in_editor(&ui, &s.backend, &n.id);
                 ui.set_editing(false);
                 ui.set_view("notes".into());
@@ -4161,7 +4154,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 return;
             }
             let mut s = state.borrow_mut();
-            if let Ok(n) = s.backend.new_related_note(&src) {
+            if let Ok(n) = noet_app::create_related_note(&mut s.backend, &src) {
                 open_in_editor(&ui, &s.backend, &n.id);
                 ui.set_editing(true);
                 ui.set_view("notes".into());
@@ -4180,7 +4173,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let id = ui.get_current_id().to_string();
             if !id.is_empty() && !topic.trim().is_empty() {
                 let mut s = state.borrow_mut();
-                let _ = s.backend.add_link(&id, &topic);
+                let _ = noet_app::file_note(&mut s.backend, &id, &topic);
                 open_in_editor(&ui, &s.backend, &id);
                 ui.set_status_text(format!("Filed into {}", topic.trim()).into());
                 ui.set_topic_input("".into());
@@ -4213,11 +4206,14 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 return;
             }
             let mut s = state.borrow_mut();
-            if let Ok(n) = s.backend.new_note() {
-                let title: String = text.trim().chars().take(60).collect();
-                let _ = s
-                    .backend
-                    .save_note(&n.id, &title, &format!("{}\n", text.trim()));
+            let title: String = text.trim().chars().take(60).collect();
+            if noet_app::create_note_from_body(
+                &mut s.backend,
+                &title,
+                &format!("{}\n", text.trim()),
+            )
+            .is_ok()
+            {
                 ui.set_status_text("Captured to inbox".into());
             }
             ui.set_capture_input("".into());
@@ -4236,7 +4232,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 return;
             }
             let mut s = state.borrow_mut();
-            let _ = s.backend.archive_note(&id, archive);
+            let _ = noet_app::archive_note(&mut s.backend, &id, archive);
             ui.set_status_text(if archive {
                 "Archived".into()
             } else {
@@ -4256,7 +4252,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 return;
             }
             let mut s = state.borrow_mut();
-            let _ = s.backend.archive_note(&id, archive);
+            let _ = noet_app::archive_note(&mut s.backend, &id, archive);
             ui.set_status_text(if archive {
                 "Archived".into()
             } else {
@@ -4295,10 +4291,13 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 "markdown" => "typst",
                 _ => "auto",
             };
-            let _ = s
-                .backend
-                .save_note(&id, &ui.get_current_title(), &ui.get_current_body());
-            let _ = s.backend.set_note_kind(&id, new_kind);
+            let _ = noet_app::save_note(
+                &mut s.backend,
+                &id,
+                &ui.get_current_title(),
+                &ui.get_current_body(),
+            );
+            let _ = noet_app::set_note_kind(&mut s.backend, &id, new_kind);
             ui.set_current_kind(new_kind.into());
             let detected = backend::detect_kind(&ui.get_current_body());
             let shown = if new_kind == "auto" {
@@ -4319,9 +4318,12 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let mut s = state.borrow_mut();
             let id = ui.get_current_id().to_string();
             if !id.is_empty() {
-                let _ = s
-                    .backend
-                    .save_note(&id, &ui.get_current_title(), &ui.get_current_body());
+                let _ = noet_app::save_note(
+                    &mut s.backend,
+                    &id,
+                    &ui.get_current_title(),
+                    &ui.get_current_body(),
+                );
                 if let Ok(n) = s.backend.load_note(&id) {
                     render_read(&ui, &s.backend, &n);
                 }
