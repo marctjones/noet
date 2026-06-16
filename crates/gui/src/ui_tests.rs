@@ -44,6 +44,10 @@ fn headless_ui_smoke() {
     );
     assert!(
         ui.get_current_body().contains("## Workspace Model")
+            && ui.get_current_body().contains("## Local AI")
+            && ui
+                .get_current_body()
+                .contains("does not redact or sanitize notes")
             && ui
                 .get_current_body()
                 .contains("source:[[Meeting Note#^anchor]]"),

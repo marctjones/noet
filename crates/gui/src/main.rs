@@ -687,6 +687,10 @@ Noet is a local-first work memory. The Markdown files in this vault are the sour
 ## Workspace Model
 
 Navigation panes help find context. Workspaces hold the work. Context panes show backlinks, related notes, source notes, history, or queues without owning the note you are editing.
+
+## Local AI
+
+Local AI runs from models configured in Settings. AI changes start as reviewable proposals before they touch Markdown. Embeddings refresh manually and live in the cache, not the vault. Noet treats vault content as yours and does not redact or sanitize notes.
 "###;
 
 // ---- Command palette (Ctrl/⌘+K) ----------------------------------------------
