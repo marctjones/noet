@@ -1316,6 +1316,10 @@ export component AppWindow inherits Window {
     in-out property <string> ai-timeout-seconds: "300";
     in-out property <string> ai-runtime-bin: "mistralrs";
     in-out property <string> ai-model-root;
+    in-out property <string> ai-model-root-status;
+    in property <string> ai-local-policy: "Local AI prompts run through the configured local runtime. Noet does not redact or sanitize your vault content before model calls.";
+    in property <string> ai-resource-policy: "Noet checks free memory before loading a model. AI jobs run off the UI thread and can be canceled.";
+    in property <string> ai-embedding-policy: "Embeddings refresh manually and are stored with the app index/cache outside your Markdown vault.";
     // About / open-source licenses view.
     in-out property <string> app-version;
     in-out property <[LicenseRow]> license-rows;
@@ -2041,6 +2045,9 @@ export component AppWindow inherits Window {
                                                     Field { label: "Vault"; LineEdit { text <=> root.vault-input; placeholder-text: root.vault-path; } }
                                                     Text { text: "Index: " + root.index-path; font-size: (12px * Z.f); color: Theme.text3; wrap: word-wrap; }
                                                     Text { text: "Settings: " + root.settings-path; font-size: (12px * Z.f); color: Theme.text3; wrap: word-wrap; }
+                                                    Text { text: root.ai-local-policy; font-size: (12px * Z.f); color: Theme.text2; wrap: word-wrap; }
+                                                    Text { text: root.ai-resource-policy; font-size: (12px * Z.f); color: Theme.text3; wrap: word-wrap; }
+                                                    Text { text: root.ai-embedding-policy; font-size: (12px * Z.f); color: Theme.text3; wrap: word-wrap; }
                                                     Field {
                                                         label: "AI profile";
                                                         ComboBox {
@@ -2089,6 +2096,7 @@ export component AppWindow inherits Window {
                                                             edited(t) => { root.set-ai-model-root(t); }
                                                         }
                                                     }
+                                                    Text { text: root.ai-model-root-status; font-size: (12px * Z.f); color: Theme.text3; wrap: word-wrap; }
                                                     HorizontalLayout {
                                                         spacing: 6px;
                                                         ActionButton { icon: Icons.save; label: "Save"; primary: true; clicked => { root.save-settings(root.vault-input); } }

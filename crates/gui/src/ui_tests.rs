@@ -239,6 +239,40 @@ fn headless_ui_smoke() {
     ui.invoke_set_ai_min_free_memory("95".into());
     ui.invoke_set_ai_timeout_seconds("5".into());
     ui.invoke_set_ai_runtime_bin("/Users/marc/.cargo/bin/mistralrs".into());
+    assert!(
+        ui.get_ai_local_policy()
+            .contains("does not redact or sanitize"),
+        "settings should communicate that local AI trusts user-owned vault content"
+    );
+    assert!(
+        ui.get_ai_resource_policy().contains("checks free memory")
+            && ui.get_ai_resource_policy().contains("off the UI thread"),
+        "settings should explain the local AI resource behavior"
+    );
+    assert!(
+        ui.get_ai_embedding_policy()
+            .contains("outside your Markdown vault"),
+        "settings should explain where semantic embeddings are stored"
+    );
+    ui.invoke_set_ai_model_root(
+        tmp.join("missing-model-root")
+            .to_string_lossy()
+            .to_string()
+            .into(),
+    );
+    assert!(
+        ui.get_ai_model_root_status()
+            .starts_with("Model root not found:"),
+        "missing model roots should be called out in settings"
+    );
+    let empty_model_root = tmp.join("empty-model-root");
+    std::fs::create_dir_all(&empty_model_root).unwrap();
+    ui.invoke_set_ai_model_root(empty_model_root.to_string_lossy().to_string().into());
+    assert_eq!(
+        ui.get_ai_model_root_status(),
+        "Model root found, but no supported GGUF chat model files were detected.",
+        "empty model roots should not look ready"
+    );
     ui.invoke_set_ai_model_root("/Users/marc/.cache/huggingface/hub".into());
     assert_eq!(
         ctx.state.borrow().app.ai.settings.selected_profile_id,

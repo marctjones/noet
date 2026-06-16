@@ -1,11 +1,9 @@
 // Noet — native, lightweight notes + typed-todos + workstreams over plain markdown.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
-#[cfg(test)]
-use crate::ai_runtime::local_model_specs;
 use crate::ai_runtime::{
-    local_runtime_settings, require_free_memory, use_preview_ai_runtime, PreviewAiRuntime,
-    PreviewEmbeddingRuntime,
+    local_model_specs, local_runtime_settings, require_free_memory, use_preview_ai_runtime,
+    PreviewAiRuntime, PreviewEmbeddingRuntime,
 };
 #[cfg(feature = "mistralrs-inline")]
 use noet_ai::AiProgressUpdate;
@@ -28,7 +26,7 @@ use sred_core::{
     TokenSpec as SredToken,
 };
 use std::cell::{Cell, RefCell};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::mpsc;
 
@@ -1607,6 +1605,7 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
     let b = &state.backend;
     let f = &state.filter;
     workspace_adapter::sync(ui, &state.app);
+    sync_ai_settings_status(ui, &state.app.ai.settings);
     let ai = ai_surface(&state.app.ai);
     ui.set_ai_status(ai.status.into());
     ui.set_ai_progress_active(ai.progress_active);
@@ -1875,6 +1874,48 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
     ui.set_filter_priority(surface_adapters::filter_value_or_any(&f.priority).into());
     ui.set_filter_due(surface_adapters::due_display(&f.due_bucket).into());
     refresh_tabs(ui, state); // keep the open-notes tab strip in sync
+}
+
+fn sync_ai_settings_status(ui: &AppWindow, settings: &noet_app::AiSettings) {
+    ui.set_ai_model_root_status(ai_model_root_status(settings).into());
+}
+
+fn ai_model_root_status(settings: &noet_app::AiSettings) -> String {
+    let root = settings.model_root.trim();
+    if root.is_empty() {
+        return "Model root not configured. Set the folder that contains Hugging Face GGUF model files.".into();
+    }
+
+    let root_path = Path::new(root);
+    if !root_path.exists() {
+        return format!("Model root not found: {root}");
+    }
+
+    let specs = local_model_specs(root_path);
+    let total = specs.len();
+    let ready = specs.values().filter(|spec| model_file_ready(spec)).count();
+    let selected_ready = specs
+        .get(&settings.selected_profile_id)
+        .map(model_file_ready)
+        .unwrap_or(false);
+
+    if selected_ready {
+        format!(
+            "Model root ready for {} ({ready}/{total} supported chat profiles found).",
+            settings.selected_profile_id
+        )
+    } else if ready > 0 {
+        format!(
+            "Model root found, but selected profile {} is missing ({ready}/{total} supported chat profiles found).",
+            settings.selected_profile_id
+        )
+    } else {
+        "Model root found, but no supported GGUF chat model files were detected.".into()
+    }
+}
+
+fn model_file_ready(spec: &noet_ai::LocalModelSpec) -> bool {
+    spec.model_dir.join(&spec.quantized_file).exists()
 }
 
 fn typst_src_image(b: &Backend, src: &str) -> Option<slint::Image> {
