@@ -101,6 +101,9 @@ fn sync_slot(
         }
         PanePlacement::Bottom => {
             ui.set_workspace_bottom_pane_id(pane_id.unwrap_or("").into());
+            ui.set_workspace_bottom_surface_id(
+                pane.map(|p| p.surface.id()).unwrap_or_default().into(),
+            );
             ui.set_workspace_bottom_open(pane.map(|p| p.open).unwrap_or(false));
             if let Some(pane) = pane {
                 ui.set_workspace_bottom_height(pane.size.current);
@@ -165,6 +168,9 @@ fn surface_key(surface: &Surface) -> &'static str {
         Surface::Backlinks { .. } => "backlinks",
         Surface::RelatedNotes { .. } => "related",
         Surface::FollowupQueue { .. } => "followups",
+        Surface::AiProposalQueue => "ai-proposals",
+        Surface::AiJobQueue => "ai-jobs",
+        Surface::AiSemanticResults => "ai-semantic-results",
         Surface::Settings => "settings",
     }
 }

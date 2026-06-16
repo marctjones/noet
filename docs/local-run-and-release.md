@@ -49,6 +49,49 @@ Visual checkpoints should verify the workspace architecture:
 - 1:1 Focus works after the People pane is closed
 - Markdown task edits write back to the vault
 
+## Local AI Release Gate
+
+Normal CI stays deterministic and must not load local models:
+
+```bash
+cargo test --workspace
+git diff --check
+```
+
+Before any release checkpoint that includes local AI, also verify that the
+inline `mistral.rs` build compiles:
+
+```bash
+cargo check -p noet-gui --features mistralrs-inline
+```
+
+Model-backed smokes are ignored by default because they load local models. Run
+them only on a prepared machine after checking memory pressure:
+
+```bash
+memory_pressure
+cargo test -p noet-gui --features mistralrs-inline headless_ui_local_model_ai_smoke -- --ignored --nocapture
+cargo test -p noet-gui --features mistralrs-inline headless_ui_local_embedding_refresh_smoke -- --ignored --nocapture
+```
+
+Expected local model cache inputs for the current smokes:
+
+- chat profile: `mistral-7b-instruct-v0-3-gguf-q4-k-m`
+- embedding profile: `embedding-gemma-300m`
+- model root: `~/.cache/huggingface/hub`
+
+Do not run the model-backed smokes when `memory_pressure` reports less free
+memory than the configured Noet AI threshold. The app also performs its own
+preflight before loading local models.
+
+Release evidence should record:
+
+- the `memory_pressure` free percentage before model loading
+- `cargo check -p noet-gui --features mistralrs-inline`
+- both ignored local model smoke commands, if the model cache is available
+- confirmation that semantic index files remain in the disposable cache/index
+  directory and not in the Markdown vault
+
 ## macOS Local Package
 
 The macOS packaging script builds an Apple Silicon local artifact:

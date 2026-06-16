@@ -1,15 +1,18 @@
 use crate::{
+    ai::AiState,
     command::{AppCommand, CommandOutcome},
     navigation::NavigationState,
     selection::SelectionState,
     workspace::{PaneRole, Surface, WorkspaceRegistry},
 };
+use noet_ai::SourceRef;
 
 #[derive(Clone, Debug, Default)]
 pub struct AppModel {
     pub selection: SelectionState,
     pub navigation: NavigationState,
     pub workspaces: WorkspaceRegistry,
+    pub ai: AiState,
 }
 
 impl AppModel {
@@ -148,6 +151,134 @@ impl AppModel {
                 self.selection.select_task(task_id);
                 CommandOutcome::accepted()
             }
+            AppCommand::SetAiStatus(status) => {
+                self.ai.set_status(status);
+                CommandOutcome::accepted()
+            }
+            AppCommand::SetAiProfile(profile_id) => {
+                self.ai.set_profile(profile_id);
+                CommandOutcome::accepted()
+            }
+            AppCommand::SetAiEmbeddingProfile(profile_id) => {
+                self.ai.set_embedding_profile(profile_id);
+                CommandOutcome::accepted()
+            }
+            AppCommand::SetAiMinFreeMemoryPercent(percent) => {
+                self.ai.set_min_free_memory_percent(percent);
+                CommandOutcome::accepted()
+            }
+            AppCommand::SetAiTimeoutSeconds(seconds) => {
+                self.ai.set_timeout_seconds(seconds);
+                CommandOutcome::accepted()
+            }
+            AppCommand::SetAiRuntimeBin(path) => {
+                self.ai.set_runtime_bin(path);
+                CommandOutcome::accepted()
+            }
+            AppCommand::SetAiModelRoot(path) => {
+                self.ai.set_model_root(path);
+                CommandOutcome::accepted()
+            }
+            AppCommand::EnqueueAiJob(job) => {
+                let id = self.ai.enqueue_job(job);
+                CommandOutcome::accepted_with_message(id)
+            }
+            AppCommand::StartAiJob(job_id) => {
+                if self.ai.start_job(&job_id) {
+                    CommandOutcome::accepted()
+                } else {
+                    CommandOutcome::rejected(format!("Unknown AI job: {job_id}"))
+                }
+            }
+            AppCommand::StartAiProgress {
+                label,
+                detail,
+                cancellable,
+            } => {
+                self.ai.start_progress(label, detail, cancellable);
+                CommandOutcome::accepted()
+            }
+            AppCommand::UpdateAiProgressDetail(detail) => {
+                self.ai.update_progress_detail(detail);
+                CommandOutcome::accepted()
+            }
+            AppCommand::RequestAiCancel => {
+                if self.ai.request_cancel() {
+                    CommandOutcome::accepted()
+                } else {
+                    CommandOutcome::rejected("No cancellable AI job is running")
+                }
+            }
+            AppCommand::ClearAiProgress => {
+                self.ai.clear_progress();
+                CommandOutcome::accepted()
+            }
+            AppCommand::CompleteAiJob {
+                job_id,
+                proposal_ids,
+            } => {
+                if self.ai.complete_job(&job_id, proposal_ids) {
+                    CommandOutcome::accepted()
+                } else {
+                    CommandOutcome::rejected(format!("Unknown AI job: {job_id}"))
+                }
+            }
+            AppCommand::FailAiJob { job_id, message } => {
+                if self.ai.fail_job(&job_id, message) {
+                    CommandOutcome::accepted()
+                } else {
+                    CommandOutcome::rejected(format!("Unknown AI job: {job_id}"))
+                }
+            }
+            AppCommand::EnqueueAiProposal(proposal) => {
+                let id = self.ai.enqueue(proposal);
+                CommandOutcome::accepted_with_message(id)
+            }
+            AppCommand::RejectAiProposal(proposal_id) => {
+                if self.ai.reject(&proposal_id) {
+                    CommandOutcome::accepted()
+                } else {
+                    CommandOutcome::rejected(format!("Unknown AI proposal: {proposal_id}"))
+                }
+            }
+            AppCommand::DeferAiProposal(proposal_id) => {
+                if self.ai.defer(&proposal_id) {
+                    CommandOutcome::accepted()
+                } else {
+                    CommandOutcome::rejected(format!("Unknown AI proposal: {proposal_id}"))
+                }
+            }
+            AppCommand::MarkAiProposalAccepted(proposal_id) => {
+                if self.ai.mark_accepted(&proposal_id) {
+                    CommandOutcome::accepted()
+                } else {
+                    CommandOutcome::rejected(format!("Unknown AI proposal: {proposal_id}"))
+                }
+            }
+            AppCommand::ClearResolvedAiProposals => {
+                let removed = self.ai.clear_resolved();
+                CommandOutcome::accepted_with_message(removed.to_string())
+            }
+            AppCommand::InspectAiProposalSource(proposal_id) => {
+                match self.ai.first_source_for(&proposal_id) {
+                    Some(SourceRef::Note { note_id })
+                    | Some(SourceRef::NoteHeading { note_id, .. })
+                    | Some(SourceRef::SourceSpan { note_id, .. }) => {
+                        self.selection.select_note(note_id);
+                        CommandOutcome::accepted()
+                    }
+                    Some(SourceRef::Task { task_id }) => {
+                        self.selection.select_task(task_id);
+                        CommandOutcome::accepted()
+                    }
+                    Some(SourceRef::Synthetic { .. }) => {
+                        CommandOutcome::rejected("AI proposal source is not navigable")
+                    }
+                    None => CommandOutcome::rejected(format!(
+                        "AI proposal has no navigable source: {proposal_id}"
+                    )),
+                }
+            }
         }
     }
 
@@ -177,7 +308,9 @@ fn with_active_workspace(
 
 #[cfg(test)]
 mod tests {
-    use crate::{AppCommand, AppModel, Surface};
+    use crate::{AiJobStatus, AiStatus, AppCommand, AppModel, Surface};
+    use noet_ai::HousekeepingJob;
+    use noet_ai::{AgendaDraft, AiProposal, ProposalKind, ProposalPayload, ProposalTarget};
 
     #[test]
     fn selection_state_can_change_without_layout_operations() {
@@ -327,6 +460,23 @@ mod tests {
     }
 
     #[test]
+    fn notes_workspace_exposes_ai_proposal_queue_surface() {
+        let mut model = AppModel::new();
+        assert!(
+            model
+                .apply(AppCommand::SwitchWorkspace("notes".into()))
+                .accepted
+        );
+
+        let workspace = model.workspaces.active().unwrap();
+        assert_eq!(workspace.layout.bottom.as_deref(), Some("ai-proposals"));
+        assert!(matches!(
+            workspace.pane("ai-proposals").unwrap().surface,
+            Surface::AiProposalQueue
+        ));
+    }
+
+    #[test]
     fn pane_surface_can_change_without_switching_workspace() {
         let mut model = AppModel::new();
         assert!(
@@ -373,5 +523,286 @@ mod tests {
 
         assert_eq!(model.selection.task_id.as_deref(), Some("note:12"));
         assert_eq!(model.workspaces.active().unwrap(), &before);
+    }
+
+    #[test]
+    fn ai_proposal_can_be_enqueued_and_selected() {
+        let mut model = AppModel::new();
+        let outcome = model.apply(AppCommand::EnqueueAiProposal(agenda_proposal()));
+
+        assert!(outcome.accepted);
+        assert_eq!(outcome.message.as_deref(), Some("ai-proposal-1"));
+        assert_eq!(model.ai.pending_count(), 1);
+        assert_eq!(
+            model.ai.selected_proposal_id.as_deref(),
+            Some("ai-proposal-1")
+        );
+    }
+
+    #[test]
+    fn ai_status_can_show_runtime_progress_without_loading_model() {
+        let mut model = AppModel::new();
+
+        assert_eq!(model.ai.status, AiStatus::Disabled);
+        assert!(
+            model
+                .apply(AppCommand::SetAiStatus(AiStatus::Ready))
+                .accepted
+        );
+        assert_eq!(model.ai.status, AiStatus::Ready);
+        assert!(
+            model
+                .apply(AppCommand::SetAiStatus(AiStatus::Failed {
+                    message: "model file missing".into(),
+                }))
+                .accepted
+        );
+
+        assert_eq!(
+            model.ai.status,
+            AiStatus::Failed {
+                message: "model file missing".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn ai_settings_can_select_profile_and_clamp_memory_threshold() {
+        let mut model = AppModel::new();
+
+        assert_eq!(
+            model.ai.settings.min_free_memory_percent, 50,
+            "local AI defaults should leave headroom before loading models"
+        );
+        assert_eq!(
+            model.ai.settings.timeout_seconds, 300,
+            "local AI calls should be bounded by default"
+        );
+        assert!(
+            model
+                .apply(AppCommand::SetAiProfile("mistral-nemo".into()))
+                .accepted
+        );
+        assert!(
+            model
+                .apply(AppCommand::SetAiMinFreeMemoryPercent(95))
+                .accepted
+        );
+        assert!(
+            model.apply(AppCommand::SetAiTimeoutSeconds(3)).accepted,
+            "too-low timeouts should be accepted but clamped"
+        );
+
+        assert_eq!(model.ai.settings.selected_profile_id, "mistral-nemo");
+        assert_eq!(model.ai.settings.min_free_memory_percent, 90);
+        assert_eq!(model.ai.settings.timeout_seconds, 30);
+    }
+
+    #[test]
+    fn ai_settings_can_select_embedding_profile() {
+        let mut model = AppModel::new();
+
+        assert!(
+            model
+                .apply(AppCommand::SetAiEmbeddingProfile(
+                    "granite-embedding-30m-english".into(),
+                ))
+                .accepted
+        );
+
+        assert_eq!(
+            model.ai.settings.selected_embedding_profile_id,
+            "granite-embedding-30m-english"
+        );
+    }
+
+    #[test]
+    fn ai_settings_can_store_local_runtime_paths() {
+        let mut model = AppModel::new();
+
+        assert!(
+            model
+                .apply(AppCommand::SetAiRuntimeBin(
+                    "/Users/marc/.cargo/bin/mistralrs".into(),
+                ))
+                .accepted
+        );
+        assert!(
+            model
+                .apply(AppCommand::SetAiModelRoot(
+                    "/Users/marc/.cache/huggingface/hub".into(),
+                ))
+                .accepted
+        );
+
+        assert_eq!(
+            model.ai.settings.runtime_bin,
+            "/Users/marc/.cargo/bin/mistralrs"
+        );
+        assert_eq!(
+            model.ai.settings.model_root,
+            "/Users/marc/.cache/huggingface/hub"
+        );
+    }
+
+    #[test]
+    fn rejected_ai_proposal_can_be_cleared_without_touching_selection() {
+        let mut model = AppModel::new();
+        assert!(
+            model
+                .apply(AppCommand::EnqueueAiProposal(agenda_proposal()))
+                .accepted
+        );
+        assert!(
+            model
+                .apply(AppCommand::RejectAiProposal("ai-proposal-1".into()))
+                .accepted
+        );
+        let outcome = model.apply(AppCommand::ClearResolvedAiProposals);
+
+        assert!(outcome.accepted);
+        assert_eq!(outcome.message.as_deref(), Some("1"));
+        assert_eq!(model.ai.proposals().len(), 0);
+        assert_eq!(model.selection.person.as_deref(), None);
+    }
+
+    #[test]
+    fn ai_housekeeping_jobs_are_visible_and_do_not_change_selection() {
+        let mut model = AppModel::new();
+        let outcome = model.apply(AppCommand::EnqueueAiJob(
+            HousekeepingJob::FindUnlabeledMeetings,
+        ));
+
+        assert!(outcome.accepted);
+        assert_eq!(outcome.message.as_deref(), Some("ai-job-1"));
+        assert_eq!(model.ai.jobs().len(), 1);
+        assert_eq!(model.ai.jobs()[0].status, AiJobStatus::Queued);
+        assert!(
+            model
+                .apply(AppCommand::StartAiJob("ai-job-1".into()))
+                .accepted
+        );
+        assert_eq!(model.ai.jobs()[0].status, AiJobStatus::Running);
+        assert!(
+            model
+                .apply(AppCommand::CompleteAiJob {
+                    job_id: "ai-job-1".into(),
+                    proposal_ids: vec!["ai-proposal-1".into()],
+                })
+                .accepted
+        );
+
+        assert_eq!(model.ai.jobs()[0].status, AiJobStatus::Completed);
+        assert_eq!(
+            model.ai.jobs()[0].produced_proposals,
+            vec!["ai-proposal-1".to_string()]
+        );
+        assert_eq!(model.selection.note_id, None);
+        assert_eq!(model.selection.task_id, None);
+    }
+
+    #[test]
+    fn failed_ai_housekeeping_job_records_failure_without_selection_side_effects() {
+        let mut model = AppModel::new();
+        assert!(
+            model
+                .apply(AppCommand::EnqueueAiJob(HousekeepingJob::RefreshEmbeddings))
+                .accepted
+        );
+        assert!(
+            model
+                .apply(AppCommand::FailAiJob {
+                    job_id: "ai-job-1".into(),
+                    message: "model unavailable".into(),
+                })
+                .accepted
+        );
+
+        assert_eq!(model.ai.jobs()[0].status, AiJobStatus::Failed);
+        assert_eq!(
+            model.ai.jobs()[0].failure.as_deref(),
+            Some("model unavailable")
+        );
+        assert_eq!(model.selection.note_id, None);
+    }
+
+    #[test]
+    fn ai_progress_can_be_started_updated_cancelled_and_cleared() {
+        let mut model = AppModel::new();
+
+        assert!(
+            model
+                .apply(AppCommand::StartAiProgress {
+                    label: "Review note".into(),
+                    detail: "Loading local model".into(),
+                    cancellable: true,
+                })
+                .accepted
+        );
+        assert_eq!(
+            model
+                .ai
+                .progress
+                .as_ref()
+                .map(|progress| progress.label.as_str()),
+            Some("Review note")
+        );
+        assert!(
+            model
+                .apply(AppCommand::UpdateAiProgressDetail(
+                    "Generating proposal".into()
+                ))
+                .accepted
+        );
+        assert_eq!(
+            model
+                .ai
+                .progress
+                .as_ref()
+                .map(|progress| progress.detail.as_str()),
+            Some("Generating proposal")
+        );
+        assert!(model.apply(AppCommand::RequestAiCancel).accepted);
+        assert_eq!(
+            model
+                .ai
+                .progress
+                .as_ref()
+                .map(|progress| progress.cancel_requested),
+            Some(true)
+        );
+        assert!(model.apply(AppCommand::ClearAiProgress).accepted);
+        assert_eq!(model.ai.progress, None);
+    }
+
+    #[test]
+    fn inspecting_ai_proposal_source_updates_selection() {
+        let mut model = AppModel::new();
+        assert!(
+            model
+                .apply(AppCommand::EnqueueAiProposal(agenda_proposal()))
+                .accepted
+        );
+        let outcome = model.apply(AppCommand::InspectAiProposalSource("ai-proposal-1".into()));
+
+        assert!(outcome.accepted);
+        assert_eq!(model.selection.person.as_deref(), None);
+        assert_eq!(model.selection.note_id.as_deref(), Some("note-1"));
+    }
+
+    fn agenda_proposal() -> AiProposal {
+        AiProposal {
+            kind: ProposalKind::DraftAgenda,
+            target: ProposalTarget::Note {
+                note_id: "note-1".into(),
+            },
+            payload: ProposalPayload::DraftAgenda(AgendaDraft {
+                person: "Jane Smith".into(),
+                sections: Vec::new(),
+            }),
+            rationale: "Prior follow-ups mention Jane.".into(),
+            confidence: 0.9,
+            requires_confirmation: false,
+        }
     }
 }

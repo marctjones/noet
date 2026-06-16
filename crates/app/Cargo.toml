@@ -10,5 +10,9 @@ name = "noet_app"
 path = "src/lib.rs"
 
 [dependencies]
+noet-ai = { path = "../ai" }
 noet-core = { path = "../core" }
 serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"

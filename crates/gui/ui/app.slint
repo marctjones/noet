@@ -91,6 +91,30 @@ export struct WorkspacePaneItem {
     closable: bool,
 }
 
+export struct AiProposalUi {
+    id: string,
+    status: string,
+    kind: string,
+    target: string,
+    summary: string,
+    requires-confirmation: bool,
+}
+
+export struct AiJobUi {
+    id: string,
+    status: string,
+    kind: string,
+    produced-proposals: int,
+    failure: string,
+}
+
+export struct SemanticMatchUi {
+    id: string,
+    title: string,
+    score: string,
+    summary: string,
+}
+
 export struct CalCell {
     day: int,        // day-of-month, 0 = padding cell
     date: string,
@@ -1158,12 +1182,22 @@ export component AppWindow inherits Window {
     // Workspace prototype: a constrained pane tree that separates navigation
     // drawers from durable work surfaces.
     in property <[WorkspacePaneItem]> workspace-panes;
+    in property <string> ai-status: "Disabled";
+    in property <bool> ai-progress-active: false;
+    in property <string> ai-progress-label: "";
+    in property <string> ai-progress-detail: "";
+    in property <bool> ai-progress-cancellable: false;
+    in property <int> ai-pending-count: 0;
+    in property <[AiProposalUi]> ai-proposals;
+    in property <[AiJobUi]> ai-jobs;
+    in property <[SemanticMatchUi]> ai-semantic-results;
     in property <string> workspace-id;
     in property <string> workspace-title;
     in property <string> workspace-focused-pane;
     in property <string> workspace-left-pane-id;
     in property <string> workspace-right-pane-id;
     in property <string> workspace-bottom-pane-id;
+    in property <string> workspace-bottom-surface-id;
     in-out property <string> workspace-primary: "oneonone";
     in-out property <string> workspace-nav-surface: "people";
     in-out property <bool> workspace-left-open: true;
@@ -1189,6 +1223,16 @@ export component AppWindow inherits Window {
     callback workspace-close-pane(string);
     callback workspace-resize-pane(string, float);
     callback workspace-set-nav-surface(string);
+    callback ai-draft-agenda();
+    callback ai-review-note();
+    callback ai-refresh-embeddings();
+    callback ai-semantic-search(string);
+    callback ai-open-semantic-result(string);
+    callback ai-reject-proposal(string);
+    callback ai-defer-proposal(string);
+    callback ai-accept-proposal(string);
+    callback ai-inspect-proposal(string);
+    callback ai-cancel();
     // Plaintext/source mode: show the raw markdown in a TextEdit instead of the
     // WYSIWYG sred surface.
     in-out property <bool> source-mode: false;
@@ -1250,6 +1294,12 @@ export component AppWindow inherits Window {
     in-out property <string> vault-input;
     in-out property <bool> launch-on-startup;          // registered to run at login
     in property <bool> launch-on-startup-supported;    // only wired on Windows today
+    in-out property <string> ai-profile: "ministral-8b-instruct-2410-gguf-q4-k-m";
+    in-out property <string> ai-embedding-profile: "embedding-gemma-300m";
+    in-out property <string> ai-min-free-memory: "25";
+    in-out property <string> ai-timeout-seconds: "300";
+    in-out property <string> ai-runtime-bin: "mistralrs";
+    in-out property <string> ai-model-root;
     // About / open-source licenses view.
     in-out property <string> app-version;
     in-out property <[LicenseRow]> license-rows;
@@ -1263,6 +1313,12 @@ export component AppWindow inherits Window {
     callback open-licenses(); // open the full third-party license notices
     callback open-vault-folder(); // open the vault folder in the file manager
     callback set-launch-on-startup(bool); // register/unregister launch at login
+    callback set-ai-profile(string);
+    callback set-ai-embedding-profile(string);
+    callback set-ai-min-free-memory(string);
+    callback set-ai-timeout-seconds(string);
+    callback set-ai-runtime-bin(string);
+    callback set-ai-model-root(string);
     callback export-note(string); // format: "md" | "pdf"
     callback reindex-finished();
     callback new-note();
@@ -1456,6 +1512,7 @@ export component AppWindow inherits Window {
                         horizontal-stretch: 1;
                         edited(t) => { root.set-search(t); }
                     }
+                    ActionButton { icon: Icons.branch; label: "Semantic"; a11y: "AI semantic search"; clicked => { root.ai-semantic-search(root.search); } }
                     ActionButton { icon: Icons.keyboard; label: "Go to"; a11y: "Command palette"; clicked => { root.palette-query = ""; root.palette-search(""); root.palette-open = true; } }
                     ActionButton { icon: Icons.plus; label: "New note"; primary: true; clicked => { root.workspace-switch("notes"); root.new-note(); } }
                     ActionButton { icon: Icons.refresh; label: ""; a11y: "Reindex"; clicked => { root.reindex(); } }
@@ -1727,6 +1784,7 @@ export component AppWindow inherits Window {
                                                         if root.person-prev-oneonone-id != "": ActionButton { icon: Icons.panel-left; label: "Previous"; clicked => { root.select-note(root.person-prev-oneonone-id); } }
                                                         if root.person-next-oneonone-id != "": ActionButton { icon: Icons.panel-right; label: "Next"; clicked => { root.select-note(root.person-next-oneonone-id); } }
                                                         ActionButton { icon: Icons.meeting; label: "New 1:1"; primary: true; clicked => { root.new-from-template("oneonone"); } }
+                                                        ActionButton { icon: Icons.info; label: "Draft agenda"; clicked => { root.ai-draft-agenda(); } }
                                                         ActionButton { icon: Icons.focus; label: root.focus-mode ? "Exit meeting" : "Meeting mode"; a11y: root.focus-mode ? "Exit meeting mode" : "Meeting mode"; clicked => { root.toggle-oneonone-meeting-mode(); } }
                                                         ActionButton { icon: Icons.check; label: "Add task"; clicked => { root.open-add-todo(); } }
                                                         ActionButton { icon: Icons.edit; label: root.editing ? "Done" : "Edit"; clicked => { if (root.editing) { root.stop-editing(); } else { root.source-mode = false; root.editing = true; } } }
@@ -1786,6 +1844,7 @@ export component AppWindow inherits Window {
                                                         ActionButton { icon: Icons.focus; label: root.focus-mode ? "Exit writing" : "Writing mode"; a11y: root.focus-mode ? "Exit writing mode" : "Writing mode"; clicked => { root.toggle-notes-writing-mode(); } }
                                                         ActionButton { icon: Icons.textsize; label: (root.editing && root.source-mode) ? "Preview" : "Source"; clicked => { if (root.editing && root.source-mode) { root.source-mode = false; } else { root.source-mode = true; root.editing = true; } } }
                                                         ActionButton { icon: Icons.check; label: "Add task"; clicked => { root.open-add-todo(); } }
+                                                        ActionButton { icon: Icons.info; label: "Review note"; clicked => { root.ai-review-note(); } }
                                                         ActionButton { icon: Icons.branch; label: "Related note"; clicked => { root.new-related-note(); } }
                                                         ActionButton { icon: Icons.download; label: "Export PDF"; clicked => { root.export-note("pdf"); } }
                                                     }
@@ -1943,9 +2002,58 @@ export component AppWindow inherits Window {
                                                     Field { label: "Vault"; LineEdit { text <=> root.vault-input; placeholder-text: root.vault-path; } }
                                                     Text { text: "Index: " + root.index-path; font-size: (12px * Z.f); color: Theme.text3; wrap: word-wrap; }
                                                     Text { text: "Settings: " + root.settings-path; font-size: (12px * Z.f); color: Theme.text3; wrap: word-wrap; }
+                                                    Field {
+                                                        label: "AI profile";
+                                                        ComboBox {
+                                                            model: ["mistral-7b-instruct-v0-3-gguf-q4-k-m", "ministral-8b-instruct-2410-gguf-q4-k-m", "mistral-nemo-instruct-2407-gguf-q4-k-m"];
+                                                            current-value <=> root.ai-profile;
+                                                            selected(v) => { root.set-ai-profile(v); }
+                                                        }
+                                                    }
+                                                    Field {
+                                                        label: "AI embedding";
+                                                        ComboBox {
+                                                            model: ["embedding-gemma-300m", "snowflake-arctic-embed-s", "granite-embedding-30m-english", "nomic-embed-text-v1-5"];
+                                                            current-value <=> root.ai-embedding-profile;
+                                                            selected(v) => { root.set-ai-embedding-profile(v); }
+                                                        }
+                                                    }
+                                                    Field {
+                                                        label: "AI min free memory %";
+                                                        ComboBox {
+                                                            model: ["25", "35", "50", "65"];
+                                                            current-value <=> root.ai-min-free-memory;
+                                                            selected(v) => { root.set-ai-min-free-memory(v); }
+                                                        }
+                                                    }
+                                                    Field {
+                                                        label: "AI timeout seconds";
+                                                        ComboBox {
+                                                            model: ["120", "300", "600", "900"];
+                                                            current-value <=> root.ai-timeout-seconds;
+                                                            selected(v) => { root.set-ai-timeout-seconds(v); }
+                                                        }
+                                                    }
+                                                    Field {
+                                                        label: "AI runtime";
+                                                        LineEdit {
+                                                            text <=> root.ai-runtime-bin;
+                                                            placeholder-text: "mistralrs";
+                                                            edited(t) => { root.set-ai-runtime-bin(t); }
+                                                        }
+                                                    }
+                                                    Field {
+                                                        label: "AI model root";
+                                                        LineEdit {
+                                                            text <=> root.ai-model-root;
+                                                            placeholder-text: "~/.cache/huggingface/hub";
+                                                            edited(t) => { root.set-ai-model-root(t); }
+                                                        }
+                                                    }
                                                     HorizontalLayout {
                                                         spacing: 6px;
                                                         ActionButton { icon: Icons.save; label: "Save"; primary: true; clicked => { root.save-settings(root.vault-input); } }
+                                                        ActionButton { icon: Icons.refresh; label: "Refresh embeddings"; clicked => { root.ai-refresh-embeddings(); } }
                                                         ActionButton { icon: Icons.external; label: "Open vault"; clicked => { root.open-vault-folder(); } }
                                                         ActionButton { icon: Icons.info; label: "Licenses"; clicked => { root.open-licenses(); } }
                                                     }
@@ -2079,7 +2187,115 @@ export component AppWindow inherits Window {
                                 }
                             }
 
-                            if root.workspace-bottom-eff-open: Rectangle {
+                            if root.workspace-bottom-eff-open && root.workspace-bottom-surface-id == "ai-proposal-queue": Rectangle {
+                                height: root.workspace-bottom-eff-height;
+                                background: Theme.surface2;
+                                border-radius: 8px;
+                                border-width: 1px;
+                                border-color: Theme.border;
+                                clip: true;
+                                VerticalLayout {
+                                    padding: root.workspace-pad;
+                                    spacing: root.workspace-gap;
+                                    HorizontalLayout {
+                                        SectionTitle { title: "AI PROPOSALS"; detail: root.ai-status + " · " + root.ai-pending-count + " pending"; accent: Theme.accent; horizontal-stretch: 1; }
+                                        if root.ai-progress-active: Text {
+                                            text: root.ai-progress-label + " · " + root.ai-progress-detail;
+                                            font-size: (11px * Z.f);
+                                            color: Theme.text2;
+                                            vertical-alignment: center;
+                                            max-width: 280px;
+                                            overflow: elide;
+                                        }
+                                        if root.ai-progress-cancellable: Button {
+                                            text: "Cancel";
+                                            clicked => { root.ai-cancel(); }
+                                        }
+                                        CloseX { a11y: "Close AI proposal queue"; closed => { root.workspace-close-pane(root.workspace-bottom-pane-id); } }
+                                    }
+                                    ScrollView {
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            if root.ai-proposals.length == 0: EmptyState { glyph: "[]"; title: "No AI proposals"; hint: "Draft agenda or review note proposals will appear here."; }
+                                            for p in root.ai-proposals: Rectangle {
+                                                width: 300px;
+                                                min-height: 118px;
+                                                border-radius: 6px;
+                                                border-width: 1px;
+                                                border-color: Theme.border;
+                                                background: Theme.surface;
+                                                VerticalLayout {
+                                                    padding: 10px;
+                                                    spacing: 7px;
+                                                    HorizontalLayout {
+                                                        Text { text: p.kind; font-size: (13px * Z.f); font-weight: 700; color: Theme.text; horizontal-stretch: 1; overflow: elide; }
+                                                        Chip { text: p.status; tint: #eaf0ff; ink: #3755a3; }
+                                                    }
+                                                    Text { text: p.summary; font-size: (12px * Z.f); color: Theme.text2; wrap: word-wrap; max-height: 36px; overflow: elide; }
+                                                    Text { text: p.target; font-size: (10px * Z.f); color: Theme.text3; overflow: elide; }
+                                                    HorizontalLayout {
+                                                        spacing: 6px;
+                                                        Button { text: "Inspect"; clicked => { root.ai-inspect-proposal(p.id); } }
+                                                        Button { text: "Defer"; clicked => { root.ai-defer-proposal(p.id); } }
+                                                        Button { text: "Reject"; clicked => { root.ai-reject-proposal(p.id); } }
+                                                        if p.requires-confirmation: Button { text: "Accept"; clicked => { root.ai-accept-proposal(p.id); } }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if root.workspace-bottom-eff-open && root.workspace-bottom-surface-id == "ai-semantic-results": Rectangle {
+                                height: root.workspace-bottom-eff-height;
+                                background: Theme.surface2;
+                                border-radius: 8px;
+                                border-width: 1px;
+                                border-color: Theme.border;
+                                clip: true;
+                                VerticalLayout {
+                                    padding: root.workspace-pad;
+                                    spacing: root.workspace-gap;
+                                    HorizontalLayout {
+                                        SectionTitle { title: "AI SEMANTIC RESULTS"; detail: root.ai-semantic-results.length + " matches"; accent: Theme.accent; horizontal-stretch: 1; }
+                                        CloseX { a11y: "Close semantic results"; closed => { root.workspace-close-pane(root.workspace-bottom-pane-id); } }
+                                    }
+                                    ScrollView {
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            if root.ai-semantic-results.length == 0: EmptyState { glyph: "[]"; title: "No semantic results"; hint: "Refresh embeddings, then run semantic search."; }
+                                            for m in root.ai-semantic-results: Rectangle {
+                                                width: 280px;
+                                                min-height: 96px;
+                                                border-radius: 6px;
+                                                border-width: 1px;
+                                                border-color: Theme.border;
+                                                background: Theme.surface;
+                                                accessible-role: button;
+                                                accessible-label: "Open semantic result " + m.title;
+                                                accessible-action-default => { root.ai-open-semantic-result(m.id); }
+                                                VerticalLayout {
+                                                    padding: 10px;
+                                                    spacing: 7px;
+                                                    HorizontalLayout {
+                                                        Text { text: m.title; font-size: (13px * Z.f); font-weight: 700; color: Theme.text; horizontal-stretch: 1; overflow: elide; }
+                                                        Chip { text: m.score; tint: #e3efed; ink: Theme.accent; }
+                                                    }
+                                                    Text { text: m.summary; font-size: (11px * Z.f); color: Theme.text2; wrap: word-wrap; max-height: 32px; overflow: elide; }
+                                                    HorizontalLayout {
+                                                        Rectangle { horizontal-stretch: 1; }
+                                                        Button { text: "Open"; clicked => { root.ai-open-semantic-result(m.id); } }
+                                                    }
+                                                }
+                                                semrow := TouchArea { clicked => { root.ai-open-semantic-result(m.id); } }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if root.workspace-bottom-eff-open && root.workspace-bottom-surface-id != "ai-proposal-queue" && root.workspace-bottom-surface-id != "ai-semantic-results": Rectangle {
                                 height: root.workspace-bottom-eff-height;
                                 background: Theme.surface2;
                                 border-radius: 8px;

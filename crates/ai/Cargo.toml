@@ -11,3 +11,11 @@ path = "src/lib.rs"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+mistralrs = { version = "0.8.1", optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "time"], optional = true }
+
+[features]
+default = []
+mistralrs-inline = ["dep:mistralrs", "dep:tokio"]
+mistralrs-inline-metal = ["mistralrs-inline", "mistralrs/metal", "mistralrs/accelerate"]

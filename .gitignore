@@ -18,6 +18,9 @@
 /lcov.info
 /llvm-cov
 
+# Local benchmark outputs
+/tmp/
+
 # Never commit a vault or local data (notes live in ~/Documents/Noet, not here)
 /NoetVault
 /Noet

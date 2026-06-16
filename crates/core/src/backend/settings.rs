@@ -29,6 +29,24 @@ pub struct Settings {
     /// Pinned note ids (bookmarks) shown first in the open-notes tab strip.
     #[serde(default)]
     pub pinned_notes: Vec<String>,
+    /// Selected local AI model profile.
+    #[serde(default)]
+    pub ai_profile: String,
+    /// Selected local AI embedding profile.
+    #[serde(default)]
+    pub ai_embedding_profile: String,
+    /// Minimum free memory percentage required before loading a local model.
+    #[serde(default)]
+    pub ai_min_free_memory_percent: u8,
+    /// Maximum seconds a local AI model invocation may run before Noet aborts it.
+    #[serde(default)]
+    pub ai_timeout_seconds: u64,
+    /// Local runtime executable path, usually `mistralrs`.
+    #[serde(default)]
+    pub ai_runtime_bin: String,
+    /// Local model cache/root path for GGUF files.
+    #[serde(default)]
+    pub ai_model_root: String,
 }
 
 impl Settings {

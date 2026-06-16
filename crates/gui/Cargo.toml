@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 noet-app = { path = "../app" }
+noet-ai = { path = "../ai" }
 noet-core = { path = "../core" }
 # WYSIWYG editor engine (UI-free; Slint-version-independent). Pinned to a public
 # tag so CI release builds resolve it without a sibling checkout. This is Noet's
@@ -30,6 +31,8 @@ spellbook = "0.4"
 notify = "6"
 open = "5"
 anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 # Launch-on-startup, all platforms (per-user, no admin): HKCU Run on Windows,
 # Launch Agent on macOS, XDG autostart .desktop on Linux — all pure, no system libs.
 auto-launch = "0.6.0"
@@ -38,6 +41,10 @@ auto-launch = "0.6.0"
 # Inline-render Typst math/figures in the editor (overlays rendered images on the
 # source span). Heavy build cost; opt-in. See compose_fragments in main.rs.
 typst-math = ["dep:sred-typst"]
+# In-process mistral.rs embeddings. Heavy build cost; opt-in so normal GUI
+# builds and tests do not compile the full inference stack.
+mistralrs-inline = ["noet-ai/mistralrs-inline"]
+mistralrs-inline-metal = ["mistralrs-inline", "noet-ai/mistralrs-inline-metal"]
 
 [build-dependencies]
 slint-build = "1.13"

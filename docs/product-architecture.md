@@ -61,6 +61,9 @@ configuration project.
 - Task state must write back to Markdown, not disappear into a hidden database.
 - Local-first comes before connectors, accounts, sync, and automation.
 - AI assistance should start with local open-weight model execution only.
+- User-created notes are trusted content. AI assistance must not moderate,
+  sanitize, redact, censor, hide, delete, or rewrite the user's own notes as
+  protective content-safety behavior.
 - The UI should be calm, dense, native, and task-focused.
 
 ## Data Model
@@ -677,7 +680,7 @@ Owns local open-weight AI integration:
 - Noet tool schemas
 - reviewable proposal types
 - background housekeeping job policy
-- local-only safety policy
+- local-only, no-silent-mutation, and no-content-moderation policy
 
 The AI layer should not directly edit Markdown files. It should use `noet-core`
 queries for context and return proposals or typed tool requests that `noet-app`

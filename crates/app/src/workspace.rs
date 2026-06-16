@@ -62,6 +62,9 @@ pub enum Surface {
     Backlinks { note_id: Option<String> },
     RelatedNotes { note_id: Option<String> },
     FollowupQueue { person: Option<String> },
+    AiProposalQueue,
+    AiJobQueue,
+    AiSemanticResults,
     Settings,
 }
 
@@ -80,6 +83,9 @@ impl Surface {
             Surface::Backlinks { .. } => "backlinks",
             Surface::RelatedNotes { .. } => "related-notes",
             Surface::FollowupQueue { .. } => "followup-queue",
+            Surface::AiProposalQueue => "ai-proposal-queue",
+            Surface::AiJobQueue => "ai-job-queue",
+            Surface::AiSemanticResults => "ai-semantic-results",
             Surface::Settings => "settings",
         }
         .to_string()
@@ -99,6 +105,9 @@ impl Surface {
             Surface::Backlinks { .. } => "Backlinks",
             Surface::RelatedNotes { .. } => "Related",
             Surface::FollowupQueue { .. } => "Follow-ups",
+            Surface::AiProposalQueue => "AI Proposals",
+            Surface::AiJobQueue => "AI Jobs",
+            Surface::AiSemanticResults => "AI Semantic Results",
             Surface::Settings => "Settings",
         }
     }
@@ -279,12 +288,18 @@ impl Workspace {
                         PanePlacement::Right,
                         Surface::Backlinks { note_id: None },
                     ),
+                    Pane::new(
+                        "ai-proposals",
+                        PaneRole::Queue,
+                        PanePlacement::Bottom,
+                        Surface::AiProposalQueue,
+                    ),
                 ],
                 PaneLayout {
                     left: Some("note-browser".into()),
                     center: "note-editor".into(),
                     right: Some("note-context".into()),
-                    bottom: None,
+                    bottom: Some("ai-proposals".into()),
                 },
             ),
             WorkspacePreset::Tasks => workspace(
@@ -378,6 +393,12 @@ impl Workspace {
                         PaneRole::Queue,
                         PanePlacement::Bottom,
                         Surface::FollowupQueue { person: None },
+                    ),
+                    Pane::new(
+                        "ai-jobs",
+                        PaneRole::Inspector,
+                        PanePlacement::Right,
+                        Surface::AiJobQueue,
                     ),
                 ],
                 PaneLayout {

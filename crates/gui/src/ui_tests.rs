@@ -96,6 +96,22 @@ fn headless_ui_smoke() {
         before + 1,
         "new-note should add exactly one note"
     );
+    ui.invoke_ai_review_note();
+    assert_eq!(
+        ui.get_ai_pending_count(),
+        1,
+        "AI review should enqueue one proposal"
+    );
+    assert_eq!(
+        ui.get_ai_proposals().row_count(),
+        1,
+        "AI proposal queue should render the queued proposal"
+    );
+    assert_eq!(
+        ui.get_workspace_bottom_surface_id(),
+        "ai-proposal-queue",
+        "AI review should open the AI proposal queue surface"
+    );
 
     // saving settings persists to the (temp) config dir
     let vault_str = vault.to_string_lossy().to_string();
@@ -104,6 +120,141 @@ fn headless_ui_smoke() {
     assert!(
         noet_core::backend::Settings::load().is_some(),
         "settings.json should have been written"
+    );
+    ui.invoke_set_ai_profile("mistral-nemo-instruct-2407-gguf-q4-k-m".into());
+    ui.invoke_set_ai_embedding_profile("granite-embedding-30m-english".into());
+    ui.invoke_set_ai_min_free_memory("95".into());
+    ui.invoke_set_ai_timeout_seconds("5".into());
+    ui.invoke_set_ai_runtime_bin("/Users/marc/.cargo/bin/mistralrs".into());
+    ui.invoke_set_ai_model_root("/Users/marc/.cache/huggingface/hub".into());
+    assert_eq!(
+        ctx.state.borrow().app.ai.settings.selected_profile_id,
+        "mistral-nemo-instruct-2407-gguf-q4-k-m"
+    );
+    assert_eq!(
+        ctx.state
+            .borrow()
+            .app
+            .ai
+            .settings
+            .selected_embedding_profile_id,
+        "granite-embedding-30m-english"
+    );
+    assert_eq!(
+        ctx.state.borrow().app.ai.settings.min_free_memory_percent,
+        90,
+        "AI memory threshold is clamped to the supported range"
+    );
+    assert_eq!(
+        ctx.state.borrow().app.ai.settings.timeout_seconds,
+        30,
+        "AI timeout is clamped to the supported range"
+    );
+    assert_eq!(
+        ctx.state.borrow().app.ai.settings.runtime_bin,
+        "/Users/marc/.cargo/bin/mistralrs"
+    );
+    assert_eq!(
+        ctx.state.borrow().app.ai.settings.model_root,
+        "/Users/marc/.cache/huggingface/hub"
+    );
+    ui.invoke_ai_refresh_embeddings();
+    {
+        let state = ctx.state.borrow();
+        assert!(
+            state.semantic_index.entries().len() >= 2,
+            "embedding refresh should index current notes in preview mode"
+        );
+        let job = state.app.ai.jobs().last().expect("AI job should be queued");
+        assert_eq!(job.job, HousekeepingJob::RefreshEmbeddings);
+        assert_eq!(job.status, noet_app::AiJobStatus::Completed);
+        assert!(
+            state
+                .backend
+                .index_dir()
+                .join("semantic-index.json")
+                .exists(),
+            "semantic embeddings should persist under the disposable cache/index dir"
+        );
+        assert!(
+            !vault.join("semantic-index.json").exists(),
+            "semantic embeddings must not be written into the markdown vault"
+        );
+    }
+    ui.set_search("meeting".into());
+    ui.invoke_ai_semantic_search(ui.get_search());
+    assert_eq!(
+        ui.get_workspace_bottom_surface_id(),
+        "ai-semantic-results",
+        "semantic search should open the AI semantic result surface"
+    );
+    assert!(
+        ui.get_ai_semantic_results().row_count() >= 1,
+        "semantic search should render ranked result rows"
+    );
+    let first_semantic = ui
+        .get_ai_semantic_results()
+        .row_data(0)
+        .expect("first semantic match");
+    ui.invoke_ai_open_semantic_result(first_semantic.id);
+    assert!(
+        !ui.get_current_title().is_empty(),
+        "opening a semantic result should open a note"
+    );
+    let changed_id = ctx
+        .state
+        .borrow()
+        .backend
+        .query_notes(&noet_core::backend::Filter::default())
+        .unwrap()
+        .into_iter()
+        .find(|note| note.title != WELCOME_TITLE)
+        .expect("smoke test creates a non-welcome note")
+        .id;
+    {
+        let mut state = ctx.state.borrow_mut();
+        state
+            .backend
+            .save_note(
+                &changed_id,
+                "Changed semantic note",
+                "# Changed semantic note\n\nmeeting note body changed after embedding refresh\n",
+            )
+            .unwrap();
+        state.backend.reindex_all().unwrap();
+    }
+    ui.set_search("changed meeting".into());
+    ui.invoke_ai_semantic_search(ui.get_search());
+    assert!(
+        ui.get_status_text()
+            .contains("Refresh embeddings before semantic search"),
+        "semantic search should not use stale vectors; status={}",
+        ui.get_status_text()
+    );
+    let saved = noet_core::backend::Settings::load().expect("settings should reload");
+    assert_eq!(saved.ai_profile, "mistral-nemo-instruct-2407-gguf-q4-k-m");
+    assert_eq!(saved.ai_embedding_profile, "granite-embedding-30m-english");
+    assert_eq!(saved.ai_min_free_memory_percent, 90);
+    assert_eq!(saved.ai_timeout_seconds, 30);
+    assert_eq!(saved.ai_runtime_bin, "/Users/marc/.cargo/bin/mistralrs");
+    assert_eq!(saved.ai_model_root, "/Users/marc/.cache/huggingface/hub");
+
+    let model_file = "Ministral-8B-Instruct-2410-Q4_K_M.gguf";
+    let snapshot = tmp
+        .join("hub")
+        .join("models--bartowski--Ministral-8B-Instruct-2410-GGUF")
+        .join("snapshots")
+        .join("abc123");
+    std::fs::create_dir_all(&snapshot).unwrap();
+    std::fs::write(snapshot.join(model_file), b"fake gguf marker").unwrap();
+    let specs = local_model_specs(&tmp.join("hub"));
+    assert_eq!(
+        specs
+            .get("ministral-8b-instruct-2410-gguf-q4-k-m")
+            .unwrap()
+            .model_dir,
+        snapshot,
+        "HF cache snapshots should resolve to the directory that contains the GGUF"
     );
 
     // ----- Level 2: element introspection + accessible queries -----
@@ -1306,12 +1457,263 @@ fn headless_ui_smoke() {
         "task write-back errors are visible in app status"
     );
 
+    std::env::set_var("NOET_AI_RUNTIME", "local");
+    ui.invoke_set_ai_model_root(
+        tmp.join("missing-model-root")
+            .to_string_lossy()
+            .to_string()
+            .into(),
+    );
+    ui.invoke_set_ai_min_free_memory("10".into());
+    ui.invoke_select_note(task_action_note_id.clone().into());
+    let before_ai_pending = ui.get_ai_pending_count();
+    ui.invoke_ai_review_note();
+    assert!(
+        ui.get_ai_progress_active(),
+        "local AI review should show progress immediately instead of blocking the UI"
+    );
+    assert_eq!(
+        ui.get_ai_pending_count(),
+        before_ai_pending,
+        "local AI review should not synchronously enqueue a proposal"
+    );
+    wait_for_ai_status_contains(ui, "Failed", std::time::Duration::from_secs(10));
+    assert_eq!(
+        ui.get_ai_pending_count(),
+        before_ai_pending,
+        "failed local AI review should not enqueue a proposal"
+    );
+    assert!(
+        !ui.get_ai_progress_active(),
+        "failed local AI review should clear progress state"
+    );
+    std::env::set_var("NOET_AI_RUNTIME", "preview");
+
     // (Slint's lightweight testing backend renders no pixels — its window is a
     // measurement-only renderer — so Window::take_snapshot is unavailable here.
     // Pixel/visual-regression testing would need the software-renderer backend +
     // golden images in a separate test process; out of scope for this suite.)
 
     let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+#[ignore = "loads a local GGUF model through mistralrs; run explicitly on a machine with the model cache available"]
+fn headless_ui_local_model_ai_smoke() {
+    let tmp = std::env::temp_dir().join(format!("noet-local-ai-uitest-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::env::set_var("XDG_CONFIG_HOME", tmp.join("config"));
+    std::env::set_var("XDG_CACHE_HOME", tmp.join("cache"));
+    std::env::set_var("NOET_CONFIG_DIR", tmp.join("config").join("noet"));
+    std::env::set_var("NOET_CACHE_DIR", tmp.join("cache").join("noet"));
+    std::env::set_var("NOET_AI_RUNTIME", "local");
+    let vault = tmp.join("vault");
+    let notes = vault.join("notes");
+    std::fs::create_dir_all(&notes).unwrap();
+    std::fs::write(
+        notes.join("jane-old.md"),
+        "---\nupdated: 2026-06-01T09:00:00\nkind: markdown\n---\n\
+         # Jane 1:1 old\n\n#meeting/one-on-one\n@[[Jane Smith]]\n\
+         - [ ] Revisit hiring plan @[[Jane Smith]] #followup\n",
+    )
+    .unwrap();
+    std::fs::write(
+        notes.join("jane-current.md"),
+        "---\nupdated: 2026-06-08T09:00:00\nkind: markdown\n---\n\
+         # Jane 1:1 current\n\n#meeting/one-on-one\n@[[Jane Smith]]\n\
+         - [ ] Ask about launch risks @[[Jane Smith]] #followup due:2026-06-17 priority:A\n\
+         - [ ] Send onboarding notes @[[Jane Smith]] #delegated\n\
+         - [ ] Waiting for budget answer @[[Jane Smith]] #waiting\n",
+    )
+    .unwrap();
+    std::fs::write(
+        notes.join("launch-review.md"),
+        "---\nupdated: 2026-06-08T11:00:00\nkind: markdown\n---\n\
+         # Launch review\n\n#meeting\n@[[Jane Smith]]\n\
+         Decision: keep the local-only AI release scoped to reviewable proposals.\n\
+         Risk: model loading can pressure memory.\n\
+         Question: who owns the release checklist?\n\
+         - [ ] Confirm release owner @[[Jane Smith]] #followup due:2026-06-18\n",
+    )
+    .unwrap();
+
+    itest::init_no_event_loop();
+    let ctx = setup_app(vault.clone()).expect("setup_app should build the real app");
+    let ui = &ctx.ui;
+    itest::mock_elapsed_time(std::time::Duration::from_millis(16));
+    {
+        let mut state = ctx.state.borrow_mut();
+        state.backend.reindex_all().unwrap();
+    }
+    refresh(ui, &ctx.state.borrow());
+
+    ui.invoke_set_ai_profile("mistral-7b-instruct-v0-3-gguf-q4-k-m".into());
+    ui.invoke_set_ai_min_free_memory("25".into());
+    ui.invoke_set_ai_runtime_bin("/Users/marc/.cargo/bin/mistralrs".into());
+    ui.invoke_set_ai_model_root("/Users/marc/.cache/huggingface/hub".into());
+
+    let launch_note_id = ctx
+        .state
+        .borrow()
+        .backend
+        .query_notes(&noet_core::backend::Filter::default())
+        .unwrap()
+        .into_iter()
+        .find(|note| note.title == "Launch review")
+        .expect("launch review fixture should be indexed")
+        .id;
+    ui.invoke_select_note(launch_note_id.into());
+    ui.invoke_ai_review_note();
+    wait_for_ai_pending(ui, 1, std::time::Duration::from_secs(360));
+    assert_eq!(
+        ui.get_ai_pending_count(),
+        1,
+        "local model note review should enqueue one proposal; status={} ai_status={}",
+        ui.get_status_text(),
+        ui.get_ai_status()
+    );
+    assert!(
+        ui.get_ai_status().contains("Proposing"),
+        "AI status should show local model proposal state, got {}",
+        ui.get_ai_status()
+    );
+
+    ui.set_selected_person("Jane Smith".into());
+    ui.invoke_ai_draft_agenda();
+    wait_for_ai_pending(ui, 2, std::time::Duration::from_secs(360));
+    assert_eq!(
+        ui.get_ai_pending_count(),
+        2,
+        "local model agenda draft should enqueue a second proposal"
+    );
+    assert_eq!(ui.get_workspace_bottom_surface_id(), "ai-proposal-queue");
+    assert_eq!(ui.get_ai_proposals().row_count(), 2);
+
+    let proposals = ui.get_ai_proposals();
+    let first = proposals.row_data(0).expect("first local AI proposal");
+    let second = proposals.row_data(1).expect("second local AI proposal");
+    assert!(
+        !first.summary.is_empty(),
+        "review proposal should summarize output"
+    );
+    assert!(
+        !second.summary.is_empty(),
+        "agenda proposal should summarize output"
+    );
+
+    ui.invoke_ai_inspect_proposal(first.id.clone());
+    ui.invoke_ai_defer_proposal(first.id.clone());
+    assert_eq!(
+        ui.get_ai_pending_count(),
+        1,
+        "deferred local-model proposal should leave one pending proposal"
+    );
+    ui.invoke_ai_reject_proposal(second.id.clone());
+    assert_eq!(
+        ui.get_ai_pending_count(),
+        0,
+        "rejecting the remaining local-model proposal clears pending count"
+    );
+}
+
+#[cfg(feature = "mistralrs-inline")]
+#[test]
+#[ignore = "loads a local embedding model through the inline mistral.rs Rust SDK"]
+fn headless_ui_local_embedding_refresh_smoke() {
+    let tmp = std::env::temp_dir().join(format!(
+        "noet-local-embedding-uitest-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::env::set_var("XDG_CONFIG_HOME", tmp.join("config"));
+    std::env::set_var("XDG_CACHE_HOME", tmp.join("cache"));
+    std::env::set_var("NOET_CONFIG_DIR", tmp.join("config").join("noet"));
+    std::env::set_var("NOET_CACHE_DIR", tmp.join("cache").join("noet"));
+    std::env::set_var("NOET_AI_RUNTIME", "local");
+    let vault = tmp.join("vault");
+    let notes = vault.join("notes");
+    std::fs::create_dir_all(&notes).unwrap();
+    std::fs::write(
+        notes.join("launch.md"),
+        "---\nupdated: 2026-06-08T11:00:00\nkind: markdown\n---\n\
+         # Launch readiness\n\n#meeting\n\
+         The launch checklist needs release owner confirmation and memory testing.\n",
+    )
+    .unwrap();
+    std::fs::write(
+        notes.join("budget.md"),
+        "---\nupdated: 2026-06-08T12:00:00\nkind: markdown\n---\n\
+         # Budget planning\n\n#finance\n\
+         Review the budget forecast and vendor renewal schedule.\n",
+    )
+    .unwrap();
+
+    itest::init_no_event_loop();
+    let ctx = setup_app(vault.clone()).expect("setup_app should build the real app");
+    let ui = &ctx.ui;
+    itest::mock_elapsed_time(std::time::Duration::from_millis(16));
+    ctx.state.borrow_mut().backend.reindex_all().unwrap();
+    refresh(ui, &ctx.state.borrow());
+
+    ui.invoke_set_ai_embedding_profile("embedding-gemma-300m".into());
+    ui.invoke_set_ai_min_free_memory("25".into());
+    ui.invoke_ai_refresh_embeddings();
+    wait_for_embedding_index(&ctx, 2, std::time::Duration::from_secs(360));
+
+    {
+        let state = ctx.state.borrow();
+        let job = state
+            .app
+            .ai
+            .jobs()
+            .last()
+            .expect("embedding job should exist");
+        assert_eq!(
+            state.semantic_index.entries().len(),
+            2,
+            "embedding refresh status={} job_status={:?} failure={:?} note_count={}",
+            ui.get_status_text(),
+            job.status,
+            job.failure,
+            state
+                .backend
+                .query_notes(&noet_core::backend::Filter::default())
+                .unwrap()
+                .len()
+        );
+        assert_eq!(job.job, HousekeepingJob::RefreshEmbeddings);
+        assert_eq!(job.status, noet_app::AiJobStatus::Completed);
+        assert_eq!(ui.get_ai_status(), "Ready");
+    }
+
+    ui.set_search("budget forecast vendor renewal".into());
+    ui.invoke_ai_semantic_search(ui.get_search());
+    wait_for_semantic_results(ui, std::time::Duration::from_secs(360));
+    assert_eq!(
+        ui.get_workspace_bottom_surface_id(),
+        "ai-semantic-results",
+        "local embedding semantic search should open the result surface"
+    );
+    assert!(
+        ui.get_ai_semantic_results().row_count() >= 1,
+        "local embedding semantic search should render result rows; status={}",
+        ui.get_status_text()
+    );
+    let first_semantic = ui
+        .get_ai_semantic_results()
+        .row_data(0)
+        .expect("first local semantic match");
+    ui.invoke_ai_open_semantic_result(first_semantic.id);
+    assert!(
+        !ui.get_current_title().is_empty(),
+        "opening a local embedding semantic result should open a note; status={}",
+        ui.get_status_text()
+    );
+    assert!(
+        ui.get_status_text().contains("Opened semantic result"),
+        "local embedding semantic result open should report success; status={}",
+        ui.get_status_text()
+    );
 }
 
 /// Pure grammar test for the autocomplete trigger detector (no Slint — safe to run
@@ -1400,6 +1802,84 @@ fn resize_window(ui: &AppWindow, width: f32, height: f32) {
     ui.window().dispatch_event(WindowEvent::Resized {
         size: LogicalSize::new(width, height),
     });
+}
+
+fn wait_for_ai_pending(ui: &AppWindow, expected: i32, timeout: std::time::Duration) {
+    let started = std::time::Instant::now();
+    while started.elapsed() < timeout {
+        itest::mock_elapsed_time(std::time::Duration::from_millis(250));
+        if ui.get_ai_pending_count() >= expected {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+    panic!(
+        "timed out waiting for {expected} AI proposals; got {}, status={}, progress={} {}",
+        ui.get_ai_pending_count(),
+        ui.get_ai_status(),
+        ui.get_ai_progress_label(),
+        ui.get_ai_progress_detail()
+    );
+}
+
+fn wait_for_ai_status_contains(ui: &AppWindow, needle: &str, timeout: std::time::Duration) {
+    let started = std::time::Instant::now();
+    while started.elapsed() < timeout {
+        itest::mock_elapsed_time(std::time::Duration::from_millis(100));
+        if ui.get_ai_status().contains(needle) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    panic!(
+        "timed out waiting for AI status containing {needle:?}; got {}, status={}, progress={} {}",
+        ui.get_ai_status(),
+        ui.get_status_text(),
+        ui.get_ai_progress_label(),
+        ui.get_ai_progress_detail()
+    );
+}
+
+#[cfg(feature = "mistralrs-inline")]
+fn wait_for_embedding_index(ctx: &AppCtx, expected: usize, timeout: std::time::Duration) {
+    let started = std::time::Instant::now();
+    while started.elapsed() < timeout {
+        itest::mock_elapsed_time(std::time::Duration::from_millis(250));
+        let count = ctx.state.borrow().semantic_index.entries().len();
+        if count >= expected {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+    let state = ctx.state.borrow();
+    let job = state.app.ai.jobs().last();
+    panic!(
+        "timed out waiting for {expected} embeddings; got {}, status={:?}, failure={:?}",
+        state.semantic_index.entries().len(),
+        job.map(|job| &job.status),
+        job.and_then(|job| job.failure.as_ref())
+    );
+}
+
+#[cfg(feature = "mistralrs-inline")]
+fn wait_for_semantic_results(ui: &AppWindow, timeout: std::time::Duration) {
+    let started = std::time::Instant::now();
+    while started.elapsed() < timeout {
+        itest::mock_elapsed_time(std::time::Duration::from_millis(250));
+        if ui.get_workspace_bottom_surface_id() == "ai-semantic-results"
+            && ui.get_ai_semantic_results().row_count() >= 1
+        {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+    panic!(
+        "timed out waiting for semantic results; surface={}, status={}, progress={} {}",
+        ui.get_workspace_bottom_surface_id(),
+        ui.get_status_text(),
+        ui.get_ai_progress_label(),
+        ui.get_ai_progress_detail()
+    );
 }
 
 /// Integration guard for the opt-in Typst fragment renderer: the hook Noet wires

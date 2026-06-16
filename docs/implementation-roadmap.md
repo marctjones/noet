@@ -16,6 +16,48 @@ more about hardening the workflow surfaces, reducing Slint-owned product logic,
 and making the typed parsed-note model the shared contract for indexing,
 rendering, autocomplete, and write-back.
 
+## Live GitHub Roadmap Order
+
+The GitHub tracker is the live execution order. The roadmap below explains why
+the work is ordered this way; GitHub issues are the actionable units.
+
+1. **M4 - Architecture Cleanup and Daily Workflow Finish**
+   P0: finish the clean architecture boundary and daily workflow quality before
+   release readiness work.
+   - #51 M4 epic: Architecture cleanup and daily workflow finish
+   - #59 Define durable service boundaries for AI, indexing, and workspace state
+   - #60 Consolidate mutation write-back behind typed app commands
+   - #61 Move remaining workflow orchestration out of Slint callbacks
+   - #54 Bring 1:1 Focus to daily-use quality
+   - #55 Bring Notes workspace to daily-use quality
+   - #56 Bring Tasks, Review, and Board to write-back quality
+2. **M5 - Runtime QA and Release Readiness**
+   P0: prove runtime behavior, GUI quality, local AI responsiveness, packaging,
+   and release smoke evidence.
+   - #74 M5 epic: Runtime QA and release readiness
+   - #62 Run local AI calls on non-blocking worker threads
+   - #64 Add AI job progress, elapsed time, and cancel controls
+   - #63 Add release-gate coverage for inline local AI builds
+   - #57 Run manual GUI review and close automation gaps
+   - #58 Track platform packaging and release gates after M4
+3. **M6 - AI Workflow Quality**
+   P1: improve AI proposal quality after the release gate without changing the
+   local-only trust boundary.
+   - #72 M6 epic: AI workflow quality
+   - #65 Improve AI proposal review ergonomics and source inspection
+   - #67 Decide and implement semantic embedding refresh policy
+   - #66 Add targeted local model validation for Noet workflows
+4. **M7 - Post-MVP Workflow Expansion**
+   P2: expand product depth after the MVP release.
+   - #73 M7 epic: Post-MVP workflow expansion
+   - #68 Bring labels and workstreams to cleanup-quality UX
+   - #71 Improve onboarding, empty states, and settings clarity
+   - #69 Expand manual review checklist into full app acceptance suite
+
+Architectural issues are intentionally prioritized ahead of feature polish. New
+features should not add more product logic to Slint callbacks, create alternate
+Markdown mutation paths, or bypass the app-model/service boundaries.
+
 ## Phase 1 - Stabilize The Core Contract
 
 The core contract is mostly independent of the GUI rewrite.
@@ -242,39 +284,94 @@ Current Tasks/Review/Board progress:
 AI work starts with local open-weight execution only. Hosted APIs, OAuth login,
 cloud fallback, and account-provider integrations are deferred.
 
+The detailed product interaction model, workflow value, and issue-sized
+milestones live in [Local AI Architecture](local-ai-architecture.md). The
+current model set is good enough for first integration work: continue with the
+Mistral GGUF chat defaults plus Google EmbeddingGemma 300M as the current
+inline `mistral.rs` embedding default. Chat execution now uses the inline
+`mistral.rs` SDK in feature builds, with the CLI path retained as fallback
+tooling. Use future model work for targeted validation and memory-safe runtime
+hardening rather than open-ended model shopping.
+
 Architecture:
 
 - [x] Add `noet-ai` as a UI-independent crate.
 - [x] Define local model profiles for light, default, and heavy GGUF chat tiers.
-- [ ] Define local embedding model profiles.
-- [ ] Define local runtime contracts for chat, embeddings, structured responses,
+- [x] Define local embedding model profiles.
+- [x] Define local runtime contracts for chat, embeddings, structured responses,
   and tool calls.
 - [x] Define reviewable proposal types for AI-suggested Markdown changes.
 - [x] Define background housekeeping jobs as explicit local jobs with visible
   status.
-- [x] Add local-only safety tests that prevent network/provider fallback from
-  entering the first AI phase.
+- [x] Add local-only and no-content-moderation policy tests that prevent
+  network/provider fallback and protective filtering from entering the first AI
+  phase.
 
 First workflows:
 
-- [ ] Draft next 1:1 agenda from prior 1:1 notes, unresolved follow-ups,
+- [x] Draft next 1:1 agenda from prior 1:1 notes, unresolved follow-ups,
   delegated tasks, waiting items, and related notes.
-- [ ] Suggest labels, workstreams, people, and due-date cleanup for the current
+- [x] Suggest labels, workstreams, people, and due-date cleanup for the current
   note.
-- [ ] Summarize a meeting note into decisions, risks, open questions, and
+- [x] Summarize a meeting note into decisions, risks, open questions, and
   commitments.
-- [ ] Find stale follow-ups and propose resolve, carry forward, demote to
+- [x] Find stale follow-ups and propose resolve, carry forward, demote to
   someday, or keep open.
-- [ ] Promote important inline tasks into full task notes while preserving source
+- [x] Promote important inline tasks into full task notes while preserving source
   context.
+- [x] Refresh local embeddings and run explicit semantic search through a
+  reviewable result surface.
+
+Remaining AI hardening:
+
+- [ ] Add cancel/progress handling for long local model calls.
+  - [x] Move agenda draft and note review local chat execution onto worker
+    threads with app-model progress state.
+  - [x] Move embedding refresh and semantic search local model execution onto
+    worker threads.
+  - [ ] Add cooperative cancellation below the visible cancel-request state.
+- [x] Add semantic index persistence and changed-note invalidation beyond the
+  in-memory preview index.
+- [x] Decide whether embedding refresh remains manual, runs on reindex, or runs
+  as an explicit background housekeeping job: use manual visible housekeeping
+  refresh and block stale semantic search rather than auto-loading embedding
+  models on reindex or search.
+- [ ] Improve AI proposal review ergonomics with richer previews and clearer
+  source inspection.
+- [ ] Keep local model validation targeted at memory-safe runtime hardening, not
+  open-ended model shopping.
 
 Implementation order:
 
-1. Add local-only `noet-ai` contracts and tests.
-2. Add local embedding/index refresh job.
-3. Add read-only 1:1 agenda draft workflow.
-4. Add proposal review UI for AI-suggested changes.
-5. Add local chat model runtime behind the same contracts.
+1. [x] Add local-only `noet-ai` contracts and tests.
+2. [x] Add typed proposal payloads and app-model proposal queue state.
+3. [x] Add read-only 1:1 agenda draft workflow with fake-runtime tests.
+4. [x] Add proposal review UI for AI-suggested changes.
+5. [x] Add current-note review proposals.
+6. [x] Add local embedding/index refresh job.
+7. [x] Add local chat model runtime behind the same contracts.
+8. [x] Add runtime settings, missing-model states, and memory-safe execution gates.
+
+Feature release sequence:
+
+- AI Preview 1: local AI contracts, typed proposal payloads, fake-runtime tests,
+  app-model proposal queue state, and visible AI runtime status.
+- AI Preview 2: read-only 1:1 agenda draft using fake-runtime integration and
+  source-linked UI rendering.
+- AI Preview 3: proposal review surface with accept, reject, copy, insert,
+  defer, and source inspection.
+- AI Preview 4: current-note review for decisions, risks, open questions,
+  commitments, labels, people, due dates, and task extraction.
+- AI Preview 5: explicit housekeeping jobs for stale follow-ups, unlabeled
+  meetings, missing person context, and refreshed 1:1 agenda drafts.
+- AI Preview 6: local embeddings and semantic related-note context with
+  deterministic typed-fact fallback plus an explicit semantic result surface.
+- AI Preview 7: `mistral.rs` runtime, model settings, missing-model states,
+  inline chat execution, offline smoke tests, and memory-safe execution gates.
+
+Across all AI previews, Noet trusts user-created vault content. AI features must
+not moderate, sanitize, redact, hide, delete, or rewrite notes as content-safety
+behavior.
 
 ## Release Gate
 
@@ -288,6 +385,10 @@ Release only when:
 - the 1:1 Focus workflow is usable without keeping People or Filters open
 - the Notes workspace can open and edit a Markdown note
 - task state changes write back to Markdown
+- `cargo check -p noet-gui --features mistralrs-inline` passes for local AI
+  release checkpoints
+- ignored local model smokes are run on a prepared machine when local AI runtime
+  behavior changed
 - local macOS packaging succeeds, if releasing a macOS artifact
 
 Installers are optional during active UX architecture work. Running the local
