@@ -336,9 +336,13 @@ Release bar for the note-first redesign:
 - [x] Add a deliberate write-first launch policy: default active workspace is
   Notes. Session restoration can later reopen a different workspace only when it
   reflects explicit prior user state.
-- [ ] Redesign todo rows into the sidecar/peek/source model: two-line readable
-  default rows, capped visible count, Show more overflow, full-text peek, and
-  source-line highlighting without stealing the active editor.
+- [x] Redesign current-note todo rows into the sidecar/peek model: two-line
+  readable default rows, capped visible count, Show more overflow, full-text
+  peek/detail, and current-note source jumps without stealing the active editor.
+- [x] Render the read-only reference pane in the Notes workspace so cross-note
+  todo sources can open beside the active editor.
+- [ ] Add source-line highlighting inside the read-only reference pane for
+  cross-note todos.
 - [ ] Redesign meeting todos into explicit This meeting, Carryover, Waiting or
   delegated, and collapsed Related open loops sections.
 - [ ] Manual screenshot review should now verify the updated Notes default:
@@ -410,9 +414,9 @@ milestones live in [Local AI Architecture](local-ai-architecture.md). The
 current model set is good enough for first integration work: continue with the
 Mistral GGUF chat defaults plus Google EmbeddingGemma 300M as the current
 inline `mistral.rs` embedding default. Chat execution now uses the inline
-`mistral.rs` SDK in feature builds, with the CLI path retained as fallback
-tooling. Use future model work for targeted validation and memory-safe runtime
-hardening rather than open-ended model shopping.
+`mistral.rs` SDK embedded in Noet, with no desktop CLI fallback. Use future
+model work for targeted validation and memory-safe runtime hardening rather
+than open-ended model shopping.
 
 Architecture:
 

@@ -12,7 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 noet-app = { path = "../app" }
-noet-ai = { path = "../ai" }
+noet-ai = { path = "../ai", features = ["mistralrs-inline"] }
 noet-core = { path = "../core" }
 # WYSIWYG editor engine (UI-free; Slint-version-independent). Pinned to a public
 # tag so CI release builds resolve it without a sibling checkout. This is Noet's
@@ -38,13 +38,14 @@ serde_json = "1"
 auto-launch = "0.6.0"
 
 [features]
+default = []
 # Inline-render Typst math/figures in the editor (overlays rendered images on the
 # source span). Heavy build cost; opt-in. See compose_fragments in main.rs.
 typst-math = ["dep:sred-typst"]
-# In-process mistral.rs embeddings. Heavy build cost; opt-in so normal GUI
-# builds and tests do not compile the full inference stack.
-mistralrs-inline = ["noet-ai/mistralrs-inline"]
-mistralrs-inline-metal = ["mistralrs-inline", "noet-ai/mistralrs-inline-metal"]
+# Compatibility alias: the GUI always embeds mistral.rs through noet-ai. Keeping
+# this feature name avoids breaking older local commands.
+mistralrs-inline = []
+mistralrs-inline-metal = ["noet-ai/mistralrs-inline-metal"]
 
 [build-dependencies]
 slint-build = "1.13"

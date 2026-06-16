@@ -27,7 +27,29 @@ memory_free_percent() {
 
 run cargo fmt --check
 run cargo test --workspace
-run cargo check -p noet-gui --features mistralrs-inline
+run cargo check -p noet-gui
+metal_mode="${NOET_CHECK_METAL:-auto}"
+if [[ "$metal_mode" == "0" ]]; then
+  echo
+  echo "Skipping Metal compile check; NOET_CHECK_METAL=0."
+elif [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
+  if ! xcrun -f metal >/dev/null 2>&1; then
+    if [[ "$metal_mode" == "1" ]]; then
+      echo "NOET_CHECK_METAL=1 requires the Xcode Metal compiler (xcrun -f metal)." >&2
+      exit 1
+    fi
+    echo
+    echo "Skipping Metal compile check; Xcode Metal compiler not found, embedded CPU runtime remains enabled."
+  else
+    run cargo check -p noet-gui --features mistralrs-inline-metal
+  fi
+elif [[ "$metal_mode" == "1" ]]; then
+  echo "NOET_CHECK_METAL=1 is only supported on arm64 macOS." >&2
+  exit 1
+else
+  echo
+  echo "Skipping Metal compile check; not running on arm64 macOS."
+fi
 run git diff --check
 
 if [[ "${NOET_RUN_LOCAL_MODEL_SMOKES:-0}" == "1" ]]; then

@@ -83,16 +83,17 @@ Model setup is intentionally explicit:
 2. Download supported GGUF models with `scripts/download-noet-models.sh`, or use
    the candidate script when evaluating a new profile.
 3. Open Settings and set the local model root. The default model root is the
-   Hugging Face cache (`$HF_HOME/hub` or `~/.cache/huggingface/hub`). The runtime
-   path remains available for non-inline fallback builds and benchmark tooling.
+   Hugging Face cache (`$HF_HOME/hub` or `~/.cache/huggingface/hub`). Normal GUI
+   builds use inline `mistral.rs`; the runtime path is only relevant to
+   benchmark tooling outside the desktop app.
 4. Keep the minimum free memory threshold at the 50% default unless the machine
    is dedicated to model testing.
 
-Failure recovery should preserve user data first. If the runtime path is wrong,
-the model file is missing, free memory is below the threshold, or `mistralrs`
-returns an error, Noet should show a failed AI status and leave vault Markdown
-unchanged. Retrying should be explicit after fixing the path, downloading the
-model, choosing a lighter profile, or closing other memory-heavy apps.
+Failure recovery should preserve user data first. If the model file is missing,
+free memory is below the threshold, or `mistral.rs` returns an error, Noet
+should show a failed AI status and leave vault Markdown unchanged. Retrying
+should be explicit after downloading the model, choosing a lighter profile, or
+closing other memory-heavy apps.
 
 At runtime, inline builds load the selected GGUF chat model through the
 `mistral.rs` Rust SDK and call `Model::send_chat_request` in-process. Noet keeps
@@ -102,27 +103,23 @@ loading, and a bounded timeout visible in Settings. The model root resolver
 supports the Hugging Face cache layout created by `hf download`
 (`models--owner--repo/snapshots/<rev>/*.gguf`). Automated GUI tests use the
 deterministic preview runtime; developers can force that path manually with
-`NOET_AI_RUNTIME=preview`. Non-inline builds retain the CLI runtime fallback for
-development and packaging cases where the full SDK stack is intentionally not
-compiled into the app.
+`NOET_AI_RUNTIME=preview`.
 
-Embedding refresh uses an inline embedding runtime path, not the chat CLI and
-not an IPC sidecar. Snowflake Arctic Embed S uses the query prefix `Represent
+Embedding refresh uses an inline embedding runtime path, not a CLI and not an
+IPC sidecar. Snowflake Arctic Embed S uses the query prefix `Represent
 this sentence for searching relevant passages: ` for search queries; document
 embeddings for note bodies do not need a prefix. Noet stores the selected
 embedding profile separately from the chat profile so users can keep Ministral
 for structured workflows while using Snowflake, Granite, or Nomic for
-retrieval. The current `mistralrs run embedding` CLI does not accept one-shot
-text input; embedding execution should use the `mistral.rs` Rust SDK directly
+retrieval. Embedding execution should use the `mistral.rs` Rust SDK directly
 inside Noet.
 
-The inline SDK path is opt-in at build time because it pulls in the full local
-inference stack. Use `noet-ai` feature `mistralrs-inline` for portable CPU
-builds, `mistralrs-inline-metal` for Apple Silicon builds, or the matching
-`noet-gui` feature to propagate those settings into the desktop app. The GUI
-must run the existing memory preflight before constructing inline chat or
-embedding runtimes, because construction is the point where local model weights
-are loaded.
+The desktop app enables the inline SDK path by default so local AI does not
+depend on a PATH-visible CLI. Use the `noet-gui` feature
+`mistralrs-inline-metal` only when optional Apple Silicon acceleration is
+needed and the Xcode Metal compiler is installed. The GUI must run the existing
+memory preflight before constructing inline chat or embedding runtimes, because
+construction is the point where local model weights are loaded.
 
 Latest local smoke results on this machine, with the conservative benchmark
 settings above:
@@ -434,10 +431,10 @@ Markdown mutation surface.
 - [x] Add offline smoke tests for the AI release gate.
 - [x] Add memory-safe execution defaults and prevent unbounded concurrent model
   jobs.
-- [x] Add a timeout around local `mistralrs run` calls so a bad invocation cannot
+- [x] Add a timeout around embedded local model calls so a bad invocation cannot
   hang Noet indefinitely.
 - [x] Migrate chat execution from the CLI process to inline `mistral.rs` SDK
-  calls for feature builds, leaving the CLI path as a fallback.
+  calls and remove the desktop CLI fallback.
 - [x] Persist and expose the local runtime timeout in Settings.
 - [x] Document model download/setup and failure recovery.
 

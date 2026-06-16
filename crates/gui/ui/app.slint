@@ -950,19 +950,24 @@ component AgendaRow inherits Rectangle {
 
 component FocusTodoRow inherits Rectangle {
     in property <TodoItem> t;
+    in property <bool> selected: false;
     callback cycle(string);
+    callback select(string);
     callback edit(string);
     callback open(string);
     callback promote(string);
-    height: 50px;
+    height: 66px;
     border-radius: 6px;
-    background: ftr.has-hover ? Theme.surface3 : transparent;
+    background: root.selected ? Theme.sel : (ftr.has-hover ? Theme.surface3 : transparent);
     animate background { duration: 100ms; }
     accessible-role: button;
     accessible-label: "Open current-note todo " + t.text;
     accessible-description: t.status + (t.person != "" ? " assigned to " + t.person : "") + (t.project != "" ? " in " + t.project : "") + (t.due != "" ? " due " + t.due : "");
-    accessible-action-default => { root.open(t.id); }
-    ftr := TouchArea { double-clicked => { root.open(t.id); } }
+    accessible-action-default => { root.select(t.id); }
+    ftr := TouchArea {
+        clicked => { root.select(t.id); }
+        double-clicked => { root.open(t.id); }
+    }
     HorizontalLayout {
         padding: 6px;
         spacing: 7px;
@@ -997,6 +1002,8 @@ component FocusTodoRow inherits Rectangle {
                 font-size: (12.5px * Z.f);
                 font-weight: 650;
                 color: t.done ? Theme.text3 : Theme.text;
+                wrap: word-wrap;
+                max-height: 34px;
                 overflow: elide;
             }
             HorizontalLayout {
@@ -1012,9 +1019,52 @@ component FocusTodoRow inherits Rectangle {
     }
 }
 
+component TodoPeek inherits Rectangle {
+    in property <TodoItem> t;
+    callback edit(string);
+    callback open(string);
+    callback promote(string);
+    border-radius: 7px;
+    border-width: 1px;
+    border-color: Theme.border;
+    background: Theme.surface;
+    accessible-role: groupbox;
+    accessible-label: "Selected todo detail " + t.text;
+    height: detail-layout.preferred-height;
+    detail-layout := VerticalLayout {
+        padding: 8px;
+        spacing: 7px;
+        Text {
+            text: t.text;
+            font-size: (13px * Z.f);
+            font-weight: 700;
+            color: Theme.text;
+            wrap: word-wrap;
+        }
+        HorizontalLayout {
+            spacing: 4px;
+            Chip { text: t.status; tint: #eef2f7; ink: #67727d; }
+            Chip { text: t.priority; tint: #f5edda; ink: #8a6418; }
+            Chip { text: t.due; tint: #fde7ea; ink: #9a1b33; }
+            Chip { text: t.person; tint: #fdeede; ink: #9a5b1b; }
+            Chip { text: t.project; tint: #e7f7ec; ink: #1f7a44; }
+        }
+        HorizontalLayout {
+            spacing: 5px;
+            Button { text: "Edit"; accessible-label: "Edit selected todo " + t.text; clicked => { root.edit(t.id); } }
+            Button { text: "Promote"; accessible-label: "Promote selected todo " + t.text; clicked => { root.promote(t.id); } }
+            Button { text: "Source"; accessible-label: "Open source for selected todo " + t.text; clicked => { root.open(t.id); } }
+        }
+    }
+}
+
 component CurrentTodoRail inherits Rectangle {
     in property <[TodoItem]> todos;
     in property <int> count;
+    in property <int> visible-limit: 5;
+    in-out property <bool> expanded: false;
+    in-out property <string> selected-id: "";
+    out property <int> visible-count: (root.expanded || root.count <= root.visible-limit) ? root.count : root.visible-limit;
     callback cycle(string);
     callback edit(string);
     callback open(string);
@@ -1038,13 +1088,31 @@ component CurrentTodoRail inherits Rectangle {
             vertical-stretch: 1;
             VerticalLayout {
                 spacing: 4px;
-                for t in root.todos: FocusTodoRow {
+                for t[idx] in root.todos: FocusTodoRow {
+                    visible: idx < root.visible-count;
                     t: t;
+                    selected: root.selected-id == t.id;
                     cycle(id) => { root.cycle(id); }
+                    select(id) => { root.selected-id = root.selected-id == id ? "" : id; }
                     edit(id) => { root.edit(id); }
                     open(id) => { root.open(id); }
                     promote(id) => { root.promote(id); }
                 }
+                if root.count > root.visible-limit: Button {
+                    text: root.expanded ? "Show fewer" : "Show " + (root.count - root.visible-limit) + " more";
+                    accessible-label: root.expanded ? "Show fewer current-note todos" : "Show more current-note todos";
+                    clicked => { root.expanded = !root.expanded; }
+                }
+            }
+        }
+        if root.selected-id != "": VerticalLayout {
+            spacing: 4px;
+            for t in root.todos: TodoPeek {
+                visible: t.id == root.selected-id;
+                t: t;
+                edit(id) => { root.edit(id); }
+                open(id) => { root.open(id); }
+                promote(id) => { root.promote(id); }
             }
         }
     }
@@ -1418,10 +1486,9 @@ export component AppWindow inherits Window {
     in-out property <string> ai-embedding-profile: "embedding-gemma-300m";
     in-out property <string> ai-min-free-memory: "25";
     in-out property <string> ai-timeout-seconds: "300";
-    in-out property <string> ai-runtime-bin: "mistralrs";
     in-out property <string> ai-model-root;
     in-out property <string> ai-model-root-status;
-    in property <string> ai-local-policy: "Local AI prompts run through the configured local runtime. Noet does not redact or sanitize your vault content before model calls.";
+    in property <string> ai-local-policy: "Local AI prompts run through embedded mistral.rs. Noet does not redact or sanitize your vault content before model calls.";
     in property <string> ai-resource-policy: "Noet checks free memory before loading a model. AI jobs run off the UI thread and can be canceled.";
     in property <string> ai-embedding-policy: "Embeddings refresh manually and are stored with the app index/cache outside your Markdown vault.";
     // About / open-source licenses view.
@@ -1441,7 +1508,6 @@ export component AppWindow inherits Window {
     callback set-ai-embedding-profile(string);
     callback set-ai-min-free-memory(string);
     callback set-ai-timeout-seconds(string);
-    callback set-ai-runtime-bin(string);
     callback set-ai-model-root(string);
     callback export-note(string); // format: "md" | "pdf"
     callback reindex-finished();
@@ -2029,9 +2095,58 @@ export component AppWindow inherits Window {
                                                             ActionButton { icon: Icons.focus; label: root.focus-mode ? "Exit writing" : "Writing mode"; a11y: root.focus-mode ? "Exit writing mode" : "Writing mode"; clicked => { root.toggle-notes-writing-mode(); } }
                                                             ActionButton { icon: Icons.textsize; label: (root.editing && root.source-mode) ? "Preview" : "Source"; clicked => { if (root.editing && root.source-mode) { root.source-mode = false; } else { root.source-mode = true; root.editing = true; } } }
                                                             ActionButton { icon: Icons.check; label: "Add task"; clicked => { root.open-add-todo(); } }
-                                                            ActionButton { icon: Icons.info; label: "Review note"; clicked => { root.ai-review-note(); } }
                                                             ActionButton { icon: Icons.branch; label: "Related note"; clicked => { root.new-related-note(); } }
                                                             ActionButton { icon: Icons.download; label: "Export PDF"; clicked => { root.export-note("pdf"); } }
+                                                        }
+                                                    }
+                                                    if root.split-note-id != "": Rectangle {
+                                                        width: 9px;
+                                                        background: (splitResize.has-hover || splitResize.pressed) ? #c8d0d9 : transparent;
+                                                        splitResize := TouchArea {
+                                                            mouse-cursor: ew-resize;
+                                                            property <length> sw;
+                                                            property <length> sx;
+                                                            pointer-event(e) => {
+                                                                if (e.kind == PointerEventKind.down) {
+                                                                    self.sw = root.split-width;
+                                                                    self.sx = self.absolute-position.x + self.mouse-x;
+                                                                }
+                                                            }
+                                                            moved => {
+                                                                root.split-width = clamp(self.sw - (self.absolute-position.x + self.mouse-x - self.sx), 280px, 720px);
+                                                                root.split-resized();
+                                                            }
+                                                        }
+                                                    }
+                                                    if root.split-note-id != "": Rectangle {
+                                                        width: root.split-width;
+                                                        vertical-stretch: 1;
+                                                        background: Theme.surface;
+                                                        border-radius: 8px;
+                                                        border-width: 1px;
+                                                        border-color: Theme.border;
+                                                        clip: true;
+                                                        accessible-role: groupbox;
+                                                        accessible-label: "Reference note " + root.split-title;
+                                                        VerticalLayout {
+                                                            padding: 10px;
+                                                            spacing: 8px;
+                                                            HorizontalLayout {
+                                                                spacing: 6px;
+                                                                SectionTitle { title: "REFERENCE"; detail: root.split-title; accent: #7a5b9a; horizontal-stretch: 1; }
+                                                                MiniBtn { icon: Icons.edit; a11y: "Edit reference note " + root.split-title; clicked => { root.edit-split(); } }
+                                                                CloseX { a11y: "Close reference note"; closed => { root.close-split(); } }
+                                                            }
+                                                            ScrollView {
+                                                                viewport-width: self.width;
+                                                                vertical-stretch: 1;
+                                                                Image {
+                                                                    source: root.split-image;
+                                                                    width: parent.width;
+                                                                    height: root.split-doc-height;
+                                                                    image-fit: contain;
+                                                                }
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -2225,10 +2340,11 @@ export component AppWindow inherits Window {
                                                     }
                                                     Field {
                                                         label: "AI runtime";
-                                                        LineEdit {
-                                                            text <=> root.ai-runtime-bin;
-                                                            placeholder-text: "mistralrs";
-                                                            edited(t) => { root.set-ai-runtime-bin(t); }
+                                                        Text {
+                                                            text: "Inline mistral.rs";
+                                                            color: Theme.text;
+                                                            font-size: (13px * Z.f);
+                                                            vertical-alignment: center;
                                                         }
                                                     }
                                                     Field {

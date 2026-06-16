@@ -41,9 +41,6 @@ pub struct Settings {
     /// Maximum seconds a local AI model invocation may run before Noet aborts it.
     #[serde(default)]
     pub ai_timeout_seconds: u64,
-    /// Local runtime executable path, usually `mistralrs`.
-    #[serde(default)]
-    pub ai_runtime_bin: String,
     /// Local model cache/root path for GGUF files.
     #[serde(default)]
     pub ai_model_root: String,
@@ -69,7 +66,6 @@ impl Default for Settings {
             ai_embedding_profile: String::new(),
             ai_min_free_memory_percent: 0,
             ai_timeout_seconds: 0,
-            ai_runtime_bin: String::new(),
             ai_model_root: String::new(),
         }
     }

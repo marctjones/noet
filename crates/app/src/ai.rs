@@ -131,10 +131,6 @@ impl AiState {
         self.settings.timeout_seconds = seconds.clamp(30, 1800);
     }
 
-    pub fn set_runtime_bin(&mut self, path: impl Into<String>) {
-        self.settings.runtime_bin = path.into();
-    }
-
     pub fn set_model_root(&mut self, path: impl Into<String>) {
         self.settings.model_root = path.into();
     }
@@ -284,7 +280,6 @@ pub struct AiSettings {
     pub min_free_memory_percent: u8,
     pub timeout_seconds: u64,
     pub max_concurrent_model_jobs: u8,
-    pub runtime_bin: String,
     pub model_root: String,
 }
 
@@ -296,7 +291,6 @@ impl Default for AiSettings {
             min_free_memory_percent: 50,
             timeout_seconds: 300,
             max_concurrent_model_jobs: 1,
-            runtime_bin: "mistralrs".into(),
             model_root: default_model_root(),
         }
     }

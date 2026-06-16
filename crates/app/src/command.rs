@@ -41,7 +41,6 @@ pub enum AppCommand {
     SetAiEmbeddingProfile(String),
     SetAiMinFreeMemoryPercent(u8),
     SetAiTimeoutSeconds(u64),
-    SetAiRuntimeBin(String),
     SetAiModelRoot(String),
     EnqueueAiJob(HousekeepingJob),
     StartAiJob(String),

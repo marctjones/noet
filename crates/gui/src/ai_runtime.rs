@@ -114,10 +114,9 @@ impl EmbeddingRuntime for PreviewEmbeddingRuntime {
 }
 
 pub(crate) fn local_runtime_settings(settings: &AiSettings) -> LocalRuntimeSettings {
-    let runtime_bin = settings.runtime_bin.clone();
     let model_root = settings.model_root.clone();
     let timeout_seconds = settings.timeout_seconds;
-    let mut runtime_settings = LocalRuntimeSettings::conservative(runtime_bin);
+    let mut runtime_settings = LocalRuntimeSettings::embedded();
     runtime_settings.models = local_model_specs(Path::new(&model_root));
     runtime_settings.timeout_seconds = timeout_seconds;
     runtime_settings

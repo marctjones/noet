@@ -4,16 +4,15 @@
 //! must satisfy. Heavy model runtimes stay behind opt-in Cargo features.
 
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "mistralrs-inline")]
+use std::time::Duration;
 use std::{
     collections::BTreeMap,
     path::PathBuf,
-    process::{Child, Command, Output, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    thread,
-    time::{Duration, Instant},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -281,7 +280,6 @@ pub fn nomic_embed_text_v1_5_profile() -> EmbeddingModelProfile {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LocalRuntimeSettings {
-    pub mistralrs_bin: PathBuf,
     pub models: BTreeMap<String, LocalModelSpec>,
     pub max_seq_len: u32,
     pub max_seqs: u32,
@@ -290,15 +288,18 @@ pub struct LocalRuntimeSettings {
 }
 
 impl LocalRuntimeSettings {
-    pub fn conservative(mistralrs_bin: impl Into<PathBuf>) -> Self {
+    pub fn conservative() -> Self {
         Self {
-            mistralrs_bin: mistralrs_bin.into(),
             models: BTreeMap::new(),
             max_seq_len: 1024,
             max_seqs: 1,
             prefix_cache_n: 0,
             timeout_seconds: 300,
         }
+    }
+
+    pub fn embedded() -> Self {
+        Self::conservative()
     }
 }
 
@@ -311,100 +312,12 @@ pub struct LocalModelSpec {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LocalModelState {
     Ready,
-    MissingRuntime,
     MissingModel,
     MissingQuantizedFile,
 }
 
-pub struct MistralRsCliRuntime {
-    settings: LocalRuntimeSettings,
-}
-
-impl MistralRsCliRuntime {
-    pub fn new(settings: LocalRuntimeSettings) -> Self {
-        Self { settings }
-    }
-
-    pub fn model_state(&self, profile_id: &str) -> LocalModelState {
-        local_model_state(&self.settings, profile_id, true)
-    }
-
-    fn run_prompt(&self, profile_id: &str, prompt: &str) -> AiResult<String> {
-        match self.model_state(profile_id) {
-            LocalModelState::Ready => {}
-            LocalModelState::MissingRuntime => {
-                return Err(AiRuntimeError::RuntimeUnavailable {
-                    message: format!(
-                        "mistralrs binary not found: {}",
-                        self.settings.mistralrs_bin.display()
-                    ),
-                })
-            }
-            LocalModelState::MissingModel => {
-                return Err(AiRuntimeError::ModelUnavailable {
-                    profile_id: profile_id.into(),
-                })
-            }
-            LocalModelState::MissingQuantizedFile => {
-                return Err(AiRuntimeError::ModelUnavailable {
-                    profile_id: profile_id.into(),
-                })
-            }
-        }
-        let model = self.settings.models.get(profile_id).unwrap();
-        let child = Command::new(&self.settings.mistralrs_bin)
-            .arg("run")
-            .arg("-m")
-            .arg(&model.model_dir)
-            .arg("--format")
-            .arg("gguf")
-            .arg("-f")
-            .arg(&model.quantized_file)
-            .arg("--max-seq-len")
-            .arg(self.settings.max_seq_len.to_string())
-            .arg("--max-seqs")
-            .arg(self.settings.max_seqs.to_string())
-            .arg("--prefix-cache-n")
-            .arg(self.settings.prefix_cache_n.to_string())
-            .arg("-i")
-            .arg(prompt)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|err| AiRuntimeError::RuntimeUnavailable {
-                message: err.to_string(),
-            })?;
-        let output = wait_with_timeout(child, Duration::from_secs(self.settings.timeout_seconds))
-            .map_err(|err| AiRuntimeError::RuntimeUnavailable {
-            message: err.to_string(),
-        })?;
-        let Some(output) = output else {
-            return Err(AiRuntimeError::InferenceFailed {
-                message: format!(
-                    "mistralrs timed out after {} seconds",
-                    self.settings.timeout_seconds
-                ),
-            });
-        };
-
-        if !output.status.success() {
-            return Err(AiRuntimeError::InferenceFailed {
-                message: String::from_utf8_lossy(&output.stderr).to_string(),
-            });
-        }
-
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
-    }
-}
-
-fn local_model_state(
-    settings: &LocalRuntimeSettings,
-    profile_id: &str,
-    require_cli_runtime: bool,
-) -> LocalModelState {
-    if require_cli_runtime && !executable_exists(&settings.mistralrs_bin) {
-        return LocalModelState::MissingRuntime;
-    }
+#[cfg(feature = "mistralrs-inline")]
+fn local_model_state(settings: &LocalRuntimeSettings, profile_id: &str) -> LocalModelState {
     let Some(model) = settings.models.get(profile_id) else {
         return LocalModelState::MissingModel;
     };
@@ -415,21 +328,6 @@ fn local_model_state(
         return LocalModelState::MissingQuantizedFile;
     }
     LocalModelState::Ready
-}
-
-fn wait_with_timeout(mut child: Child, timeout: Duration) -> std::io::Result<Option<Output>> {
-    let started = Instant::now();
-    loop {
-        if child.try_wait()?.is_some() {
-            return child.wait_with_output().map(Some);
-        }
-        if started.elapsed() >= timeout {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Ok(None);
-        }
-        thread::sleep(Duration::from_millis(25));
-    }
 }
 
 pub fn inline_embedding_supported(profile_id: &str) -> bool {
@@ -499,9 +397,8 @@ impl MistralRsInlineEmbeddingRuntime {
 impl MistralRsInlineChatRuntime {
     pub fn load(settings: LocalRuntimeSettings, profile_id: impl Into<String>) -> AiResult<Self> {
         let profile_id = profile_id.into();
-        match local_model_state(&settings, &profile_id, false) {
+        match local_model_state(&settings, &profile_id) {
             LocalModelState::Ready => {}
-            LocalModelState::MissingRuntime => unreachable!("inline chat does not use the CLI"),
             LocalModelState::MissingModel | LocalModelState::MissingQuantizedFile => {
                 return Err(AiRuntimeError::ModelUnavailable { profile_id })
             }
@@ -662,16 +559,6 @@ fn source_ref_from_value(value: serde_json::Value) -> SourceRef {
         serde_json::Value::String(label) => SourceRef::Synthetic { label },
         other => serde_json::from_value(other).unwrap_or_default(),
     }
-}
-
-fn executable_exists(path: &PathBuf) -> bool {
-    if path.components().count() > 1 || path.is_absolute() {
-        return path.exists();
-    }
-    let Some(paths) = std::env::var_os("PATH") else {
-        return path.exists();
-    };
-    std::env::split_paths(&paths).any(|dir| dir.join(path).exists())
 }
 
 pub type AiResult<T> = Result<T, AiRuntimeError>;
@@ -855,14 +742,7 @@ pub trait ToolRuntime {
     fn call_tool(&self, call: NoetToolCall) -> AiResult<NoetToolResult>;
 }
 
-fn chat_prompt(messages: &[ChatMessage]) -> String {
-    messages
-        .iter()
-        .map(|message| format!("{:?}: {}", message.role, message.content))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
+#[cfg(feature = "mistralrs-inline")]
 fn structured_prompt(request: &StructuredRequest) -> String {
     format!(
         "{}\n\nReturn only valid JSON for task {:?}. Use this exact JSON shape:\n{}\n\nContext:\n{}",
@@ -920,17 +800,6 @@ fn inline_chat_role(role: ChatRole) -> mistralrs::TextMessageRole {
     }
 }
 
-impl ChatRuntime for MistralRsCliRuntime {
-    fn complete_chat(&self, request: ChatRequest) -> AiResult<ChatResponse> {
-        let prompt = chat_prompt(&request.messages);
-        let content = self.run_prompt(&request.profile_id, &prompt)?;
-        Ok(ChatResponse {
-            content,
-            usage: None,
-        })
-    }
-}
-
 #[cfg(feature = "mistralrs-inline")]
 impl ChatRuntime for MistralRsInlineChatRuntime {
     fn complete_chat(&self, request: ChatRequest) -> AiResult<ChatResponse> {
@@ -972,41 +841,6 @@ impl ChatRuntime for MistralRsInlineChatRuntime {
                 output_tokens: Some(response.usage.completion_tokens as u32),
             }),
         })
-    }
-}
-
-impl StructuredRuntime for MistralRsCliRuntime {
-    fn complete_structured<T>(&self, request: StructuredRequest) -> AiResult<StructuredResponse<T>>
-    where
-        T: for<'de> Deserialize<'de> + Serialize,
-    {
-        let prompt = structured_prompt(&request);
-        let output = self.run_prompt(&request.profile_id, &prompt)?;
-        let value = parse_json_value(&output)?;
-        Ok(StructuredResponse { value, usage: None })
-    }
-}
-
-impl CancellableStructuredRuntime for MistralRsCliRuntime {
-    fn complete_structured_cancellable<T, F>(
-        &self,
-        request: StructuredRequest,
-        cancel: &AiCancelToken,
-        _on_progress: F,
-    ) -> AiResult<StructuredResponse<T>>
-    where
-        T: for<'de> Deserialize<'de> + Serialize,
-        F: FnMut(AiProgressUpdate),
-    {
-        if cancel.is_cancelled() {
-            return Err(AiRuntimeError::Cancelled);
-        }
-        let response = self.complete_structured(request)?;
-        if cancel.is_cancelled() {
-            Err(AiRuntimeError::Cancelled)
-        } else {
-            Ok(response)
-        }
     }
 }
 
@@ -1107,6 +941,7 @@ impl EmbeddingRuntime for MistralRsInlineEmbeddingRuntime {
     }
 }
 
+#[cfg(feature = "mistralrs-inline")]
 fn structured_json_shape(task: &StructuredTask) -> &'static str {
     match task {
         StructuredTask::DraftOneOnOneAgenda => {
@@ -1125,6 +960,7 @@ fn structured_json_shape(task: &StructuredTask) -> &'static str {
     }
 }
 
+#[cfg(any(feature = "mistralrs-inline", test))]
 fn parse_json_value<T>(output: &str) -> AiResult<T>
 where
     T: for<'de> Deserialize<'de>,
@@ -1155,6 +991,7 @@ where
         })
 }
 
+#[cfg(any(feature = "mistralrs-inline", test))]
 fn balanced_json_objects(output: &str) -> Vec<&str> {
     let mut objects = Vec::new();
     for (start, ch) in output.char_indices() {
@@ -1168,6 +1005,7 @@ fn balanced_json_objects(output: &str) -> Vec<&str> {
     objects
 }
 
+#[cfg(any(feature = "mistralrs-inline", test))]
 fn balanced_json_object_end(output: &str) -> Option<usize> {
     let mut depth = 0usize;
     let mut in_string = false;
@@ -1436,27 +1274,6 @@ mod tests {
     }
 
     #[test]
-    fn cancellable_cli_structured_runtime_stops_before_loading_model() {
-        let runtime =
-            MistralRsCliRuntime::new(LocalRuntimeSettings::conservative("missing-mistralrs"));
-        let token = AiCancelToken::default();
-        token.cancel();
-        let request = StructuredRequest {
-            profile_id: default_profile().id,
-            task: StructuredTask::ReviewNote,
-            instructions: "Return JSON".into(),
-            context: Vec::new(),
-            max_output_tokens: Some(8),
-        };
-
-        let err = runtime
-            .complete_structured_cancellable::<NoteReview, _>(request, &token, |_| {})
-            .expect_err("cancelled runtime should not try to execute");
-
-        assert_eq!(err, AiRuntimeError::Cancelled);
-    }
-
-    #[test]
     fn recommended_profiles_cover_light_default_and_heavy_tiers() {
         let profiles = recommended_model_profiles();
 
@@ -1538,61 +1355,6 @@ mod tests {
             embedding_document_text("nomic-embed-text-v1-5", "release checklist"),
             "search_document: release checklist"
         );
-    }
-
-    #[test]
-    fn mistral_cli_runtime_reports_missing_runtime_without_provider_fallback() {
-        let runtime = MistralRsCliRuntime::new(LocalRuntimeSettings::conservative(
-            "/definitely/missing/mistralrs",
-        ));
-
-        assert_eq!(
-            runtime.model_state(&default_profile().id),
-            LocalModelState::MissingRuntime
-        );
-        assert!(!AiPolicy::default().allows_network_provider());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn mistral_cli_runtime_times_out_runaway_process() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let tmp = std::env::temp_dir().join(format!("noet-ai-timeout-test-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&tmp);
-        std::fs::create_dir_all(tmp.join("model")).unwrap();
-        std::fs::write(tmp.join("model").join("model.gguf"), b"fake").unwrap();
-        let runtime_bin = tmp.join("fake-mistralrs");
-        std::fs::write(&runtime_bin, "#!/bin/sh\nsleep 2\nprintf 'late output'\n").unwrap();
-        let mut perms = std::fs::metadata(&runtime_bin).unwrap().permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(&runtime_bin, perms).unwrap();
-
-        let mut settings = LocalRuntimeSettings::conservative(&runtime_bin);
-        settings.timeout_seconds = 1;
-        settings.models.insert(
-            default_profile().id,
-            LocalModelSpec {
-                model_dir: tmp.join("model"),
-                quantized_file: "model.gguf".into(),
-            },
-        );
-        let runtime = MistralRsCliRuntime::new(settings);
-        let result = runtime.complete_chat(ChatRequest {
-            profile_id: default_profile().id,
-            messages: vec![ChatMessage {
-                role: ChatRole::User,
-                content: "hello".into(),
-            }],
-            max_output_tokens: None,
-            temperature_millis: None,
-        });
-
-        assert!(matches!(
-            result,
-            Err(AiRuntimeError::InferenceFailed { message }) if message.contains("timed out")
-        ));
-        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

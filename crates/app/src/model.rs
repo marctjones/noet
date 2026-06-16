@@ -171,10 +171,6 @@ impl AppModel {
                 self.ai.set_timeout_seconds(seconds);
                 CommandOutcome::accepted()
             }
-            AppCommand::SetAiRuntimeBin(path) => {
-                self.ai.set_runtime_bin(path);
-                CommandOutcome::accepted()
-            }
             AppCommand::SetAiModelRoot(path) => {
                 self.ai.set_model_root(path);
                 CommandOutcome::accepted()
@@ -690,16 +686,9 @@ mod tests {
     }
 
     #[test]
-    fn ai_settings_can_store_local_runtime_paths() {
+    fn ai_settings_can_store_local_model_root() {
         let mut model = AppModel::new();
 
-        assert!(
-            model
-                .apply(AppCommand::SetAiRuntimeBin(
-                    "/Users/marc/.cargo/bin/mistralrs".into(),
-                ))
-                .accepted
-        );
         assert!(
             model
                 .apply(AppCommand::SetAiModelRoot(
@@ -708,10 +697,6 @@ mod tests {
                 .accepted
         );
 
-        assert_eq!(
-            model.ai.settings.runtime_bin,
-            "/Users/marc/.cargo/bin/mistralrs"
-        );
         assert_eq!(
             model.ai.settings.model_root,
             "/Users/marc/.cache/huggingface/hub"

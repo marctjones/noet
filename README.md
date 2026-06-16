@@ -278,8 +278,10 @@ On Apple Silicon macOS, build a local app bundle and disk image:
 ./scripts/package-macos.sh
 ```
 
-The packaging script supports ad-hoc signing. Developer ID signing is optional
-and not required for local development.
+The packaging script builds the GUI with embedded `mistral.rs`, auto-detects
+optional Metal acceleration when `xcrun -f metal` works, and otherwise falls
+back to the embedded CPU runtime. Developer ID signing is optional and not
+required for local development.
 
 See [Local Run And Release](docs/local-run-and-release.md) for vault selection,
 visual checkpoint, and packaging details.

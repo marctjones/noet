@@ -5,13 +5,10 @@ use crate::ai_runtime::{
     local_model_specs, local_runtime_settings, require_free_memory, use_preview_ai_runtime,
     PreviewAiRuntime, PreviewEmbeddingRuntime,
 };
-#[cfg(feature = "mistralrs-inline")]
-use noet_ai::AiProgressUpdate;
-#[cfg(not(feature = "mistralrs-inline"))]
-use noet_ai::MistralRsCliRuntime;
-#[cfg(feature = "mistralrs-inline")]
-use noet_ai::MistralRsInlineChatRuntime;
-use noet_ai::{AiCancelToken, AiResult, HousekeepingJob, LocalRuntimeSettings};
+use noet_ai::{
+    AiCancelToken, AiProgressUpdate, AiResult, HousekeepingJob, LocalRuntimeSettings,
+    MistralRsInlineChatRuntime,
+};
 use noet_app::{
     ai_surface, ai_workflow, AiJobRow, AiProposalRow, AppCommand, AppModel, SemanticIndex,
     SemanticRefreshPolicy, SemanticStaleSearchBehavior, Surface,
@@ -634,7 +631,6 @@ enum AiWorkerMessage {
     SemanticSearch {
         result: Result<Vec<noet_app::SemanticMatch>, String>,
     },
-    #[cfg(feature = "mistralrs-inline")]
     ProgressDetail(String),
 }
 
@@ -1038,7 +1034,6 @@ fn enqueue_ai_note_review(ui: &AppWindow, state: &mut State) {
     ui.set_status_text(format!("Queued note review proposal {id}").into());
 }
 
-#[cfg(feature = "mistralrs-inline")]
 fn run_local_agenda(
     runtime_settings: LocalRuntimeSettings,
     context: noet_core::OneOnOneContext,
@@ -1058,19 +1053,6 @@ fn run_local_agenda(
     )
 }
 
-#[cfg(not(feature = "mistralrs-inline"))]
-fn run_local_agenda(
-    runtime_settings: LocalRuntimeSettings,
-    context: noet_core::OneOnOneContext,
-    options: ai_workflow::AgendaDraftOptions,
-    cancel: AiCancelToken,
-    _progress_tx: mpsc::Sender<AiWorkerMessage>,
-) -> AiResult<noet_ai::AiProposal> {
-    let runtime = MistralRsCliRuntime::new(runtime_settings);
-    ai_workflow::draft_one_on_one_agenda_cancellable(&runtime, &context, &options, &cancel, |_| {})
-}
-
-#[cfg(feature = "mistralrs-inline")]
 fn run_local_note_review(
     runtime_settings: LocalRuntimeSettings,
     context: noet_core::NoteContext,
@@ -1090,19 +1072,6 @@ fn run_local_note_review(
     )
 }
 
-#[cfg(not(feature = "mistralrs-inline"))]
-fn run_local_note_review(
-    runtime_settings: LocalRuntimeSettings,
-    context: noet_core::NoteContext,
-    options: ai_workflow::NoteReviewOptions,
-    cancel: AiCancelToken,
-    _progress_tx: mpsc::Sender<AiWorkerMessage>,
-) -> AiResult<noet_ai::AiProposal> {
-    let runtime = MistralRsCliRuntime::new(runtime_settings);
-    ai_workflow::review_current_note_cancellable(&runtime, &context, &options, &cancel, |_| {})
-}
-
-#[cfg(feature = "mistralrs-inline")]
 fn send_ai_progress_update(tx: &mpsc::Sender<AiWorkerMessage>, update: AiProgressUpdate) {
     if update.output_chunks == 1 || update.output_chunks % 8 == 0 {
         let _ = tx.send(AiWorkerMessage::ProgressDetail(format!(
@@ -1377,7 +1346,6 @@ fn open_semantic_result(ui: &AppWindow, state: &mut State, note_id: &str) {
     ui.set_status_text("Opened semantic result".into());
 }
 
-#[cfg(feature = "mistralrs-inline")]
 fn refresh_ai_embeddings_with_inline_runtime(
     state: &mut State,
     profile_id: String,
@@ -1386,7 +1354,6 @@ fn refresh_ai_embeddings_with_inline_runtime(
     refresh_semantic_index_with_inline_runtime(&mut state.semantic_index, profile_id, contexts)
 }
 
-#[cfg(feature = "mistralrs-inline")]
 fn refresh_semantic_index_with_inline_runtime(
     index: &mut SemanticIndex,
     profile_id: String,
@@ -1402,29 +1369,6 @@ fn refresh_semantic_index_with_inline_runtime(
     noet_app::refresh_semantic_index(index, &runtime, profile_id, contexts)
 }
 
-#[cfg(not(feature = "mistralrs-inline"))]
-fn refresh_ai_embeddings_with_inline_runtime(
-    _state: &mut State,
-    profile_id: String,
-    _contexts: &[noet_core::NoteContext],
-) -> Result<usize, String> {
-    Err(format!(
-        "Inline embeddings require rebuilding Noet with the mistralrs-inline feature; selected profile is {profile_id}"
-    ))
-}
-
-#[cfg(not(feature = "mistralrs-inline"))]
-fn refresh_semantic_index_with_inline_runtime(
-    _index: &mut SemanticIndex,
-    profile_id: String,
-    _contexts: &[noet_core::NoteContext],
-) -> Result<usize, String> {
-    Err(format!(
-        "Inline embeddings require rebuilding Noet with the mistralrs-inline feature; selected profile is {profile_id}"
-    ))
-}
-
-#[cfg(feature = "mistralrs-inline")]
 fn search_semantic_index_with_inline_runtime(
     index: &SemanticIndex,
     profile_id: String,
@@ -1439,18 +1383,6 @@ fn search_semantic_index_with_inline_runtime(
     let runtime = noet_ai::MistralRsInlineEmbeddingRuntime::load(profile_id.clone())
         .map_err(|err| format!("{err:?}"))?;
     index.search(&runtime, profile_id, query, limit)
-}
-
-#[cfg(not(feature = "mistralrs-inline"))]
-fn search_semantic_index_with_inline_runtime(
-    _index: &SemanticIndex,
-    profile_id: String,
-    _query: &str,
-    _limit: usize,
-) -> Result<Vec<noet_app::SemanticMatch>, String> {
-    Err(format!(
-        "Inline embeddings require rebuilding Noet with the mistralrs-inline feature; selected profile is {profile_id}"
-    ))
 }
 
 fn selected_person_for_ai(ui: &AppWindow, state: &State) -> String {
@@ -1547,7 +1479,6 @@ fn apply_ai_worker_message(ui: &AppWindow, state: &mut State, message: AiWorkerM
                 ui.set_status_text(format!("AI semantic search failed: {message}").into());
             }
         },
-        #[cfg(feature = "mistralrs-inline")]
         AiWorkerMessage::ProgressDetail(detail) => {
             let _ = state.app.apply(AppCommand::UpdateAiProgressDetail(detail));
         }
@@ -2248,9 +2179,6 @@ fn restore_ai_settings(app: &mut AppModel, cfg: &backend::Settings) {
     if cfg.ai_timeout_seconds != 0 {
         let _ = app.apply(AppCommand::SetAiTimeoutSeconds(cfg.ai_timeout_seconds));
     }
-    if !cfg.ai_runtime_bin.is_empty() {
-        let _ = app.apply(AppCommand::SetAiRuntimeBin(cfg.ai_runtime_bin.clone()));
-    }
     if !cfg.ai_model_root.is_empty() {
         let _ = app.apply(AppCommand::SetAiModelRoot(cfg.ai_model_root.clone()));
     }
@@ -2265,7 +2193,6 @@ fn persist_ai_settings(s: &State) {
     cfg.ai_embedding_profile = s.app.ai.settings.selected_embedding_profile_id.clone();
     cfg.ai_min_free_memory_percent = s.app.ai.settings.min_free_memory_percent;
     cfg.ai_timeout_seconds = s.app.ai.settings.timeout_seconds;
-    cfg.ai_runtime_bin = s.app.ai.settings.runtime_bin.clone();
     cfg.ai_model_root = s.app.ai.settings.model_root.clone();
     let _ = cfg.save();
 }
@@ -2361,7 +2288,6 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         );
         ui.set_ai_min_free_memory(s.app.ai.settings.min_free_memory_percent.to_string().into());
         ui.set_ai_timeout_seconds(s.app.ai.settings.timeout_seconds.to_string().into());
-        ui.set_ai_runtime_bin(s.app.ai.settings.runtime_bin.clone().into());
         ui.set_ai_model_root(s.app.ai.settings.model_root.clone().into());
     }
 
@@ -2442,20 +2368,6 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             persist_ai_settings(&s);
             ui.set_ai_timeout_seconds(clamped.to_string().into());
             ui.set_status_text(format!("AI runtime timeout set to {clamped}s").into());
-            refresh(&ui, &s);
-        });
-    }
-    {
-        let ui_w = ui.as_weak();
-        let state = state.clone();
-        ui.on_set_ai_runtime_bin(move |path: SharedString| {
-            let ui = ui_w.unwrap();
-            let mut s = state.borrow_mut();
-            let path = path.to_string();
-            let _ = s.app.apply(AppCommand::SetAiRuntimeBin(path.clone()));
-            persist_ai_settings(&s);
-            ui.set_ai_runtime_bin(path.clone().into());
-            ui.set_status_text(format!("AI runtime set to {path}").into());
             refresh(&ui, &s);
         });
     }
@@ -3637,29 +3549,54 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             };
             // Remember the list we came from so the note view can offer a "← Back".
             let origin = ui.get_view().to_string();
-            if origin != "notes" {
+            let workspace_primary = ui.get_workspace_primary().to_string();
+            let current_note_id = ui.get_current_id().to_string();
+            let in_notes_workspace =
+                origin == "notes" || (origin == "workspace" && workspace_primary == "notes");
+            if origin != "notes" && !in_notes_workspace {
                 ui.set_note_return_view(origin.clone().into());
             }
             {
                 let s = state.borrow();
+                let open_mode = if in_notes_workspace && current_note_id == note_id {
+                    "current-editor"
+                } else if in_notes_workspace && !current_note_id.is_empty() {
+                    "reference"
+                } else {
+                    "main-editor"
+                };
                 ui_trace::ui_event(
                     "callback.open_note",
                     &ui,
                     &s,
                     serde_json::json!({
                         "todo_or_note_id": todo_id.to_string(),
-                        "note_id": note_id,
+                        "note_id": note_id.clone(),
                         "line": line,
                         "origin": origin,
+                        "workspace_primary": workspace_primary,
+                        "mode": open_mode,
                     }),
                 );
-                open_in_editor(&ui, &s.backend, &note_id); // loads in edit mode + records recent
-                refresh_tabs(&ui, &s);
-            }
-            ui.set_view("notes".into());
-            ui.set_content_pane_open(true); // reveal the editor pane if it was collapsed
-            if let Some(line) = line {
-                rich_goto_line(&ui, line);
+                if open_mode == "current-editor" {
+                    ui.set_content_pane_open(true);
+                    if let Some(line) = line {
+                        rich_goto_line(&ui, line);
+                    }
+                    ui.set_status_text("Todo source highlighted".into());
+                } else if open_mode == "reference" {
+                    ui.set_split_note_id(note_id.clone().into());
+                    render_split(&ui, &s.backend);
+                    ui.set_status_text("Todo source opened in reference".into());
+                } else {
+                    open_in_editor(&ui, &s.backend, &note_id); // loads in edit mode + records recent
+                    refresh_tabs(&ui, &s);
+                    ui.set_view("notes".into());
+                    ui.set_content_pane_open(true); // reveal the editor pane if it was collapsed
+                    if let Some(line) = line {
+                        rich_goto_line(&ui, line);
+                    }
+                }
             }
         });
     }

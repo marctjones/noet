@@ -206,9 +206,9 @@ note/search excerpts are necessary to diagnose the issue.
 
 - Settings show vault, index, and settings paths, and saving a vault path gives a
   clear restart-required status.
-- AI profile, embedding profile, minimum free memory, timeout, runtime binary,
-  and model root changes persist through restart.
-- Settings state that local AI uses the configured local runtime, does not
+- AI profile, embedding profile, minimum free memory, timeout, and model root
+  changes persist through restart.
+- Settings state that local AI uses embedded `mistral.rs`, does not
   redact or sanitize user-owned vault content, checks free memory before model
   loading, runs jobs off the UI thread, and stores embeddings outside the
   Markdown vault.

@@ -69,11 +69,11 @@ cargo test --workspace
 git diff --check
 ```
 
-Before any release checkpoint that includes local AI, also verify that the
-inline `mistral.rs` build compiles:
+Normal GUI builds include the inline `mistral.rs` runtime. The compile gate
+should verify the normal embedded-library path:
 
 ```bash
-cargo check -p noet-gui --features mistralrs-inline
+cargo check -p noet-gui
 ```
 
 The deterministic release gate is wrapped by:
@@ -82,18 +82,28 @@ The deterministic release gate is wrapped by:
 scripts/release-smoke.sh
 ```
 
-By default the script runs formatting, workspace tests, the inline `mistral.rs`
-compile check, and whitespace checks. It does not load local AI models or build
-installers unless explicitly requested.
+By default the script runs formatting, workspace tests, the normal embedded
+`mistral.rs` GUI compile check, an auto-detected Metal compile check when the
+Xcode Metal compiler is present, and whitespace checks. It does not load local
+AI models or build installers unless explicitly requested.
+
+The Apple Silicon Metal/Accelerate check requires the full Xcode Metal compiler
+(`xcrun -f metal`), not only the default command-line tools. If the compiler is
+missing, the release smoke script safely continues with the embedded CPU
+runtime. To require Metal and fail when it is missing:
+
+```bash
+NOET_CHECK_METAL=1 scripts/release-smoke.sh
+```
 
 Model-backed smokes are ignored by default because they load local models. Run
 them only on a prepared machine after checking memory pressure:
 
 ```bash
 memory_pressure
-cargo test -p noet-gui --features mistralrs-inline headless_ui_local_model_ai_smoke -- --ignored --nocapture
-cargo test -p noet-gui --features mistralrs-inline headless_ui_local_model_cancel_smoke -- --ignored --nocapture
-cargo test -p noet-gui --features mistralrs-inline headless_ui_local_embedding_refresh_smoke -- --ignored --nocapture
+cargo test -p noet-gui headless_ui_local_model_ai_smoke -- --ignored --nocapture
+cargo test -p noet-gui headless_ui_local_model_cancel_smoke -- --ignored --nocapture
+cargo test -p noet-gui headless_ui_local_embedding_refresh_smoke -- --ignored --nocapture
 ```
 
 The same model-backed checks can be run through the release smoke script:
@@ -115,7 +125,9 @@ preflight before loading local models.
 Release evidence should record:
 
 - the `memory_pressure` free percentage before model loading
-- `cargo check -p noet-gui --features mistralrs-inline`
+- `cargo check -p noet-gui`
+- the Metal compile check result, either skipped because `xcrun -f metal` was
+  absent or run with `cargo check -p noet-gui --features mistralrs-inline-metal`
 - both ignored local model smoke commands, if the model cache is available
 - confirmation that semantic index files remain in the disposable cache/index
   directory and not in the Markdown vault
@@ -126,6 +138,20 @@ The macOS packaging script builds an Apple Silicon local artifact:
 
 ```bash
 ./scripts/package-macos.sh
+```
+
+It embeds the `mistral.rs` runtime by default and auto-detects Metal
+acceleration when `xcrun -f metal` succeeds. To require Metal and fail when it
+is missing:
+
+```bash
+NOET_MACOS_ENABLE_METAL=1 ./scripts/package-macos.sh
+```
+
+To force the embedded CPU runtime even when Metal is installed:
+
+```bash
+NOET_MACOS_ENABLE_METAL=0 ./scripts/package-macos.sh
 ```
 
 The packaging step can be attached to the release smoke script when a local app

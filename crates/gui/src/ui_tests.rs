@@ -256,7 +256,6 @@ fn headless_ui_smoke() {
     ui.invoke_set_ai_embedding_profile("granite-embedding-30m-english".into());
     ui.invoke_set_ai_min_free_memory("95".into());
     ui.invoke_set_ai_timeout_seconds("5".into());
-    ui.invoke_set_ai_runtime_bin("/Users/marc/.cargo/bin/mistralrs".into());
     assert!(
         ui.get_ai_local_policy()
             .contains("does not redact or sanitize"),
@@ -314,10 +313,6 @@ fn headless_ui_smoke() {
         ctx.state.borrow().app.ai.settings.timeout_seconds,
         30,
         "AI timeout is clamped to the supported range"
-    );
-    assert_eq!(
-        ctx.state.borrow().app.ai.settings.runtime_bin,
-        "/Users/marc/.cargo/bin/mistralrs"
     );
     assert_eq!(
         ctx.state.borrow().app.ai.settings.model_root,
@@ -401,7 +396,6 @@ fn headless_ui_smoke() {
     assert_eq!(saved.ai_embedding_profile, "granite-embedding-30m-english");
     assert_eq!(saved.ai_min_free_memory_percent, 90);
     assert_eq!(saved.ai_timeout_seconds, 30);
-    assert_eq!(saved.ai_runtime_bin, "/Users/marc/.cargo/bin/mistralrs");
     assert_eq!(saved.ai_model_root, "/Users/marc/.cache/huggingface/hub");
     let trace = std::fs::read_to_string(&trace_path).expect("UI trace should be written");
     assert!(
@@ -756,6 +750,24 @@ fn headless_ui_smoke() {
     assert!(
         group_labels.iter().any(|label| label == "Todos in this note"),
         "current-note todos should be visible beside the editor without opening full context; groupboxes={group_labels:?}; todo_labels={todo_labels:?}"
+    );
+    ElementHandle::find_by_accessible_label(ui, "Open current-note todo Call client")
+        .find(|e| e.accessible_role() == Some(AccessibleRole::Button))
+        .expect("current-note todo row is selectable")
+        .invoke_accessible_default_action();
+    itest::mock_elapsed_time(std::time::Duration::from_millis(16));
+    let detail_labels: Vec<String> = ElementQuery::from_root(ui)
+        .match_descendants()
+        .match_accessible_role(AccessibleRole::Groupbox)
+        .find_all()
+        .into_iter()
+        .filter_map(|e| e.accessible_label().map(|label| label.to_string()))
+        .collect();
+    assert!(
+        detail_labels
+            .iter()
+            .any(|label| label == "Selected todo detail Call client"),
+        "selecting a current-note todo should show a readable detail/peek; labels={detail_labels:?}"
     );
     ElementHandle::find_by_accessible_label(ui, "Cycle current-note todo Call client")
         .find(|e| e.accessible_role() == Some(AccessibleRole::Checkbox))
@@ -1130,7 +1142,11 @@ fn headless_ui_smoke() {
             .unwrap();
         let b = st.backend.new_note().unwrap();
         st.backend
-            .save_note(&b.id, "Split B", "# Split B\n\nbody b\n")
+            .save_note(
+                &b.id,
+                "Split B",
+                "# Split B\n\nbody b\n\n- [ ] old source todo\n",
+            )
             .unwrap();
         note_a = a.id.clone();
         note_b = b.id.clone();
@@ -1150,6 +1166,22 @@ fn headless_ui_smoke() {
         current_todo.text.contains("capture follow-up"),
         "current note todo rows should preserve task text"
     );
+    ui.invoke_open_note(current_todo.id.clone());
+    assert_eq!(
+        ui.get_current_id(),
+        note_a,
+        "opening a current-note todo should keep the edited note active"
+    );
+    assert_eq!(
+        ui.get_split_note_id(),
+        "",
+        "opening a current-note todo should not create a reference pane"
+    );
+    assert_eq!(
+        ui.get_status_text(),
+        "Todo source highlighted",
+        "current-note source open reports the in-editor jump"
+    );
     ui.invoke_open_in_split(note_b.clone().into()); // reference pane shows B
     assert_eq!(
         ui.get_current_id(),
@@ -1164,8 +1196,27 @@ fn headless_ui_smoke() {
         SharedString::from(note_a.as_str()),
         "reference reading should keep current-note todos beside the editor"
     );
+    ui.invoke_open_note(format!("{note_b}:4").into());
+    assert_eq!(
+        ui.get_current_id(),
+        note_a,
+        "opening a cross-note todo from the Notes workspace should preserve the active editor"
+    );
+    assert_eq!(
+        ui.get_split_note_id(),
+        note_b,
+        "cross-note todo source opens in the reference pane"
+    );
+    assert_eq!(
+        ui.get_status_text(),
+        "Todo source opened in reference",
+        "source open reports the non-destructive reference behavior"
+    );
     assert_eq!(ui.get_split_note_id(), note_b);
     assert_eq!(ui.get_split_title(), "Split B");
+    ElementHandle::find_by_accessible_label(ui, "Reference note Split B")
+        .find(|e| e.accessible_role() == Some(AccessibleRole::Groupbox))
+        .expect("reference pane should be visible beside the active editor");
     assert!(
         ui.get_split_doc_height() > 0.0,
         "reference pane rendered a non-empty doc"
@@ -1867,7 +1918,6 @@ fn headless_ui_local_model_ai_smoke() {
 
     ui.invoke_set_ai_profile("mistral-7b-instruct-v0-3-gguf-q4-k-m".into());
     ui.invoke_set_ai_min_free_memory("25".into());
-    ui.invoke_set_ai_runtime_bin("/Users/marc/.cargo/bin/mistralrs".into());
     ui.invoke_set_ai_model_root("/Users/marc/.cache/huggingface/hub".into());
 
     let launch_note_id = ctx
@@ -1934,7 +1984,6 @@ fn headless_ui_local_model_ai_smoke() {
     );
 }
 
-#[cfg(feature = "mistralrs-inline")]
 #[test]
 #[ignore = "loads a local GGUF model and cancels streaming generation through mistralrs"]
 fn headless_ui_local_model_cancel_smoke() {
@@ -1975,7 +2024,6 @@ fn headless_ui_local_model_cancel_smoke() {
 
     ui.invoke_set_ai_profile("mistral-7b-instruct-v0-3-gguf-q4-k-m".into());
     ui.invoke_set_ai_min_free_memory("25".into());
-    ui.invoke_set_ai_runtime_bin("/Users/marc/.cargo/bin/mistralrs".into());
     ui.invoke_set_ai_model_root("/Users/marc/.cache/huggingface/hub".into());
 
     let note_id = ctx
@@ -2012,7 +2060,6 @@ fn headless_ui_local_model_cancel_smoke() {
     assert_eq!(ui.get_ai_status(), "Ready");
 }
 
-#[cfg(feature = "mistralrs-inline")]
 #[test]
 #[ignore = "loads a local embedding model through the inline mistral.rs Rust SDK"]
 fn headless_ui_local_embedding_refresh_smoke() {
@@ -2306,7 +2353,6 @@ fn wait_for_ai_progress_inactive(ui: &AppWindow, timeout: std::time::Duration) {
     );
 }
 
-#[cfg(feature = "mistralrs-inline")]
 fn wait_for_ai_progress_detail_contains(
     ui: &AppWindow,
     needle: &str,
@@ -2329,7 +2375,6 @@ fn wait_for_ai_progress_detail_contains(
     );
 }
 
-#[cfg(feature = "mistralrs-inline")]
 fn wait_for_embedding_index(ctx: &AppCtx, expected: usize, timeout: std::time::Duration) {
     let started = std::time::Instant::now();
     while started.elapsed() < timeout {
@@ -2350,7 +2395,6 @@ fn wait_for_embedding_index(ctx: &AppCtx, expected: usize, timeout: std::time::D
     );
 }
 
-#[cfg(feature = "mistralrs-inline")]
 fn wait_for_semantic_results(ui: &AppWindow, timeout: std::time::Duration) {
     let started = std::time::Instant::now();
     while started.elapsed() < timeout {
