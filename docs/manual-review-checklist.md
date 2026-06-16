@@ -116,10 +116,15 @@ note/search excerpts are necessary to diagnose the issue.
   reopen the supporting panes.
 - Previous and Next navigate through 1:1 history.
 - Prior unresolved follow-ups appear in the queue.
+- Meeting todos are grouped as This meeting, Carryover, Waiting or delegated,
+  and Related open loops.
+- Related open loops are collapsed by default.
 - Resolve marks a prior follow-up done.
 - Carry into current 1:1 inserts the follow-up into the current note.
 - Defer moves a prior follow-up to `#someday` and removes it from the active
   carryover queue.
+- Opening an old carryover todo opens its source in reference/detail without
+  replacing the current meeting note.
 - Delegated and other person-related tasks remain visible until resolved.
 
 ## Notes Workflow
@@ -138,8 +143,19 @@ note/search excerpts are necessary to diagnose the issue.
 - Note title and body edits persist after navigating away and back.
 - Inline todos typed in the note appear in "Todos in this note" beside the
   editor after save/reindex.
+- Todo rows wrap task text to two lines before truncating and keep metadata
+  secondary to the todo text.
+- Current-note todos do not repeat the current note title.
+- When many todos exist, the rail shows the most relevant items first and uses a
+  Show more affordance instead of forcing immediate scrolling.
+- Selecting a todo exposes a full-text peek/detail with source heading or nearby
+  context, metadata, and actions.
 - Current-note todo actions can cycle, edit, open source, and promote without
   leaving the note workflow unexpectedly.
+- Opening a current-note todo scrolls and highlights its line in the active
+  editor.
+- Opening a todo from another note opens that source in the reference pane
+  without replacing the active edited note.
 - Opening an old note in split/reference view keeps the edited note active.
 - Swapping the split/reference note into the editor is explicit and keeps the
   previous note available as reference.

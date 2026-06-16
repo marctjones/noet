@@ -215,6 +215,21 @@ Behavior:
 This is the key test of the architecture. If People or Filters must stay open
 for 1:1 to work, the design is wrong.
 
+Meeting todo sidecar:
+
+- The meeting note remains the main editor.
+- Current-meeting todos appear first because they are part of the active note.
+- Prior unresolved todos for the selected person appear as carryover, grouped
+  separately from the current note.
+- Delegated or waiting items for the selected person appear after carryover.
+- Related open loops from shared workstreams or linked notes are collapsed by
+  default.
+- Old todos open their source note in a reference pane with the source line
+  highlighted. They do not replace the current meeting note unless the user
+  explicitly promotes or opens the source as the main note.
+- Carry in, Done, Defer, and Open source actions should be available without
+  changing the active editor.
+
 ## Notes Workspace
 
 Default layout:
@@ -240,6 +255,30 @@ Behavior:
 - backlinks and related notes follow the selected note
 - task actions preserve source context
 - full context never duplicates the current-note todo list
+
+Todo sidecar display:
+
+- The sidecar solves readability by showing fewer, better-ranked todos, not by
+  shrinking text.
+- Current-note todo rows show the checkbox/status, todo text, and only the most
+  important metadata: due, priority, and person when relevant.
+- Current-note todo rows do not show the current note title. It is redundant
+  when the note is already visible.
+- Old, carryover, search, review, or cross-note todos should show a quiet source
+  label such as the note title or meeting date, but the todo text remains the
+  dominant text.
+- Default rows wrap todo text to two lines before truncating. One-line ellipsis
+  is too lossy for task text.
+- Expanded rows or peeks may wrap to three lines or full text and show source
+  heading, nearby context, all metadata, and actions.
+- The full source remains one action away. Current-note todos scroll and
+  highlight the line in the active editor. Todos from other notes open in the
+  reference pane and highlight the source line without stealing the editor.
+- If a note has more than roughly five open todos, the sidecar should show the
+  most relevant set first and provide a deliberate Show more affordance instead
+  of forcing a long scroll.
+- Relevance order is active status, overdue/due date, priority, then document
+  order.
 
 Writing mode:
 

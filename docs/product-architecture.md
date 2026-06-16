@@ -111,6 +111,24 @@ Pane admission rules:
   must not steal the active edited note unless the user explicitly swaps or
   navigates.
 
+Todo display contract:
+
+- Current-note todos are a note companion, not a general task list.
+- The default representation is a readable sidecar row: status control, todo
+  text wrapped to two lines, and only high-value metadata.
+- The current note title is omitted for current-note todos because the source is
+  already visible. Cross-note, carryover, review, and search todos include a
+  quiet source label.
+- Long lists are capped and ranked before they scroll. The first screen should
+  show the most relevant todos and a Show more affordance.
+- Selecting a todo opens a peek/detail state with full text, source heading or
+  nearby context, metadata, and actions.
+- Opening a todo from the current note scrolls and highlights the active editor
+  line. Opening a todo from another note opens the reference pane and highlights
+  that source line, preserving the active editor.
+- In 1:1 meetings, todos are grouped as This meeting, Carryover, Waiting or
+  delegated, then Related open loops. Related open loops start collapsed.
+
 ## Data Model
 
 The data model has three layers:

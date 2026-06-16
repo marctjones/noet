@@ -336,6 +336,11 @@ Release bar for the note-first redesign:
 - [x] Add a deliberate write-first launch policy: default active workspace is
   Notes. Session restoration can later reopen a different workspace only when it
   reflects explicit prior user state.
+- [ ] Redesign todo rows into the sidecar/peek/source model: two-line readable
+  default rows, capped visible count, Show more overflow, full-text peek, and
+  source-line highlighting without stealing the active editor.
+- [ ] Redesign meeting todos into explicit This meeting, Carryover, Waiting or
+  delegated, and collapsed Related open loops sections.
 - [ ] Manual screenshot review should now verify the updated Notes default:
   collapsed workspace rail, note-edge todo rail, closed auxiliary panes, visible
   Writing Mode control, no cockpit-style information dump at launch, and trace
@@ -365,7 +370,8 @@ Current 1:1 Focus progress:
 - [x] GUI smoke tests cover prior follow-up resolve, carry-forward, and defer to
   `#someday`.
 - [ ] Manual review still needs to verify scrolling, resizing, history browsing,
-  follow-up resolution, and carry-forward in the running GUI.
+  grouped meeting todos, old-todo source opening in reference, follow-up
+  resolution, and carry-forward in the running GUI.
 
 Current Notes progress:
 
@@ -378,8 +384,8 @@ Current Notes progress:
 - [x] Read-only split/reference pane can show an old note while the edited note
   and its todo context remain active.
 - [ ] Manual review still needs to verify read mode, edit mode, source mode,
-  context rows, split/reference reading, current-note todo ergonomics, and note
-  switching on a non-empty vault.
+  context rows, split/reference reading, readable todo sidecar rows, todo peek
+  behavior, source-line highlighting, and note switching on a non-empty vault.
 
 Current Tasks/Review/Board progress:
 
