@@ -801,9 +801,11 @@ fn palette_activate(ui: &AppWindow, id: &str) {
         ui.invoke_set_view("notes".into());
         ui.invoke_select_note(nid.into());
     } else if let Some(name) = id.strip_prefix("p:") {
-        // Open the workstream hub (its todos + notes in one place).
-        ui.set_hub_name(name.into());
-        ui.invoke_set_view("workstream".into());
+        // Open the workstream inside the workspace shell, with notes as primary
+        // work and the workstream context populated from the active filter.
+        ui.invoke_clear_filter("project".into());
+        ui.invoke_toggle_project(name.into());
+        ui.invoke_workspace_switch("notes".into());
     } else if let Some(name) = id.strip_prefix("t:") {
         ui.invoke_toggle_tag(name.into());
         ui.invoke_set_view("notes".into());
@@ -1695,22 +1697,35 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
         }
     }
 
-    // Workstream hub: one workstream's open todos + filed notes.
-    if view == "workstream" {
-        let hub = ui.get_hub_name().to_string();
-        let f = backend::Filter {
-            project: hub.clone(),
+    // Workstream context: one workstream's open todos + filed notes. The old
+    // standalone workstream route still works, but workspace label navigation is
+    // now the primary path.
+    let active_hub = if !f.project.trim().is_empty() {
+        f.project.clone()
+    } else if view == "workstream" {
+        ui.get_hub_name().to_string()
+    } else {
+        String::new()
+    };
+    if active_hub.trim().is_empty() {
+        ui.set_hub_name("".into());
+        ui.set_hub_todos(ModelRc::new(VecModel::from(Vec::<TodoItem>::new())));
+        ui.set_hub_notes(ModelRc::new(VecModel::from(Vec::<NoteRef>::new())));
+    } else {
+        let task_filter = backend::Filter {
+            project: active_hub.clone(),
             status: "open".into(),
             ..Default::default()
         };
-        let todos = b.query_todos(&f).unwrap_or_default();
+        let todos = b.query_todos(&task_filter).unwrap_or_default();
         let notes = b
             .query_notes(&backend::Filter {
-                project: hub,
+                project: active_hub.clone(),
                 ..Default::default()
             })
             .unwrap_or_default();
         let hub_surface = surface_adapters::workstream_surface(&todos, &notes);
+        ui.set_hub_name(active_hub.into());
         ui.set_hub_todos(ModelRc::new(VecModel::from(hub_surface.todos)));
         ui.set_hub_notes(ModelRc::new(VecModel::from(hub_surface.notes)));
     }
@@ -3352,7 +3367,12 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             } else {
                 name.to_string()
             };
-            ui.set_view("notes".into()); // show the notes for this workstream
+            if ui.get_view() == "workspace" {
+                let _ = s.app.apply(AppCommand::SwitchWorkspace("notes".into()));
+                ui.set_view("workspace".into());
+            } else {
+                ui.set_view("notes".into());
+            }
             refresh(&ui, &s);
         });
     }

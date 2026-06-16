@@ -1653,6 +1653,29 @@ export component AppWindow inherits Window {
                                             hover-bg: #eef7f0;
                                             clicked => { root.toggle-project(p.name); }
                                         }
+                                        if root.hub-name != "": Text { text: "SELECTED WORKSTREAM"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
+                                        if root.hub-name != "": Text { text: root.hub-name; font-size: (13px * Z.f); font-weight: 700; color: Theme.text; overflow: elide; }
+                                        if root.hub-name != "": Text { text: "OPEN TASKS"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
+                                        if root.hub-name != "" && root.hub-todos.length == 0: EmptyState { glyph: "[]"; title: "No open tasks"; hint: ""; }
+                                        if root.hub-name != "": VerticalLayout {
+                                            spacing: 4px;
+                                            for t in root.hub-todos: AgendaRow {
+                                                t: t;
+                                                cycle(id) => { root.toggle-todo(id); }
+                                                edit(id) => { root.edit-todo(id); }
+                                                open(id) => { root.open-note(id); }
+                                                promote(id) => { root.promote-task(id); }
+                                            }
+                                        }
+                                        if root.hub-name != "": Text { text: "NOTES"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
+                                        if root.hub-name != "" && root.hub-notes.length == 0: EmptyState { glyph: "[]"; title: "No notes"; hint: ""; }
+                                        if root.hub-name != "": VerticalLayout {
+                                            spacing: 4px;
+                                            for n in root.hub-notes: NoteRow {
+                                                note: { id: n.id, title: n.title, subtitle: root.hub-name };
+                                                open(id) => { root.workspace-switch("notes"); root.select-note(id); }
+                                            }
+                                        }
                                         Text { text: "LABELS"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
                                         for t in root.tags: FacetRow {
                                             name: "#" + t.label;

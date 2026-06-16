@@ -968,7 +968,7 @@ fn headless_ui_smoke() {
         "Waiting view lists delegated items via refresh"
     );
 
-    // ----- Level 9: workstream hub (palette → its todos + notes) -----
+    // ----- Level 9: workstream context (palette → workspace notes + context) -----
     {
         let mut st = ctx.state.borrow_mut();
         let n = st.backend.new_note().unwrap();
@@ -982,15 +982,30 @@ fn headless_ui_smoke() {
     }
     ctx.state.borrow_mut().backend.reindex_all().unwrap();
     ui.invoke_palette_activate("p:workstream/acme".into());
-    assert_eq!(ui.get_view(), "workstream", "palette workstream → hub view");
+    assert_eq!(
+        ui.get_view(),
+        "workspace",
+        "palette workstream should open inside the workspace shell"
+    );
+    assert_eq!(
+        ui.get_workspace_primary(),
+        "notes",
+        "palette workstream should show notes as the primary surface"
+    );
     assert_eq!(ui.get_hub_name(), "workstream/acme");
     assert!(
         ui.get_hub_todos().row_count() >= 1,
-        "hub lists the workstream's open todos"
+        "workstream context lists the workstream's open todos"
     );
     assert!(
         ui.get_hub_notes().row_count() >= 1,
-        "hub lists notes filed to the workstream"
+        "workstream context lists notes filed to the workstream"
+    );
+    ui.invoke_clear_filter("project".into());
+    assert_eq!(
+        ui.get_hub_name(),
+        "",
+        "clearing the workstream filter clears the context"
     );
 
     // ----- Level 10: open-notes tab strip + pin/close -----
@@ -1121,6 +1136,23 @@ fn headless_ui_smoke() {
         found_label_nav,
         "navigation surface is rendered from the pane model"
     );
+    ui.invoke_toggle_project("workstream/acme".into());
+    assert_eq!(
+        ui.get_view(),
+        "workspace",
+        "workstream selection in the workspace drawer should keep the workspace shell open"
+    );
+    assert_eq!(
+        ui.get_workspace_primary(),
+        "notes",
+        "workstream selection should route primary work to notes"
+    );
+    assert_eq!(ui.get_hub_name(), "workstream/acme");
+    assert!(
+        ui.get_hub_todos().row_count() >= 1 && ui.get_hub_notes().row_count() >= 1,
+        "workspace drawer workstream selection should populate task and note context"
+    );
+    ui.invoke_clear_filter("project".into());
     ui.invoke_toggle_tag("followup".into());
     assert_eq!(
         ui.get_view(),
