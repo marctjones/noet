@@ -1738,6 +1738,84 @@ fn headless_ui_local_model_ai_smoke() {
 
 #[cfg(feature = "mistralrs-inline")]
 #[test]
+#[ignore = "loads a local GGUF model and cancels streaming generation through mistralrs"]
+fn headless_ui_local_model_cancel_smoke() {
+    let tmp = std::env::temp_dir().join(format!(
+        "noet-local-ai-cancel-uitest-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::env::set_var("XDG_CONFIG_HOME", tmp.join("config"));
+    std::env::set_var("XDG_CACHE_HOME", tmp.join("cache"));
+    std::env::set_var("NOET_CONFIG_DIR", tmp.join("config").join("noet"));
+    std::env::set_var("NOET_CACHE_DIR", tmp.join("cache").join("noet"));
+    std::env::set_var("NOET_AI_RUNTIME", "local");
+    let vault = tmp.join("vault");
+    let notes = vault.join("notes");
+    std::fs::create_dir_all(&notes).unwrap();
+    std::fs::write(
+        notes.join("cancel-review.md"),
+        "---\nupdated: 2026-06-08T11:00:00\nkind: markdown\n---\n\
+         # Cancel review\n\n#meeting\n@[[Jane Smith]]\n\
+         Decision: keep the local-only AI release scoped to reviewable proposals.\n\
+         Risk: deliberately long generation should remain cancellable.\n\
+         Question: who owns the release checklist?\n\
+         - [ ] Confirm release owner @[[Jane Smith]] #followup due:2026-06-18\n\
+         - [ ] Summarize model validation evidence @[[Jane Smith]] #followup\n",
+    )
+    .unwrap();
+
+    itest::init_no_event_loop();
+    let ctx = setup_app(vault.clone()).expect("setup_app should build the real app");
+    let ui = &ctx.ui;
+    itest::mock_elapsed_time(std::time::Duration::from_millis(16));
+    {
+        let mut state = ctx.state.borrow_mut();
+        state.backend.reindex_all().unwrap();
+    }
+    refresh(ui, &ctx.state.borrow());
+
+    ui.invoke_set_ai_profile("mistral-7b-instruct-v0-3-gguf-q4-k-m".into());
+    ui.invoke_set_ai_min_free_memory("25".into());
+    ui.invoke_set_ai_runtime_bin("/Users/marc/.cargo/bin/mistralrs".into());
+    ui.invoke_set_ai_model_root("/Users/marc/.cache/huggingface/hub".into());
+
+    let note_id = ctx
+        .state
+        .borrow()
+        .backend
+        .query_notes(&noet_core::backend::Filter::default())
+        .unwrap()
+        .into_iter()
+        .find(|note| note.title == "Cancel review")
+        .expect("cancel review fixture should be indexed")
+        .id;
+    ui.invoke_select_note(note_id.into());
+    ui.invoke_ai_review_note();
+    wait_for_ai_progress_detail_contains(
+        ui,
+        "Generating response",
+        std::time::Duration::from_secs(360),
+    );
+    ui.invoke_ai_cancel();
+    assert_eq!(ui.get_status_text(), "AI cancel requested");
+    assert_eq!(ui.get_ai_progress_detail(), "Cancel requested");
+    wait_for_ai_progress_inactive(ui, std::time::Duration::from_secs(180));
+    assert_eq!(
+        ui.get_ai_pending_count(),
+        0,
+        "cancelled local-model review should not enqueue a proposal"
+    );
+    assert!(
+        ui.get_status_text().contains("canceled"),
+        "cancelled local-model review should report cancellation, got {}",
+        ui.get_status_text()
+    );
+    assert_eq!(ui.get_ai_status(), "Ready");
+}
+
+#[cfg(feature = "mistralrs-inline")]
+#[test]
 #[ignore = "loads a local embedding model through the inline mistral.rs Rust SDK"]
 fn headless_ui_local_embedding_refresh_smoke() {
     let tmp = std::env::temp_dir().join(format!(
@@ -2023,6 +2101,29 @@ fn wait_for_ai_progress_inactive(ui: &AppWindow, timeout: std::time::Duration) {
     }
     panic!(
         "timed out waiting for AI progress to clear; status={}, app_status={}, progress={} {}",
+        ui.get_status_text(),
+        ui.get_ai_status(),
+        ui.get_ai_progress_label(),
+        ui.get_ai_progress_detail()
+    );
+}
+
+#[cfg(feature = "mistralrs-inline")]
+fn wait_for_ai_progress_detail_contains(
+    ui: &AppWindow,
+    needle: &str,
+    timeout: std::time::Duration,
+) {
+    let started = std::time::Instant::now();
+    while started.elapsed() < timeout {
+        itest::mock_elapsed_time(std::time::Duration::from_millis(250));
+        if ui.get_ai_progress_detail().contains(needle) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+    panic!(
+        "timed out waiting for AI progress detail containing {needle:?}; status={}, app_status={}, progress={} {}",
         ui.get_status_text(),
         ui.get_ai_status(),
         ui.get_ai_progress_label(),

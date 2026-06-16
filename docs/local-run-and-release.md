@@ -81,6 +81,7 @@ them only on a prepared machine after checking memory pressure:
 ```bash
 memory_pressure
 cargo test -p noet-gui --features mistralrs-inline headless_ui_local_model_ai_smoke -- --ignored --nocapture
+cargo test -p noet-gui --features mistralrs-inline headless_ui_local_model_cancel_smoke -- --ignored --nocapture
 cargo test -p noet-gui --features mistralrs-inline headless_ui_local_embedding_refresh_smoke -- --ignored --nocapture
 ```
 
