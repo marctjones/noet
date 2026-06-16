@@ -1477,15 +1477,26 @@ fn headless_ui_smoke() {
         before_ai_pending,
         "local AI review should not synchronously enqueue a proposal"
     );
-    wait_for_ai_status_contains(ui, "Failed", std::time::Duration::from_secs(10));
+    assert!(
+        ui.get_ai_progress_cancellable(),
+        "local AI review should expose a cancel action while progress is active"
+    );
+    ui.invoke_ai_cancel();
+    assert_eq!(ui.get_status_text(), "AI cancel requested");
+    assert_eq!(ui.get_ai_progress_detail(), "Cancel requested");
+    assert!(
+        !ui.get_ai_progress_cancellable(),
+        "cancel action should disable after a cancel request"
+    );
+    wait_for_ai_progress_inactive(ui, std::time::Duration::from_secs(10));
     assert_eq!(
         ui.get_ai_pending_count(),
         before_ai_pending,
-        "failed local AI review should not enqueue a proposal"
+        "cancelled or failed local AI review should not enqueue a proposal"
     );
     assert!(
         !ui.get_ai_progress_active(),
-        "failed local AI review should clear progress state"
+        "finished local AI review should clear progress state"
     );
     std::env::set_var("NOET_AI_RUNTIME", "preview");
 
@@ -1822,19 +1833,19 @@ fn wait_for_ai_pending(ui: &AppWindow, expected: i32, timeout: std::time::Durati
     );
 }
 
-fn wait_for_ai_status_contains(ui: &AppWindow, needle: &str, timeout: std::time::Duration) {
+fn wait_for_ai_progress_inactive(ui: &AppWindow, timeout: std::time::Duration) {
     let started = std::time::Instant::now();
     while started.elapsed() < timeout {
         itest::mock_elapsed_time(std::time::Duration::from_millis(100));
-        if ui.get_ai_status().contains(needle) {
+        if !ui.get_ai_progress_active() {
             return;
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
     panic!(
-        "timed out waiting for AI status containing {needle:?}; got {}, status={}, progress={} {}",
-        ui.get_ai_status(),
+        "timed out waiting for AI progress to clear; status={}, app_status={}, progress={} {}",
         ui.get_status_text(),
+        ui.get_ai_status(),
         ui.get_ai_progress_label(),
         ui.get_ai_progress_detail()
     );
