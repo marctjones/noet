@@ -1641,12 +1641,32 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
             surface_adapters::facet_tree_items(&p, &f.project),
         )));
     }
-    if let Ok(t) = b.list_tags() {
-        let maxc = t.iter().map(|x| x.count).max().unwrap_or(1).max(1) as i32;
+    if let Ok(review) = b.label_review() {
+        let maxc = review
+            .labels
+            .iter()
+            .map(|label| label.note_count)
+            .max()
+            .unwrap_or(1)
+            .max(1) as i32;
         ui.set_max_tag_count(maxc);
         ui.set_tags(ModelRc::new(VecModel::from(
-            surface_adapters::facet_tree_items(&t, &f.tag),
+            surface_adapters::label_review_items(&review, &f.tag),
         )));
+    }
+    if f.tag.trim().is_empty() {
+        ui.set_label_context_label("".into());
+        ui.set_label_context_open_tasks(ModelRc::new(VecModel::from(Vec::<TodoItem>::new())));
+        ui.set_label_context_notes(ModelRc::new(VecModel::from(Vec::<NoteRef>::new())));
+    } else if let Ok(context) = b.label_context(&f.tag) {
+        let surface = surface_adapters::label_context_surface(&context);
+        ui.set_label_context_label(surface.label.into());
+        ui.set_label_context_open_tasks(ModelRc::new(VecModel::from(surface.open_tasks)));
+        ui.set_label_context_notes(ModelRc::new(VecModel::from(surface.notes)));
+    } else {
+        ui.set_label_context_label("".into());
+        ui.set_label_context_open_tasks(ModelRc::new(VecModel::from(Vec::<TodoItem>::new())));
+        ui.set_label_context_notes(ModelRc::new(VecModel::from(Vec::<NoteRef>::new())));
     }
     if let Ok(p) = b.list_people() {
         ui.set_people(ModelRc::new(VecModel::from(surface_adapters::facet_items(
@@ -3304,7 +3324,12 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             } else {
                 name.to_string()
             };
-            ui.set_view("notes".into()); // show notes with this label
+            if ui.get_view() == SharedString::from("workspace") {
+                let workspace_id = workspace_adapter::workspace_id_from_key("notes");
+                let _ = s.app.apply(AppCommand::SwitchWorkspace(workspace_id));
+            } else {
+                ui.set_view("notes".into()); // show notes with this label
+            }
             refresh(&ui, &s);
         });
     }

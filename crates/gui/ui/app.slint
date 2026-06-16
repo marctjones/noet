@@ -1072,6 +1072,9 @@ export component AppWindow inherits Window {
     in property <[TodoItem]> review-waiting;
     in property <[TodoItem]> review-someday;
     in property <[NoteItem]> review-inbox-notes;
+    in-out property <string> label-context-label;
+    in property <[TodoItem]> label-context-open-tasks;
+    in property <[NoteRef]> label-context-notes;
     // Workstream hub: one workstream's open todos + filed notes.
     in-out property <string> hub-name;
     in property <[TodoItem]> hub-todos;
@@ -1655,6 +1658,29 @@ export component AppWindow inherits Window {
                                             ink: #5b1b9a;
                                             hover-bg: #f3ecfb;
                                             clicked => { root.toggle-tag(t.name); }
+                                        }
+                                        if root.label-context-label != "": Text { text: "SELECTED LABEL"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
+                                        if root.label-context-label != "": Text { text: "#" + root.label-context-label; font-size: (13px * Z.f); font-weight: 700; color: Theme.text; overflow: elide; }
+                                        if root.label-context-label != "": Text { text: "OPEN TASKS"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
+                                        if root.label-context-label != "" && root.label-context-open-tasks.length == 0: EmptyState { glyph: "[]"; title: "No open tasks"; hint: ""; }
+                                        if root.label-context-label != "": VerticalLayout {
+                                            spacing: 4px;
+                                            for t in root.label-context-open-tasks: AgendaRow {
+                                                t: t;
+                                                cycle(id) => { root.toggle-todo(id); }
+                                                edit(id) => { root.edit-todo(id); }
+                                                open(id) => { root.open-note(id); }
+                                                promote(id) => { root.promote-task(id); }
+                                            }
+                                        }
+                                        if root.label-context-label != "": Text { text: "NOTES"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
+                                        if root.label-context-label != "" && root.label-context-notes.length == 0: EmptyState { glyph: "[]"; title: "No notes"; hint: ""; }
+                                        if root.label-context-label != "": VerticalLayout {
+                                            spacing: 4px;
+                                            for n in root.label-context-notes: NoteRow {
+                                                note: { id: n.id, title: n.title, subtitle: "#" + root.label-context-label };
+                                                open(id) => { root.workspace-switch("notes"); root.select-note(id); }
+                                            }
                                         }
                                     }
                                 }

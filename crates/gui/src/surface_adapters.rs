@@ -446,18 +446,14 @@ pub fn workstream_surface(todos: &[backend::Todo], notes: &[backend::Note]) -> W
 #[derive(Clone, Default)]
 pub struct LabelContextSurface {
     pub label: String,
-    pub notes: Vec<NoteItem>,
+    pub notes: Vec<NoteRef>,
     pub open_tasks: Vec<TodoItem>,
 }
 
 pub fn label_context_surface(context: &backend::LabelContext) -> LabelContextSurface {
     LabelContextSurface {
         label: context.label.clone(),
-        notes: context
-            .notes
-            .iter()
-            .map(note_item_from_summary)
-            .collect::<Vec<_>>(),
+        notes: note_refs_from_summaries(&context.notes),
         open_tasks: task_items(&context.open_tasks),
     }
 }

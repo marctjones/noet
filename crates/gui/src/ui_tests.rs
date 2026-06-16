@@ -1083,6 +1083,25 @@ fn headless_ui_smoke() {
         found_label_nav,
         "navigation surface is rendered from the pane model"
     );
+    ui.invoke_toggle_tag("followup".into());
+    assert_eq!(
+        ui.get_view(),
+        "workspace",
+        "label selection in the workspace drawer should keep the workspace shell open"
+    );
+    assert_eq!(ui.get_workspace_primary(), "notes");
+    assert_eq!(ui.get_label_context_label(), "followup");
+    assert!(
+        ui.get_label_context_open_tasks().row_count() >= 3,
+        "active label context should expose open tasks"
+    );
+    assert!(
+        ui.get_label_context_notes().row_count() >= 2,
+        "active label context should expose matching notes"
+    );
+    ui.invoke_toggle_tag("followup".into());
+    assert_eq!(ui.get_label_context_label(), "");
+    ui.invoke_workspace_switch("one-on-one-focus".into());
     ui.invoke_workspace_set_nav_surface("people".into());
     ui.invoke_workspace_open_pane(left_pane);
     itest::mock_elapsed_time(std::time::Duration::from_millis(16));
