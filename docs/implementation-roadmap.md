@@ -87,6 +87,7 @@ the work is ordered this way; GitHub issues are the actionable units.
    release readiness work.
    - #51 M4 epic: Architecture cleanup and daily workflow finish
    - #59 Define durable service boundaries for AI, indexing, and workspace state
+     (closed)
    - #60 Consolidate mutation write-back behind typed app commands (closed)
    - #61 Move remaining workflow orchestration out of Slint callbacks
    - #54 Bring 1:1 Focus to daily-use quality
@@ -96,18 +97,18 @@ the work is ordered this way; GitHub issues are the actionable units.
    P0: prove runtime behavior, GUI quality, local AI responsiveness, packaging,
    and release smoke evidence.
    - #74 M5 epic: Runtime QA and release readiness
-   - #62 Run local AI calls on non-blocking worker threads
-   - #64 Add AI job progress, elapsed time, and cancel controls
-   - #63 Add release-gate coverage for inline local AI builds
+   - #62 Run local AI calls on non-blocking worker threads (closed)
+   - #64 Add AI job progress, elapsed time, and cancel controls (closed)
+   - #63 Add release-gate coverage for inline local AI builds (closed)
    - #57 Run manual GUI review and close automation gaps
-   - #58 Track platform packaging and release gates after M4
+   - #58 Track platform packaging and release gates after M4 (closed)
 3. **M6 - AI Workflow Quality**
    P1: improve AI proposal quality after the release gate without changing the
    local-only trust boundary.
    - #72 M6 epic: AI workflow quality
    - #65 Improve AI proposal review ergonomics and source inspection
-   - #67 Decide and implement semantic embedding refresh policy
-   - #66 Add targeted local model validation for Noet workflows
+   - #67 Decide and implement semantic embedding refresh policy (closed)
+   - #66 Add targeted local model validation for Noet workflows (closed)
 4. **M7 - Post-MVP Workflow Expansion**
    P2: expand product depth after the MVP release.
    - #73 M7 epic: Post-MVP workflow expansion
