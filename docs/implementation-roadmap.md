@@ -399,6 +399,13 @@ Remaining AI hardening:
   models on reindex or search.
 - [ ] Improve AI proposal review ergonomics with richer previews and clearer
   source inspection.
+  - [x] Add proposal previews, source summaries, confidence, and rationale to
+    the proposal queue.
+  - [x] Add deterministic GUI smoke coverage for accept, reject, defer, and
+    indexed source inspection.
+  - [x] Let users inspect specific source references instead of only the
+    proposal target.
+  - [ ] Manually review the proposal queue against a realistic vault.
 - [ ] Keep local model validation targeted at memory-safe runtime hardening, not
   open-ended model shopping.
 
