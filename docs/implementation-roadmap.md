@@ -406,8 +406,12 @@ Remaining AI hardening:
   - [x] Let users inspect specific source references instead of only the
     proposal target.
   - [ ] Manually review the proposal queue against a realistic vault.
-- [ ] Keep local model validation targeted at memory-safe runtime hardening, not
+- [x] Keep local model validation targeted at memory-safe runtime hardening, not
   open-ended model shopping.
+  - [x] Validate the local chat GUI smoke with the Mistral 7B Q4 profile after
+    a `memory_pressure` preflight.
+  - [x] Validate the local embedding GUI smoke with EmbeddingGemma after a
+    second `memory_pressure` preflight.
 
 Implementation order:
 
