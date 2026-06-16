@@ -114,7 +114,7 @@ the work is ordered this way; GitHub issues are the actionable units.
    - #73 M7 epic: Post-MVP workflow expansion
    - #68 Bring labels and workstreams to cleanup-quality UX
    - #71 Improve onboarding, empty states, and settings clarity
-   - #69 Expand manual review checklist into full app acceptance suite
+   - #69 Expand manual review checklist into full app acceptance suite (closed)
 
 Architectural issues are intentionally prioritized ahead of feature polish. New
 features should not add more product logic to Slint callbacks, create alternate
