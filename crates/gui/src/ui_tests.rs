@@ -128,6 +128,45 @@ fn headless_ui_smoke() {
         "ai-proposal-queue",
         "AI review should open the AI proposal queue surface"
     );
+    let (accept_id, reject_id, defer_id) = {
+        let note_id = ui.get_current_id().to_string();
+        let mut state = ctx.state.borrow_mut();
+        let accept_id = state
+            .app
+            .apply(AppCommand::EnqueueAiProposal(label_test_proposal(
+                &note_id, "accept",
+            )))
+            .message
+            .expect("accepted test proposal id");
+        let reject_id = state
+            .app
+            .apply(AppCommand::EnqueueAiProposal(label_test_proposal(
+                &note_id, "reject",
+            )))
+            .message
+            .expect("rejected test proposal id");
+        let defer_id = state
+            .app
+            .apply(AppCommand::EnqueueAiProposal(label_test_proposal(
+                &note_id, "defer",
+            )))
+            .message
+            .expect("deferred test proposal id");
+        (accept_id, reject_id, defer_id)
+    };
+    refresh(ui, &ctx.state.borrow());
+    let pending_after_enqueue = ui.get_ai_pending_count();
+    ui.invoke_ai_accept_proposal(accept_id.clone().into());
+    ui.invoke_ai_reject_proposal(reject_id.clone().into());
+    ui.invoke_ai_defer_proposal(defer_id.clone().into());
+    assert_eq!(proposal_status(ui, &accept_id), Some("Accepted".into()));
+    assert_eq!(proposal_status(ui, &reject_id), Some("Rejected".into()));
+    assert_eq!(proposal_status(ui, &defer_id), Some("Deferred".into()));
+    assert_eq!(
+        ui.get_ai_pending_count(),
+        pending_after_enqueue - 3,
+        "accept/reject/defer should resolve exactly three pending proposals"
+    );
 
     // saving settings persists to the (temp) config dir
     let vault_str = vault.to_string_lossy().to_string();
@@ -1829,6 +1868,38 @@ fn resize_window(ui: &AppWindow, width: f32, height: f32) {
     ui.window().dispatch_event(WindowEvent::Resized {
         size: LogicalSize::new(width, height),
     });
+}
+
+fn label_test_proposal(note_id: &str, label: &str) -> noet_ai::AiProposal {
+    noet_ai::AiProposal {
+        kind: noet_ai::ProposalKind::AddLabels,
+        target: noet_ai::ProposalTarget::Note {
+            note_id: note_id.into(),
+        },
+        payload: noet_ai::ProposalPayload::AddLabels(noet_ai::LabelSuggestions {
+            suggestions: vec![noet_ai::LabelSuggestion {
+                label: label.into(),
+                reason: format!("Exercise {label} affordance"),
+                sources: vec![noet_ai::SourceRef::Note {
+                    note_id: note_id.into(),
+                }],
+            }],
+        }),
+        rationale: format!("Exercise {label} proposal action."),
+        confidence: 0.75,
+        requires_confirmation: true,
+    }
+}
+
+fn proposal_status(ui: &AppWindow, proposal_id: &str) -> Option<String> {
+    let rows = ui.get_ai_proposals();
+    for index in 0..rows.row_count() {
+        let row = rows.row_data(index)?;
+        if row.id == proposal_id {
+            return Some(row.status.to_string());
+        }
+    }
+    None
 }
 
 fn wait_for_ai_pending(ui: &AppWindow, expected: i32, timeout: std::time::Duration) {
