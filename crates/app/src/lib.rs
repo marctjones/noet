@@ -32,7 +32,10 @@ pub use command::{AppCommand, CommandOutcome};
 pub use model::AppModel;
 pub use navigation::{FilterToken, NavigationState};
 pub use selection::SelectionState;
-pub use task_workflow::{promote_task_to_note, PromoteTaskReport};
+pub use task_workflow::{
+    carry_task_to_note, defer_task_to_someday, promote_task_to_note, reopen_task, resolve_task,
+    toggle_task, CarryTaskReport, PromoteTaskReport,
+};
 pub use workspace::{
     Axis, Pane, PaneId, PaneLayout, PanePlacement, PaneRole, PaneSize, Surface, SurfaceId,
     Workspace, WorkspaceId, WorkspacePreset, WorkspaceRegistry,

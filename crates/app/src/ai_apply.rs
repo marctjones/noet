@@ -1,4 +1,4 @@
-use crate::promote_task_to_note;
+use crate::{defer_task_to_someday, promote_task_to_note, reopen_task, resolve_task};
 use noet_ai::{AiProposal, LabelSuggestions, ProposalPayload, ProposedTaskState, TaskExtractions};
 use noet_core::{Backend, TodoFields};
 
@@ -30,15 +30,13 @@ pub fn apply_ai_proposal(
         ProposalPayload::PatchNote(_) => Err("AI note patches require explicit patch UI".into()),
         ProposalPayload::ChangeTaskState(change) => {
             match change.proposed_state {
-                ProposedTaskState::Resolve => backend
-                    .set_todo_status(&change.task_id, "done")
-                    .map_err(|err| err.to_string())?,
-                ProposedTaskState::CarryForward | ProposedTaskState::KeepOpen => backend
-                    .set_todo_status(&change.task_id, "todo")
-                    .map_err(|err| err.to_string())?,
-                ProposedTaskState::DemoteToSomeday => backend
-                    .set_todo_kind(&change.task_id, "someday")
-                    .map_err(|err| err.to_string())?,
+                ProposedTaskState::Resolve => resolve_task(backend, &change.task_id)?,
+                ProposedTaskState::CarryForward | ProposedTaskState::KeepOpen => {
+                    reopen_task(backend, &change.task_id)?
+                }
+                ProposedTaskState::DemoteToSomeday => {
+                    defer_task_to_someday(backend, &change.task_id)?
+                }
             }
             Ok(AiApplyReport {
                 task_states_changed: 1,

@@ -2656,7 +2656,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_resolve_followup(move |todo_id: SharedString| {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
-            match s.backend.set_todo_status(&todo_id, "done") {
+            match noet_app::resolve_task(&mut s.backend, &todo_id) {
                 Ok(()) => {
                     let current = ui.get_current_id().to_string();
                     if !current.is_empty() {
@@ -2680,7 +2680,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 ui.set_status_text("Open a 1:1 note first.".into());
                 return;
             }
-            match s.backend.carry_todo_to_note(&todo_id, &target) {
+            match noet_app::carry_task_to_note(&mut s.backend, &todo_id, &target) {
                 Ok(_) => {
                     open_in_editor(&ui, &s.backend, &target);
                     ui.set_status_text("Follow-up carried into the current 1:1".into());
@@ -2696,7 +2696,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_defer_followup(move |todo_id: SharedString| {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
-            match s.backend.set_todo_kind(&todo_id, "someday") {
+            match noet_app::defer_task_to_someday(&mut s.backend, &todo_id) {
                 Ok(()) => {
                     let current = ui.get_current_id().to_string();
                     if !current.is_empty() {
@@ -2961,7 +2961,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let mut s = state.borrow_mut();
             let todo_id = id.to_string();
             refresh_after_task_writeback(&ui, &mut s, &todo_id, "Task toggled", |backend| {
-                backend.toggle_todo(&todo_id)
+                noet_app::toggle_task(backend, &todo_id).map_err(anyhow::Error::msg)
             });
         });
     }
