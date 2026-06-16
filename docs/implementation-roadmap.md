@@ -341,7 +341,7 @@ Release bar for the note-first redesign:
   peek/detail, and current-note source jumps without stealing the active editor.
 - [x] Render the read-only reference pane in the Notes workspace so cross-note
   todo sources can open beside the active editor.
-- [ ] Add source-line highlighting inside the read-only reference pane for
+- [x] Add source-line highlighting inside the read-only reference pane for
   cross-note todos.
 - [ ] Redesign meeting todos into explicit This meeting, Carryover, Waiting or
   delegated, and collapsed Related open loops sections.

@@ -2021,11 +2021,16 @@ fn render_split(ui: &AppWindow, b: &Backend) {
     let Ok(note) = b.load_note(&id) else { return };
     let theme = sred_theme(ui);
     let w = ((ui.get_split_width() as u32).saturating_sub(20)).max(200);
+    let highlight_line = ui.get_split_highlight_line();
     RICH_RO.with(|r| {
         let mut e = r.borrow_mut();
         e.set_text(&note.body);
         e.set_theme(theme);
         e.set_viewport(w, 100_000.0); // tall viewport → render() lays out the whole doc
+        if highlight_line >= 0 {
+            let offset = line_char_offset(&note.body, highlight_line as usize);
+            e.core_mut().set_cursor(offset);
+        }
         let out = e.render(false); // full-document frame (not viewport-bounded)
         ui.set_split_image(rgba_to_image(
             &out.frame.rgba,
@@ -2033,6 +2038,14 @@ fn render_split(ui: &AppWindow, b: &Backend) {
             out.frame.height,
         ));
         ui.set_split_doc_height(out.frame.height as f32);
+        if highlight_line >= 0 {
+            ui.set_split_highlight_y(out.caret.y);
+            ui.set_split_highlight_h(out.caret.h);
+            ui.set_split_scroll_y((out.caret.y - 72.0).max(0.0));
+        } else {
+            ui.set_split_highlight_y(0.0);
+            ui.set_split_highlight_h(0.0);
+        }
     });
     ui.set_split_title(note.title.into());
 }
@@ -2907,13 +2920,18 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_open_in_split(move |id: SharedString| {
             let ui = ui_w.unwrap();
             ui.set_split_note_id(id);
+            ui.set_split_highlight_line(-1);
+            ui.set_split_scroll_y(0.0);
             render_split(&ui, &state.borrow().backend);
         });
     }
     {
         let ui_w = ui.as_weak();
         ui.on_close_split(move || {
-            ui_w.unwrap().set_split_note_id("".into());
+            let ui = ui_w.unwrap();
+            ui.set_split_note_id("".into());
+            ui.set_split_highlight_line(-1);
+            ui.set_split_scroll_y(0.0);
         });
     }
     {
@@ -2930,6 +2948,8 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let cur = ui.get_current_id().to_string();
             ui.invoke_select_note(ref_id.into()); // saves cur, opens ref in the editor
             ui.set_split_note_id(cur.into());
+            ui.set_split_highlight_line(-1);
+            ui.set_split_scroll_y(0.0);
             render_split(&ui, &state.borrow().backend);
         });
     }
@@ -3586,6 +3606,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                     ui.set_status_text("Todo source highlighted".into());
                 } else if open_mode == "reference" {
                     ui.set_split_note_id(note_id.clone().into());
+                    ui.set_split_highlight_line(line.map(|line| line as i32).unwrap_or(-1));
                     render_split(&ui, &s.backend);
                     ui.set_status_text("Todo source opened in reference".into());
                 } else {
@@ -4317,6 +4338,8 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             }
             if ui.get_split_note_id() == SharedString::from(id.as_str()) {
                 ui.set_split_note_id("".into());
+                ui.set_split_highlight_line(-1);
+                ui.set_split_scroll_y(0.0);
             }
             ui.set_status_text("Moved to trash".into());
             refresh(&ui, &s);

@@ -1336,6 +1336,10 @@ export component AppWindow inherits Window {
     in property <string> split-title;
     in property <image> split-image;
     in property <length> split-doc-height;
+    in-out property <length> split-scroll-y;
+    in-out property <int> split-highlight-line: -1;
+    in property <length> split-highlight-y;
+    in property <length> split-highlight-h;
     in-out property <length> split-width: 440px;
     callback open-in-split(string); // open a note in the reference pane
     callback close-split();         // close the reference pane
@@ -2137,14 +2141,30 @@ export component AppWindow inherits Window {
                                                                 MiniBtn { icon: Icons.edit; a11y: "Edit reference note " + root.split-title; clicked => { root.edit-split(); } }
                                                                 CloseX { a11y: "Close reference note"; closed => { root.close-split(); } }
                                                             }
-                                                            ScrollView {
+                                                            Flickable {
                                                                 viewport-width: self.width;
+                                                                viewport-height: root.split-doc-height;
                                                                 vertical-stretch: 1;
-                                                                Image {
-                                                                    source: root.split-image;
+                                                                viewport-y <=> root.split-scroll-y;
+                                                                Rectangle {
                                                                     width: parent.width;
                                                                     height: root.split-doc-height;
-                                                                    image-fit: contain;
+                                                                    Image {
+                                                                        source: root.split-image;
+                                                                        width: parent.width;
+                                                                        height: root.split-doc-height;
+                                                                        image-fit: contain;
+                                                                    }
+                                                                    if root.split-highlight-line >= 0: Rectangle {
+                                                                        x: 4px;
+                                                                        y: max(0px, root.split-highlight-y - 3px);
+                                                                        width: max(0px, parent.width - 8px);
+                                                                        height: max(22px, root.split-highlight-h + 6px);
+                                                                        background: Theme.dark ? #d4a72c30 : #f1c24a3a;
+                                                                        border-width: 1px;
+                                                                        border-color: Theme.dark ? #d4a72c70 : #b47c0080;
+                                                                        border-radius: 4px;
+                                                                    }
                                                                 }
                                                             }
                                                         }

@@ -1129,7 +1129,7 @@ fn headless_ui_smoke() {
     assert!(!has_tab(&tab_id), "closing removes the tab (and unpins)");
 
     // ----- Level 11: read-only split/reference pane + swap -----
-    let (note_a, note_b);
+    let (note_a, note_b, split_b_todo_line);
     {
         let mut st = ctx.state.borrow_mut();
         let a = st.backend.new_note().unwrap();
@@ -1141,11 +1141,15 @@ fn headless_ui_smoke() {
             )
             .unwrap();
         let b = st.backend.new_note().unwrap();
+        let split_b_context = (0..36)
+            .map(|i| format!("context line {i}\n"))
+            .collect::<String>();
+        split_b_todo_line = 40usize;
         st.backend
             .save_note(
                 &b.id,
                 "Split B",
-                "# Split B\n\nbody b\n\n- [ ] old source todo\n",
+                &format!("# Split B\n\nbody b\n\n{split_b_context}- [ ] old source todo\n"),
             )
             .unwrap();
         note_a = a.id.clone();
@@ -1184,6 +1188,16 @@ fn headless_ui_smoke() {
     );
     ui.invoke_open_in_split(note_b.clone().into()); // reference pane shows B
     assert_eq!(
+        ui.get_split_highlight_line(),
+        -1,
+        "manually opening a reference note should not retain source-line highlighting"
+    );
+    assert_eq!(
+        ui.get_split_scroll_y(),
+        0.0,
+        "manual reference opens start at the top"
+    );
+    assert_eq!(
         ui.get_current_id(),
         note_a,
         "opening a reference split should not replace the note being edited"
@@ -1196,7 +1210,7 @@ fn headless_ui_smoke() {
         SharedString::from(note_a.as_str()),
         "reference reading should keep current-note todos beside the editor"
     );
-    ui.invoke_open_note(format!("{note_b}:4").into());
+    ui.invoke_open_note(format!("{note_b}:{split_b_todo_line}").into());
     assert_eq!(
         ui.get_current_id(),
         note_a,
@@ -1214,6 +1228,19 @@ fn headless_ui_smoke() {
     );
     assert_eq!(ui.get_split_note_id(), note_b);
     assert_eq!(ui.get_split_title(), "Split B");
+    assert_eq!(
+        ui.get_split_highlight_line(),
+        split_b_todo_line as i32,
+        "cross-note todo source line should be tracked on the reference pane"
+    );
+    assert!(
+        ui.get_split_highlight_y() > 0.0 && ui.get_split_highlight_h() > 0.0,
+        "reference pane should expose a visible source-line highlight"
+    );
+    assert!(
+        ui.get_split_scroll_y() > 0.0,
+        "reference pane should scroll down to the highlighted source line"
+    );
     ElementHandle::find_by_accessible_label(ui, "Reference note Split B")
         .find(|e| e.accessible_role() == Some(AccessibleRole::Groupbox))
         .expect("reference pane should be visible beside the active editor");
@@ -1233,8 +1260,18 @@ fn headless_ui_smoke() {
         note_a,
         "prior note moves to the reference pane"
     );
+    assert_eq!(
+        ui.get_split_highlight_line(),
+        -1,
+        "editing the reference swaps notes and clears stale source-line highlighting"
+    );
     ui.invoke_close_split();
     assert_eq!(ui.get_split_note_id(), "", "close clears the split");
+    assert_eq!(
+        ui.get_split_highlight_line(),
+        -1,
+        "close clears reference source-line highlighting"
+    );
 
     // ----- Level 12: workspace panes are selectable, collapsible, and resizable -----
     {
