@@ -8,6 +8,10 @@ use std::{
     collections::BTreeMap,
     path::PathBuf,
     process::{Child, Command, Output, Stdio},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -548,6 +552,84 @@ impl MistralRsInlineChatRuntime {
     pub fn profile_id(&self) -> &str {
         &self.profile_id
     }
+
+    pub fn complete_chat_streaming<F>(
+        &self,
+        request: ChatRequest,
+        cancel: &AiCancelToken,
+        mut on_progress: F,
+    ) -> AiResult<ChatResponse>
+    where
+        F: FnMut(AiProgressUpdate),
+    {
+        if request.profile_id != self.profile_id {
+            return Err(AiRuntimeError::InvalidRequest {
+                message: format!(
+                    "chat runtime loaded for {}, got {}",
+                    self.profile_id, request.profile_id
+                ),
+            });
+        }
+        if cancel.is_cancelled() {
+            return Err(AiRuntimeError::Cancelled);
+        }
+        let chat_request = inline_chat_request(request);
+        let result = self.runtime.block_on(async {
+            tokio::time::timeout(self.timeout, async {
+                let mut stream =
+                    self.model
+                        .stream_chat_request(chat_request)
+                        .await
+                        .map_err(|err| AiRuntimeError::InferenceFailed {
+                            message: err.to_string(),
+                        })?;
+                let mut content = String::new();
+                let mut output_chunks = 0usize;
+                while let Some(chunk) = stream.next().await {
+                    if cancel.is_cancelled() {
+                        return Err(AiRuntimeError::Cancelled);
+                    }
+                    if let mistralrs::Response::Chunk(mistralrs::ChatCompletionChunkResponse {
+                        choices,
+                        ..
+                    }) = chunk
+                    {
+                        if let Some(text) = choices
+                            .first()
+                            .and_then(|choice| choice.delta.content.as_ref())
+                        {
+                            content.push_str(text);
+                            output_chunks += 1;
+                            on_progress(AiProgressUpdate {
+                                output_chunks,
+                                output_chars: content.chars().count(),
+                            });
+                        }
+                    }
+                }
+                if cancel.is_cancelled() {
+                    return Err(AiRuntimeError::Cancelled);
+                }
+                if content.is_empty() {
+                    Err(AiRuntimeError::InferenceFailed {
+                        message: "mistralrs returned no streamed assistant content".into(),
+                    })
+                } else {
+                    Ok(ChatResponse {
+                        content,
+                        usage: None,
+                    })
+                }
+            })
+            .await
+        });
+        result.map_err(|_| AiRuntimeError::InferenceFailed {
+            message: format!(
+                "mistralrs timed out after {} seconds",
+                self.timeout.as_secs()
+            ),
+        })?
+    }
 }
 
 impl Default for SourceRef {
@@ -600,6 +682,7 @@ pub enum AiRuntimeError {
     ModelUnavailable { profile_id: String },
     InvalidRequest { message: String },
     InferenceFailed { message: String },
+    Cancelled,
     StructuredOutputFailed { message: String },
     ToolFailed { tool: NoetTool, message: String },
     PolicyViolation { message: String },
@@ -717,6 +800,31 @@ pub struct AiUsage {
     pub output_tokens: Option<u32>,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct AiCancelToken {
+    cancelled: Arc<AtomicBool>,
+}
+
+impl AiCancelToken {
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::SeqCst);
+    }
+
+    pub fn reset(&self) {
+        self.cancelled.store(false, Ordering::SeqCst);
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AiProgressUpdate {
+    pub output_chunks: usize,
+    pub output_chars: usize,
+}
+
 pub trait ChatRuntime {
     fn complete_chat(&self, request: ChatRequest) -> AiResult<ChatResponse>;
 }
@@ -725,6 +833,18 @@ pub trait StructuredRuntime {
     fn complete_structured<T>(&self, request: StructuredRequest) -> AiResult<StructuredResponse<T>>
     where
         T: for<'de> Deserialize<'de> + Serialize;
+}
+
+pub trait CancellableStructuredRuntime {
+    fn complete_structured_cancellable<T, F>(
+        &self,
+        request: StructuredRequest,
+        cancel: &AiCancelToken,
+        on_progress: F,
+    ) -> AiResult<StructuredResponse<T>>
+    where
+        T: for<'de> Deserialize<'de> + Serialize,
+        F: FnMut(AiProgressUpdate);
 }
 
 pub trait EmbeddingRuntime {
@@ -867,6 +987,29 @@ impl StructuredRuntime for MistralRsCliRuntime {
     }
 }
 
+impl CancellableStructuredRuntime for MistralRsCliRuntime {
+    fn complete_structured_cancellable<T, F>(
+        &self,
+        request: StructuredRequest,
+        cancel: &AiCancelToken,
+        _on_progress: F,
+    ) -> AiResult<StructuredResponse<T>>
+    where
+        T: for<'de> Deserialize<'de> + Serialize,
+        F: FnMut(AiProgressUpdate),
+    {
+        if cancel.is_cancelled() {
+            return Err(AiRuntimeError::Cancelled);
+        }
+        let response = self.complete_structured(request)?;
+        if cancel.is_cancelled() {
+            Err(AiRuntimeError::Cancelled)
+        } else {
+            Ok(response)
+        }
+    }
+}
+
 #[cfg(feature = "mistralrs-inline")]
 impl StructuredRuntime for MistralRsInlineChatRuntime {
     fn complete_structured<T>(&self, request: StructuredRequest) -> AiResult<StructuredResponse<T>>
@@ -875,6 +1018,28 @@ impl StructuredRuntime for MistralRsInlineChatRuntime {
     {
         let chat_request = structured_chat_request(request);
         let output = self.complete_chat(chat_request)?;
+        let value = parse_json_value(&output.content)?;
+        Ok(StructuredResponse {
+            value,
+            usage: output.usage,
+        })
+    }
+}
+
+#[cfg(feature = "mistralrs-inline")]
+impl CancellableStructuredRuntime for MistralRsInlineChatRuntime {
+    fn complete_structured_cancellable<T, F>(
+        &self,
+        request: StructuredRequest,
+        cancel: &AiCancelToken,
+        on_progress: F,
+    ) -> AiResult<StructuredResponse<T>>
+    where
+        T: for<'de> Deserialize<'de> + Serialize,
+        F: FnMut(AiProgressUpdate),
+    {
+        let chat_request = structured_chat_request(request);
+        let output = self.complete_chat_streaming(chat_request, cancel, on_progress)?;
         let value = parse_json_value(&output.content)?;
         Ok(StructuredResponse {
             value,
@@ -1257,6 +1422,38 @@ mod tests {
 
         assert_eq!(policy.content_policy, UserContentPolicy::Trusted);
         assert!(!policy.moderates_user_content());
+    }
+
+    #[test]
+    fn cancel_token_can_be_requested_and_reset() {
+        let token = AiCancelToken::default();
+
+        assert!(!token.is_cancelled());
+        token.cancel();
+        assert!(token.is_cancelled());
+        token.reset();
+        assert!(!token.is_cancelled());
+    }
+
+    #[test]
+    fn cancellable_cli_structured_runtime_stops_before_loading_model() {
+        let runtime =
+            MistralRsCliRuntime::new(LocalRuntimeSettings::conservative("missing-mistralrs"));
+        let token = AiCancelToken::default();
+        token.cancel();
+        let request = StructuredRequest {
+            profile_id: default_profile().id,
+            task: StructuredTask::ReviewNote,
+            instructions: "Return JSON".into(),
+            context: Vec::new(),
+            max_output_tokens: Some(8),
+        };
+
+        let err = runtime
+            .complete_structured_cancellable::<NoteReview, _>(request, &token, |_| {})
+            .expect_err("cancelled runtime should not try to execute");
+
+        assert_eq!(err, AiRuntimeError::Cancelled);
     }
 
     #[test]

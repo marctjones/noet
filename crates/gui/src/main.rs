@@ -1,15 +1,17 @@
 // Noet — native, lightweight notes + typed-todos + workstreams over plain markdown.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+#[cfg(feature = "mistralrs-inline")]
+use noet_ai::AiProgressUpdate;
 #[cfg(not(feature = "mistralrs-inline"))]
 use noet_ai::MistralRsCliRuntime;
 #[cfg(feature = "mistralrs-inline")]
 use noet_ai::MistralRsInlineChatRuntime;
 use noet_ai::{
-    AgendaDraft, AgendaItem, AgendaSection, AiResult, AiUsage, EmbeddingRequest, EmbeddingResponse,
-    EmbeddingRuntime, EmbeddingVector, HousekeepingJob, LabelSuggestion, LocalModelSpec,
-    LocalRuntimeSettings, NoteReview, ReviewFinding, ReviewFindingKind, StructuredRequest,
-    StructuredResponse, StructuredRuntime, StructuredTask, TaskExtraction,
+    AgendaDraft, AgendaItem, AgendaSection, AiCancelToken, AiResult, AiUsage, EmbeddingRequest,
+    EmbeddingResponse, EmbeddingRuntime, EmbeddingVector, HousekeepingJob, LabelSuggestion,
+    LocalModelSpec, LocalRuntimeSettings, NoteReview, ReviewFinding, ReviewFindingKind,
+    StructuredRequest, StructuredResponse, StructuredRuntime, StructuredTask, TaskExtraction,
 };
 use noet_app::{
     ai_surface, ai_workflow, AiJobRow, AiProposalRow, AppCommand, AppModel, SemanticIndex,
@@ -608,6 +610,7 @@ pub(crate) struct State {
     pub(crate) app: AppModel,
     pub(crate) semantic_index: SemanticIndex,
     ai_worker_tx: mpsc::Sender<AiWorkerMessage>,
+    ai_cancel_token: AiCancelToken,
     pub(crate) filter: Filter,
     pub(crate) cal_year: i32,
     pub(crate) cal_month: u32,
@@ -628,6 +631,8 @@ enum AiWorkerMessage {
     SemanticSearch {
         result: Result<Vec<noet_app::SemanticMatch>, String>,
     },
+    #[cfg(feature = "mistralrs-inline")]
+    ProgressDetail(String),
 }
 
 /// Resolve the vault location. Precedence: an explicit `$NOET_VAULT` (transient
@@ -1094,6 +1099,8 @@ fn enqueue_ai_draft_agenda(ui: &AppWindow, state: &mut State) {
         }
         let runtime_settings = local_runtime_settings_from_state(state);
         let tx = state.ai_worker_tx.clone();
+        state.ai_cancel_token.reset();
+        let cancel = state.ai_cancel_token.clone();
         let context = context.clone();
         let options = options.clone();
         let _ = state.app.apply(AppCommand::StartAiProgress {
@@ -1107,8 +1114,8 @@ fn enqueue_ai_draft_agenda(ui: &AppWindow, state: &mut State) {
         ui.set_workspace_bottom_open(true);
         ui.set_status_text("AI agenda draft running locally".into());
         std::thread::spawn(move || {
-            let proposal = run_local_agenda(runtime_settings, context, options)
-                .map_err(|err| format!("{err:?}"));
+            let proposal = run_local_agenda(runtime_settings, context, options, cancel, tx.clone())
+                .map_err(ai_error_message);
             let _ = tx.send(AiWorkerMessage::Proposal {
                 success: "Queued agenda proposal".into(),
                 failure_prefix: "AI agenda draft failed".into(),
@@ -1164,6 +1171,8 @@ fn enqueue_ai_note_review(ui: &AppWindow, state: &mut State) {
         }
         let runtime_settings = local_runtime_settings_from_state(state);
         let tx = state.ai_worker_tx.clone();
+        state.ai_cancel_token.reset();
+        let cancel = state.ai_cancel_token.clone();
         let context = context.clone();
         let options = options.clone();
         let _ = state.app.apply(AppCommand::StartAiProgress {
@@ -1177,8 +1186,9 @@ fn enqueue_ai_note_review(ui: &AppWindow, state: &mut State) {
         ui.set_workspace_bottom_open(true);
         ui.set_status_text("AI note review running locally".into());
         std::thread::spawn(move || {
-            let proposal = run_local_note_review(runtime_settings, context, options)
-                .map_err(|err| format!("{err:?}"));
+            let proposal =
+                run_local_note_review(runtime_settings, context, options, cancel, tx.clone())
+                    .map_err(ai_error_message);
             let _ = tx.send(AiWorkerMessage::Proposal {
                 success: "Queued note review proposal".into(),
                 failure_prefix: "AI note review failed".into(),
@@ -1217,9 +1227,19 @@ fn run_local_agenda(
     runtime_settings: LocalRuntimeSettings,
     context: noet_core::OneOnOneContext,
     options: ai_workflow::AgendaDraftOptions,
+    cancel: AiCancelToken,
+    progress_tx: mpsc::Sender<AiWorkerMessage>,
 ) -> AiResult<noet_ai::AiProposal> {
     let runtime = MistralRsInlineChatRuntime::load(runtime_settings, options.profile_id.clone())?;
-    ai_workflow::draft_one_on_one_agenda(&runtime, &context, &options)
+    ai_workflow::draft_one_on_one_agenda_cancellable(
+        &runtime,
+        &context,
+        &options,
+        &cancel,
+        move |update| {
+            send_ai_progress_update(&progress_tx, update);
+        },
+    )
 }
 
 #[cfg(not(feature = "mistralrs-inline"))]
@@ -1227,9 +1247,11 @@ fn run_local_agenda(
     runtime_settings: LocalRuntimeSettings,
     context: noet_core::OneOnOneContext,
     options: ai_workflow::AgendaDraftOptions,
+    cancel: AiCancelToken,
+    _progress_tx: mpsc::Sender<AiWorkerMessage>,
 ) -> AiResult<noet_ai::AiProposal> {
     let runtime = MistralRsCliRuntime::new(runtime_settings);
-    ai_workflow::draft_one_on_one_agenda(&runtime, &context, &options)
+    ai_workflow::draft_one_on_one_agenda_cancellable(&runtime, &context, &options, &cancel, |_| {})
 }
 
 #[cfg(feature = "mistralrs-inline")]
@@ -1237,9 +1259,19 @@ fn run_local_note_review(
     runtime_settings: LocalRuntimeSettings,
     context: noet_core::NoteContext,
     options: ai_workflow::NoteReviewOptions,
+    cancel: AiCancelToken,
+    progress_tx: mpsc::Sender<AiWorkerMessage>,
 ) -> AiResult<noet_ai::AiProposal> {
     let runtime = MistralRsInlineChatRuntime::load(runtime_settings, options.profile_id.clone())?;
-    ai_workflow::review_current_note(&runtime, &context, &options)
+    ai_workflow::review_current_note_cancellable(
+        &runtime,
+        &context,
+        &options,
+        &cancel,
+        move |update| {
+            send_ai_progress_update(&progress_tx, update);
+        },
+    )
 }
 
 #[cfg(not(feature = "mistralrs-inline"))]
@@ -1247,9 +1279,28 @@ fn run_local_note_review(
     runtime_settings: LocalRuntimeSettings,
     context: noet_core::NoteContext,
     options: ai_workflow::NoteReviewOptions,
+    cancel: AiCancelToken,
+    _progress_tx: mpsc::Sender<AiWorkerMessage>,
 ) -> AiResult<noet_ai::AiProposal> {
     let runtime = MistralRsCliRuntime::new(runtime_settings);
-    ai_workflow::review_current_note(&runtime, &context, &options)
+    ai_workflow::review_current_note_cancellable(&runtime, &context, &options, &cancel, |_| {})
+}
+
+#[cfg(feature = "mistralrs-inline")]
+fn send_ai_progress_update(tx: &mpsc::Sender<AiWorkerMessage>, update: AiProgressUpdate) {
+    if update.output_chunks == 1 || update.output_chunks % 8 == 0 {
+        let _ = tx.send(AiWorkerMessage::ProgressDetail(format!(
+            "Generating response ({} chunks, {} chars)",
+            update.output_chunks, update.output_chars
+        )));
+    }
+}
+
+fn ai_error_message(err: noet_ai::AiRuntimeError) -> String {
+    match err {
+        noet_ai::AiRuntimeError::Cancelled => "Cancelled".into(),
+        other => format!("{other:?}"),
+    }
 }
 
 fn refresh_ai_embeddings(ui: &AppWindow, state: &mut State) {
@@ -1678,10 +1729,15 @@ fn apply_ai_worker_message(ui: &AppWindow, state: &mut State, message: AiWorkerM
             }
             Err(message) => {
                 let _ = state.app.apply(AppCommand::ClearAiProgress);
-                state.app.ai.set_status(noet_app::AiStatus::Failed {
-                    message: message.clone(),
-                });
-                ui.set_status_text(format!("{failure_prefix}: {message}").into());
+                if message == "Cancelled" {
+                    state.app.ai.set_status(noet_app::AiStatus::Ready);
+                    ui.set_status_text(cancelled_status(&failure_prefix).into());
+                } else {
+                    state.app.ai.set_status(noet_app::AiStatus::Failed {
+                        message: message.clone(),
+                    });
+                    ui.set_status_text(format!("{failure_prefix}: {message}").into());
+                }
             }
         },
         AiWorkerMessage::EmbeddingRefresh { job_id, result } => match result {
@@ -1736,7 +1792,18 @@ fn apply_ai_worker_message(ui: &AppWindow, state: &mut State, message: AiWorkerM
                 ui.set_status_text(format!("AI semantic search failed: {message}").into());
             }
         },
+        #[cfg(feature = "mistralrs-inline")]
+        AiWorkerMessage::ProgressDetail(detail) => {
+            let _ = state.app.apply(AppCommand::UpdateAiProgressDetail(detail));
+        }
     }
+}
+
+fn cancelled_status(failure_prefix: &str) -> String {
+    failure_prefix
+        .strip_suffix(" failed")
+        .map(|prefix| format!("{prefix} canceled"))
+        .unwrap_or_else(|| "AI request canceled".into())
 }
 
 fn open_ai_queue(app: &mut AppModel) {
@@ -2318,6 +2385,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         app: AppModel::new(),
         semantic_index,
         ai_worker_tx,
+        ai_cancel_token: AiCancelToken::default(),
         filter: Filter::default(),
         cal_year: chrono::Datelike::year(&now),
         cal_month: chrono::Datelike::month(&now),
@@ -3351,6 +3419,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let mut s = state.borrow_mut();
             let outcome = s.app.apply(AppCommand::RequestAiCancel);
             if outcome.accepted {
+                s.ai_cancel_token.cancel();
                 ui.set_status_text("AI cancel requested".into());
             } else if let Some(message) = outcome.message {
                 ui.set_status_text(message.into());

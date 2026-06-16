@@ -1,7 +1,8 @@
 use noet_ai::{
-    AgendaDraft, AiContextBlock, AiProposal, AiResult, NoteReview, ProposalKind, ProposalPayload,
-    ProposalTarget, SourceRef as AiSourceRef, StructuredRequest, StructuredResponse,
-    StructuredRuntime, StructuredTask,
+    AgendaDraft, AiCancelToken, AiContextBlock, AiProgressUpdate, AiProposal, AiResult,
+    CancellableStructuredRuntime, NoteReview, ProposalKind, ProposalPayload, ProposalTarget,
+    SourceRef as AiSourceRef, StructuredRequest, StructuredResponse, StructuredRuntime,
+    StructuredTask,
 };
 use noet_core::{NoteContext, OneOnOneContext, TaskFact};
 
@@ -108,8 +109,28 @@ where
 {
     let request = assemble_one_on_one_agenda_request(context, options);
     let StructuredResponse { value, .. } = runtime.complete_structured::<AgendaDraft>(request)?;
+    Ok(agenda_proposal(context, value))
+}
 
-    Ok(AiProposal {
+pub fn draft_one_on_one_agenda_cancellable<R, F>(
+    runtime: &R,
+    context: &OneOnOneContext,
+    options: &AgendaDraftOptions,
+    cancel: &AiCancelToken,
+    on_progress: F,
+) -> AiResult<AiProposal>
+where
+    R: CancellableStructuredRuntime,
+    F: FnMut(AiProgressUpdate),
+{
+    let request = assemble_one_on_one_agenda_request(context, options);
+    let StructuredResponse { value, .. } =
+        runtime.complete_structured_cancellable::<AgendaDraft, _>(request, cancel, on_progress)?;
+    Ok(agenda_proposal(context, value))
+}
+
+fn agenda_proposal(context: &OneOnOneContext, draft: AgendaDraft) -> AiProposal {
+    AiProposal {
         kind: ProposalKind::DraftAgenda,
         target: context
             .current_note
@@ -120,11 +141,11 @@ where
             .unwrap_or_else(|| ProposalTarget::Person {
                 name: context.person.clone(),
             }),
-        payload: ProposalPayload::DraftAgenda(value),
+        payload: ProposalPayload::DraftAgenda(draft),
         rationale: "Drafted from the selected 1:1 context.".into(),
         confidence: 1.0,
         requires_confirmation: false,
-    })
+    }
 }
 
 pub fn assemble_note_review_request(
@@ -208,17 +229,37 @@ where
 {
     let request = assemble_note_review_request(context, options);
     let StructuredResponse { value, .. } = runtime.complete_structured::<NoteReview>(request)?;
+    Ok(note_review_proposal(context, value))
+}
 
-    Ok(AiProposal {
+pub fn review_current_note_cancellable<R, F>(
+    runtime: &R,
+    context: &NoteContext,
+    options: &NoteReviewOptions,
+    cancel: &AiCancelToken,
+    on_progress: F,
+) -> AiResult<AiProposal>
+where
+    R: CancellableStructuredRuntime,
+    F: FnMut(AiProgressUpdate),
+{
+    let request = assemble_note_review_request(context, options);
+    let StructuredResponse { value, .. } =
+        runtime.complete_structured_cancellable::<NoteReview, _>(request, cancel, on_progress)?;
+    Ok(note_review_proposal(context, value))
+}
+
+fn note_review_proposal(context: &NoteContext, review: NoteReview) -> AiProposal {
+    AiProposal {
         kind: ProposalKind::ReviewNote,
         target: ProposalTarget::Note {
             note_id: context.note.note.id.clone(),
         },
-        payload: ProposalPayload::ReviewNote(value),
+        payload: ProposalPayload::ReviewNote(review),
         rationale: "Reviewed the selected note for source-linked follow-up opportunities.".into(),
         confidence: 1.0,
         requires_confirmation: false,
-    })
+    }
 }
 
 fn push_task_blocks(blocks: &mut Vec<AiContextBlock>, label: &str, tasks: &[TaskFact]) {
