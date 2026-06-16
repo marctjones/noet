@@ -3322,7 +3322,8 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let todo_id = id.to_string();
             let board_group = surface_adapters::board_group_key(&group_by).to_string();
             refresh_after_task_writeback(&ui, &mut s, &todo_id, "Task moved", |backend| {
-                backend.board_move(&todo_id, &board_group, dir)
+                noet_app::move_task_on_board(backend, &todo_id, &board_group, dir)
+                    .map_err(anyhow::Error::msg)
             });
         });
     }
@@ -3368,7 +3369,8 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let board_group = surface_adapters::board_group_key(&group_by).to_string();
             let target_key = key.to_string();
             refresh_after_task_writeback(&ui, &mut s, &todo_id, "Task moved", |backend| {
-                backend.drop_card(&todo_id, &board_group, &target_key)
+                noet_app::drop_task_on_board(backend, &todo_id, &board_group, &target_key)
+                    .map_err(anyhow::Error::msg)
             });
         });
     }
@@ -3515,10 +3517,9 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let mut s = state.borrow_mut();
             let result = if ui.get_form_is_new() {
                 let note_id = ui.get_current_id().to_string();
-                s.backend.add_todo(&note_id, &fields).map(|_| ())
+                noet_app::add_task(&mut s.backend, &note_id, &fields).map(|_| ())
             } else {
-                s.backend
-                    .update_todo(&ui.get_form_id().to_string(), &fields)
+                noet_app::update_task(&mut s.backend, &ui.get_form_id().to_string(), &fields)
             };
             match result {
                 Ok(()) => ui.set_status_text("Todo saved".into()),
@@ -4191,7 +4192,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let mut s = state.borrow_mut();
             let todo_id = id.to_string();
             refresh_after_task_writeback(&ui, &mut s, &todo_id, "Task advanced", |backend| {
-                backend.cycle_todo(&todo_id)
+                noet_app::cycle_task(backend, &todo_id).map_err(anyhow::Error::msg)
             });
         });
     }

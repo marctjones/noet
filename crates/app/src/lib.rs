@@ -39,8 +39,9 @@ pub use note_workflow::{
 };
 pub use selection::SelectionState;
 pub use task_workflow::{
-    carry_task_to_note, defer_task_to_someday, promote_task_to_note, reopen_task, resolve_task,
-    toggle_task, CarryTaskReport, PromoteTaskReport,
+    add_task, carry_task_to_note, cycle_task, defer_task_to_someday, drop_task_on_board,
+    move_task_on_board, promote_task_to_note, reopen_task, resolve_task, toggle_task, update_task,
+    CarryTaskReport, PromoteTaskReport,
 };
 pub use workspace::{
     Axis, Pane, PaneId, PaneLayout, PanePlacement, PaneRole, PaneSize, Surface, SurfaceId,

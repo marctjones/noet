@@ -1,4 +1,4 @@
-use noet_core::Backend;
+use noet_core::{Backend, TodoFields};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PromoteTaskReport {
@@ -24,6 +24,52 @@ pub fn reopen_task(backend: &mut Backend, task_id: &str) -> Result<(), String> {
 
 pub fn toggle_task(backend: &mut Backend, task_id: &str) -> Result<(), String> {
     backend.toggle_todo(task_id).map_err(|err| err.to_string())
+}
+
+pub fn cycle_task(backend: &mut Backend, task_id: &str) -> Result<(), String> {
+    backend.cycle_todo(task_id).map_err(|err| err.to_string())
+}
+
+pub fn add_task(
+    backend: &mut Backend,
+    note_id: &str,
+    fields: &TodoFields,
+) -> Result<String, String> {
+    backend
+        .add_todo(note_id, fields)
+        .map_err(|err| err.to_string())
+}
+
+pub fn update_task(
+    backend: &mut Backend,
+    task_id: &str,
+    fields: &TodoFields,
+) -> Result<(), String> {
+    backend
+        .update_todo(task_id, fields)
+        .map_err(|err| err.to_string())
+}
+
+pub fn move_task_on_board(
+    backend: &mut Backend,
+    task_id: &str,
+    group_by: &str,
+    direction: i32,
+) -> Result<(), String> {
+    backend
+        .board_move(task_id, group_by, direction)
+        .map_err(|err| err.to_string())
+}
+
+pub fn drop_task_on_board(
+    backend: &mut Backend,
+    task_id: &str,
+    group_by: &str,
+    target_key: &str,
+) -> Result<(), String> {
+    backend
+        .drop_card(task_id, group_by, target_key)
+        .map_err(|err| err.to_string())
 }
 
 pub fn carry_task_to_note(
@@ -106,6 +152,49 @@ mod tests {
             backend.get_todo(&carried.carried_task_id).unwrap().status,
             "done"
         );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn task_form_and_board_workflows_route_through_core_writeback() {
+        let (mut backend, dir) = backend_with_note("# Note\n\n");
+        let note = backend.query_notes(&Filter::default()).unwrap()[0].clone();
+        let fields = TodoFields {
+            text: "Draft launch note".into(),
+            kind: "do".into(),
+            status: "todo".into(),
+            project: "workstream/clients/acme".into(),
+            ..Default::default()
+        };
+
+        let task_id = add_task(&mut backend, &note.id, &fields).unwrap();
+        assert_eq!(
+            backend.get_todo(&task_id).unwrap().text,
+            "Draft launch note"
+        );
+
+        move_task_on_board(&mut backend, &task_id, "status", 1).unwrap();
+        assert_eq!(backend.get_todo(&task_id).unwrap().status, "doing");
+
+        drop_task_on_board(&mut backend, &task_id, "person", "Jane Smith").unwrap();
+        assert_eq!(backend.get_todo(&task_id).unwrap().person, "Jane Smith");
+
+        cycle_task(&mut backend, &task_id).unwrap();
+        assert_eq!(backend.get_todo(&task_id).unwrap().status, "done");
+
+        let updated = TodoFields {
+            text: "Draft final launch note".into(),
+            kind: "followup".into(),
+            status: "todo".into(),
+            person: "Jane Smith".into(),
+            due: "2026-06-17".into(),
+            ..Default::default()
+        };
+        update_task(&mut backend, &task_id, &updated).unwrap();
+        let task = backend.get_todo(&task_id).unwrap();
+        assert_eq!(task.text, "Draft final launch note");
+        assert_eq!(task.kind, "followup");
+        assert_eq!(task.due, "2026-06-17");
         std::fs::remove_dir_all(dir).ok();
     }
 
