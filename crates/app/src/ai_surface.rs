@@ -1,5 +1,5 @@
 use crate::{AiJobStatus, AiState, AiStatus, ProposalStatus};
-use noet_ai::{ProposalKind, ProposalPayload};
+use noet_ai::{ProposalKind, ProposalPayload, ProposalTarget, SourceRef};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AiSurface {
@@ -21,6 +21,10 @@ pub struct AiProposalRow {
     pub kind: String,
     pub target: String,
     pub summary: String,
+    pub preview: String,
+    pub source: String,
+    pub rationale: String,
+    pub confidence: String,
     pub requires_confirmation: bool,
 }
 
@@ -64,8 +68,12 @@ pub fn ai_surface(state: &AiState) -> AiSurface {
                 id: entry.id.clone(),
                 status: proposal_status_label(&entry.status).into(),
                 kind: proposal_kind_label(&entry.proposal.kind).into(),
-                target: format!("{:?}", entry.proposal.target),
+                target: target_label(&entry.proposal.target),
                 summary: proposal_summary(&entry.proposal.payload),
+                preview: proposal_preview(&entry.proposal.payload),
+                source: proposal_source_summary(&entry.proposal.payload, &entry.proposal.target),
+                rationale: entry.proposal.rationale.clone(),
+                confidence: confidence_label(entry.proposal.confidence),
                 requires_confirmation: entry.proposal.requires_confirmation,
             })
             .collect(),
@@ -109,6 +117,189 @@ fn proposal_summary(payload: &ProposalPayload) -> String {
         ProposalPayload::PatchNote(patch) => format!("patch {}", patch.note_id),
         ProposalPayload::ChangeTaskState(change) => format!("{:?}", change.proposed_state),
     }
+}
+
+fn proposal_preview(payload: &ProposalPayload) -> String {
+    let lines = match payload {
+        ProposalPayload::DraftAgenda(draft) => draft
+            .sections
+            .iter()
+            .flat_map(|section| {
+                section.items.iter().map(move |item| {
+                    if section.title.trim().is_empty() {
+                        item.text.clone()
+                    } else {
+                        format!("{}: {}", section.title, item.text)
+                    }
+                })
+            })
+            .collect::<Vec<_>>(),
+        ProposalPayload::ReviewNote(review) => {
+            let mut lines = review
+                .findings
+                .iter()
+                .map(|finding| format!("{:?}: {}", finding.kind, finding.text))
+                .collect::<Vec<_>>();
+            lines.extend(review.label_suggestions.iter().map(|label| {
+                format!("#{}: {}", label.label.trim_start_matches('#'), label.reason)
+            }));
+            lines.extend(
+                review
+                    .task_extractions
+                    .iter()
+                    .map(|task| format!("Task: {}", task.text)),
+            );
+            lines
+        }
+        ProposalPayload::AddLabels(labels) => labels
+            .suggestions
+            .iter()
+            .map(|label| format!("#{}: {}", label.label.trim_start_matches('#'), label.reason))
+            .collect(),
+        ProposalPayload::ExtractTasks(tasks) => tasks
+            .tasks
+            .iter()
+            .map(|task| {
+                let mut parts = vec![task.text.clone()];
+                if let Some(person) = &task.person {
+                    if !person.trim().is_empty() {
+                        parts.push(format!("@{person}"));
+                    }
+                }
+                if let Some(due) = &task.due {
+                    if !due.trim().is_empty() {
+                        parts.push(format!("due:{due}"));
+                    }
+                }
+                parts.extend(task.labels.iter().map(|label| {
+                    if label.starts_with('#') {
+                        label.clone()
+                    } else {
+                        format!("#{label}")
+                    }
+                }));
+                parts.join(" ")
+            })
+            .collect(),
+        ProposalPayload::PromoteTask(task) => {
+            let body = first_content_line(&task.proposed_body).unwrap_or_default();
+            vec![format!("{} {}", task.proposed_title, body)
+                .trim()
+                .to_string()]
+        }
+        ProposalPayload::PatchNote(patch) => {
+            let first = first_content_line(&patch.patch).unwrap_or_else(|| "Patch proposal".into());
+            vec![format!("{}: {first}", patch.note_id)]
+        }
+        ProposalPayload::ChangeTaskState(change) => {
+            vec![format!("{:?}: {}", change.proposed_state, change.task_id)]
+        }
+    };
+    compact_join(lines, "No preview available")
+}
+
+fn proposal_source_summary(payload: &ProposalPayload, target: &ProposalTarget) -> String {
+    let mut sources = proposal_source_labels(payload);
+    if sources.is_empty() {
+        sources.push(target_label(target));
+    }
+    compact_join(sources, "No source")
+}
+
+fn proposal_source_labels(payload: &ProposalPayload) -> Vec<String> {
+    match payload {
+        ProposalPayload::DraftAgenda(draft) => draft
+            .sections
+            .iter()
+            .flat_map(|section| section.items.iter())
+            .flat_map(|item| item.sources.iter().map(source_label))
+            .collect(),
+        ProposalPayload::ReviewNote(review) => {
+            let mut sources = review
+                .findings
+                .iter()
+                .flat_map(|finding| finding.sources.iter().map(source_label))
+                .collect::<Vec<_>>();
+            sources.extend(
+                review
+                    .label_suggestions
+                    .iter()
+                    .flat_map(|label| label.sources.iter().map(source_label)),
+            );
+            sources.extend(
+                review
+                    .task_extractions
+                    .iter()
+                    .map(|task| source_label(&task.source)),
+            );
+            sources
+        }
+        ProposalPayload::AddLabels(labels) => labels
+            .suggestions
+            .iter()
+            .flat_map(|label| label.sources.iter().map(source_label))
+            .collect(),
+        ProposalPayload::ExtractTasks(tasks) => tasks
+            .tasks
+            .iter()
+            .map(|task| source_label(&task.source))
+            .collect(),
+        ProposalPayload::PromoteTask(task) => vec![source_label(&task.source)],
+        ProposalPayload::PatchNote(patch) => patch.sources.iter().map(source_label).collect(),
+        ProposalPayload::ChangeTaskState(change) => vec![source_label(&change.source)],
+    }
+}
+
+fn source_label(source: &SourceRef) -> String {
+    match source {
+        SourceRef::Note { note_id } => format!("Note {note_id}"),
+        SourceRef::Task { task_id } => format!("Task {task_id}"),
+        SourceRef::NoteHeading { note_id, heading } => format!("Note {note_id} / {heading}"),
+        SourceRef::SourceSpan {
+            note_id,
+            start,
+            end,
+        } => format!("Note {note_id} lines {start}-{end}"),
+        SourceRef::Synthetic { label } => label.clone(),
+    }
+}
+
+fn target_label(target: &ProposalTarget) -> String {
+    match target {
+        ProposalTarget::Note { note_id } => format!("Note {note_id}"),
+        ProposalTarget::Task { task_id } => format!("Task {task_id}"),
+        ProposalTarget::Person { name } => format!("Person {name}"),
+        ProposalTarget::Vault => "Vault".into(),
+    }
+}
+
+fn confidence_label(confidence: f32) -> String {
+    format!("{:.0}%", (confidence.clamp(0.0, 1.0) * 100.0).round())
+}
+
+fn compact_join(lines: Vec<String>, fallback: &str) -> String {
+    let mut seen = std::collections::BTreeSet::new();
+    let joined = lines
+        .into_iter()
+        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|line| !line.is_empty())
+        .filter(|line| seen.insert(line.clone()))
+        .take(3)
+        .collect::<Vec<_>>()
+        .join(" | ");
+    if joined.is_empty() {
+        fallback.into()
+    } else {
+        joined.chars().take(240).collect()
+    }
+}
+
+fn first_content_line(value: &str) -> Option<String> {
+    value
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(|line| line.chars().take(120).collect())
 }
 
 fn proposal_kind_label(kind: &ProposalKind) -> &'static str {
@@ -157,7 +348,12 @@ fn status_label(status: &AiStatus) -> &'static str {
 mod tests {
     use super::*;
     use crate::AiState;
-    use noet_ai::{AgendaDraft, AiProposal, HousekeepingJob, ProposalKind, ProposalTarget};
+    use noet_ai::{
+        AgendaDraft, AgendaItem, AgendaSection, AiProposal, HousekeepingJob, LabelSuggestion,
+        LabelSuggestions, NotePatchProposal, NoteReview, ProposalKind, ProposalPayload,
+        ProposalTarget, ProposedTaskState, ReviewFinding, ReviewFindingKind, SourceRef,
+        TaskExtraction, TaskExtractions, TaskPromotionProposal, TaskStateChangeProposal,
+    };
 
     #[test]
     fn ai_surface_summarizes_proposals_and_jobs() {
@@ -190,7 +386,169 @@ mod tests {
         assert!(surface.progress_cancellable);
         assert_eq!(surface.pending_proposals, 1);
         assert_eq!(surface.proposals[0].kind, "Draft agenda");
+        assert_eq!(surface.proposals[0].target, "Person Jane");
+        assert_eq!(surface.proposals[0].confidence, "100%");
         assert_eq!(surface.jobs[0].status, "Completed");
         assert_eq!(surface.jobs[0].produced_proposals, 1);
+    }
+
+    #[test]
+    fn ai_surface_previews_all_proposal_payloads() {
+        let mut state = AiState::default();
+        for proposal in proposal_samples() {
+            state.enqueue(proposal);
+        }
+
+        let rows = ai_surface(&state).proposals;
+
+        assert_eq!(rows.len(), 7);
+        assert!(rows.iter().any(|row| row.kind == "Draft agenda"
+            && row.preview.contains("Follow up")
+            && row.source.contains("Task task-1")));
+        assert!(rows.iter().any(|row| row.kind == "Review note"
+            && row.preview.contains("Risk")
+            && row.source.contains("Note note-1")));
+        assert!(rows.iter().any(|row| row.kind == "Add labels"
+            && row.preview.contains("#meeting")
+            && row.source.contains("Note note-1")));
+        assert!(rows.iter().any(|row| row.kind == "Extract tasks"
+            && row.preview.contains("Assign owner")
+            && row.source.contains("Note note-1")));
+        assert!(rows.iter().any(|row| row.kind == "Promote task"
+            && row.preview.contains("Launch owner")
+            && row.source.contains("Task task-1")));
+        assert!(rows.iter().any(|row| row.kind == "Patch note"
+            && row.preview.contains("note-1")
+            && row.source.contains("Note note-1")));
+        assert!(rows.iter().any(|row| row.kind == "Change task state"
+            && row.preview.contains("Resolve")
+            && row.source.contains("Task task-1")));
+    }
+
+    fn proposal_samples() -> Vec<AiProposal> {
+        vec![
+            proposal(
+                ProposalKind::DraftAgenda,
+                ProposalTarget::Person {
+                    name: "Jane".into(),
+                },
+                ProposalPayload::DraftAgenda(AgendaDraft {
+                    person: "Jane".into(),
+                    sections: vec![AgendaSection {
+                        title: "Agenda".into(),
+                        items: vec![AgendaItem {
+                            text: "Follow up on launch".into(),
+                            sources: vec![SourceRef::Task {
+                                task_id: "task-1".into(),
+                            }],
+                        }],
+                    }],
+                }),
+            ),
+            proposal(
+                ProposalKind::ReviewNote,
+                ProposalTarget::Note {
+                    note_id: "note-1".into(),
+                },
+                ProposalPayload::ReviewNote(NoteReview {
+                    findings: vec![ReviewFinding {
+                        kind: ReviewFindingKind::Risk,
+                        text: "Model loading pressure".into(),
+                        sources: vec![SourceRef::Note {
+                            note_id: "note-1".into(),
+                        }],
+                    }],
+                    label_suggestions: Vec::new(),
+                    task_extractions: Vec::new(),
+                }),
+            ),
+            proposal(
+                ProposalKind::AddLabels,
+                ProposalTarget::Note {
+                    note_id: "note-1".into(),
+                },
+                ProposalPayload::AddLabels(LabelSuggestions {
+                    suggestions: vec![LabelSuggestion {
+                        label: "meeting".into(),
+                        reason: "Looks like meeting notes".into(),
+                        sources: vec![SourceRef::Note {
+                            note_id: "note-1".into(),
+                        }],
+                    }],
+                }),
+            ),
+            proposal(
+                ProposalKind::ExtractTasks,
+                ProposalTarget::Note {
+                    note_id: "note-1".into(),
+                },
+                ProposalPayload::ExtractTasks(TaskExtractions {
+                    tasks: vec![TaskExtraction {
+                        text: "Assign owner".into(),
+                        person: Some("Jane".into()),
+                        due: Some("2026-06-17".into()),
+                        labels: vec!["followup".into()],
+                        source: SourceRef::Note {
+                            note_id: "note-1".into(),
+                        },
+                    }],
+                }),
+            ),
+            proposal(
+                ProposalKind::PromoteTask,
+                ProposalTarget::Task {
+                    task_id: "task-1".into(),
+                },
+                ProposalPayload::PromoteTask(TaskPromotionProposal {
+                    source_task_id: "task-1".into(),
+                    proposed_title: "Launch owner".into(),
+                    proposed_body: "# Launch owner\n\nConfirm owner.".into(),
+                    source: SourceRef::Task {
+                        task_id: "task-1".into(),
+                    },
+                }),
+            ),
+            proposal(
+                ProposalKind::PatchNote,
+                ProposalTarget::Note {
+                    note_id: "note-1".into(),
+                },
+                ProposalPayload::PatchNote(NotePatchProposal {
+                    note_id: "note-1".into(),
+                    patch: "+ #meeting".into(),
+                    sources: vec![SourceRef::Note {
+                        note_id: "note-1".into(),
+                    }],
+                }),
+            ),
+            proposal(
+                ProposalKind::ChangeTaskState,
+                ProposalTarget::Task {
+                    task_id: "task-1".into(),
+                },
+                ProposalPayload::ChangeTaskState(TaskStateChangeProposal {
+                    task_id: "task-1".into(),
+                    proposed_state: ProposedTaskState::Resolve,
+                    source: SourceRef::Task {
+                        task_id: "task-1".into(),
+                    },
+                }),
+            ),
+        ]
+    }
+
+    fn proposal(
+        kind: ProposalKind,
+        target: ProposalTarget,
+        payload: ProposalPayload,
+    ) -> AiProposal {
+        AiProposal {
+            kind,
+            target,
+            payload,
+            rationale: "Because the proposal is source-linked.".into(),
+            confidence: 0.82,
+            requires_confirmation: true,
+        }
     }
 }

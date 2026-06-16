@@ -833,6 +833,10 @@ fn ai_proposal_ui(row: AiProposalRow) -> AiProposalUi {
         kind: row.kind.into(),
         target: row.target.into(),
         summary: row.summary.into(),
+        preview: row.preview.into(),
+        source: row.source.into(),
+        rationale: row.rationale.into(),
+        confidence: row.confidence.into(),
         requires_confirmation: row.requires_confirmation,
     }
 }

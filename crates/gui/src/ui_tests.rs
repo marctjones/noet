@@ -107,6 +107,22 @@ fn headless_ui_smoke() {
         1,
         "AI proposal queue should render the queued proposal"
     );
+    let proposal_card = ui
+        .get_ai_proposals()
+        .row_data(0)
+        .expect("AI proposal row should exist");
+    assert!(
+        !proposal_card.preview.is_empty(),
+        "AI proposal should expose a richer preview"
+    );
+    assert!(
+        !proposal_card.source.is_empty(),
+        "AI proposal should expose source context"
+    );
+    assert!(
+        proposal_card.confidence.ends_with('%'),
+        "AI proposal should expose confidence"
+    );
     assert_eq!(
         ui.get_workspace_bottom_surface_id(),
         "ai-proposal-queue",
