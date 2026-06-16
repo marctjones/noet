@@ -1,3 +1,4 @@
+use crate::promote_task_to_note;
 use noet_ai::{AiProposal, LabelSuggestions, ProposalPayload, ProposedTaskState, TaskExtractions};
 use noet_core::{Backend, TodoFields};
 
@@ -20,9 +21,7 @@ pub fn apply_ai_proposal(
         ProposalPayload::AddLabels(labels) => apply_label_suggestions(backend, labels),
         ProposalPayload::ExtractTasks(tasks) => apply_task_extractions(backend, proposal, tasks),
         ProposalPayload::PromoteTask(task) => {
-            backend
-                .promote_todo_to_note(&task.source_task_id)
-                .map_err(|err| err.to_string())?;
+            promote_task_to_note(backend, &task.source_task_id)?;
             Ok(AiApplyReport {
                 tasks_promoted: 1,
                 ..Default::default()

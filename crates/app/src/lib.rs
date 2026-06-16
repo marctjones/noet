@@ -14,6 +14,7 @@ pub mod command;
 pub mod model;
 pub mod navigation;
 pub mod selection;
+pub mod task_workflow;
 pub mod workspace;
 
 pub use ai::{
@@ -31,6 +32,7 @@ pub use command::{AppCommand, CommandOutcome};
 pub use model::AppModel;
 pub use navigation::{FilterToken, NavigationState};
 pub use selection::SelectionState;
+pub use task_workflow::{promote_task_to_note, PromoteTaskReport};
 pub use workspace::{
     Axis, Pane, PaneId, PaneLayout, PanePlacement, PaneRole, PaneSize, Surface, SurfaceId,
     Workspace, WorkspaceId, WorkspacePreset, WorkspaceRegistry,

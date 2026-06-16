@@ -3465,9 +3465,9 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let todo_id = id.to_string();
             let mut s = state.borrow_mut();
             let _ = s.app.apply(AppCommand::PromoteTask(todo_id.clone()));
-            match s.backend.promote_todo_to_note(&todo_id) {
-                Ok(note) => {
-                    let promoted_id = note.id.clone();
+            match noet_app::promote_task_to_note(&mut s.backend, &todo_id) {
+                Ok(report) => {
+                    let promoted_id = report.promoted_note_id;
                     let _ = s.app.apply(AppCommand::SwitchWorkspace("notes".into()));
                     let _ = s.app.apply(AppCommand::OpenNote(promoted_id.clone()));
                     open_in_editor(&ui, &s.backend, &promoted_id);
