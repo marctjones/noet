@@ -65,6 +65,16 @@ inline `mistral.rs` build compiles:
 cargo check -p noet-gui --features mistralrs-inline
 ```
 
+The deterministic release gate is wrapped by:
+
+```bash
+scripts/release-smoke.sh
+```
+
+By default the script runs formatting, workspace tests, the inline `mistral.rs`
+compile check, and whitespace checks. It does not load local AI models or build
+installers unless explicitly requested.
+
 Model-backed smokes are ignored by default because they load local models. Run
 them only on a prepared machine after checking memory pressure:
 
@@ -72,6 +82,12 @@ them only on a prepared machine after checking memory pressure:
 memory_pressure
 cargo test -p noet-gui --features mistralrs-inline headless_ui_local_model_ai_smoke -- --ignored --nocapture
 cargo test -p noet-gui --features mistralrs-inline headless_ui_local_embedding_refresh_smoke -- --ignored --nocapture
+```
+
+The same model-backed checks can be run through the release smoke script:
+
+```bash
+NOET_RUN_LOCAL_MODEL_SMOKES=1 scripts/release-smoke.sh
 ```
 
 Expected local model cache inputs for the current smokes:
@@ -98,6 +114,13 @@ The macOS packaging script builds an Apple Silicon local artifact:
 
 ```bash
 ./scripts/package-macos.sh
+```
+
+The packaging step can be attached to the release smoke script when a local app
+bundle/DMG checkpoint is needed:
+
+```bash
+NOET_RUN_MACOS_PACKAGE=1 scripts/release-smoke.sh
 ```
 
 Outputs:
