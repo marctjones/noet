@@ -1796,6 +1796,7 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
     ui.set_ai_progress_active(ai.progress_active);
     ui.set_ai_progress_label(ai.progress_label.into());
     ui.set_ai_progress_detail(ai.progress_detail.into());
+    ui.set_ai_progress_elapsed(ai.progress_elapsed.into());
     ui.set_ai_progress_cancellable(ai.progress_cancellable);
     ui.set_ai_pending_count(ai.pending_proposals as i32);
     ui.set_ai_proposals(ModelRc::new(VecModel::from(
@@ -4547,7 +4548,8 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                     apply_ai_worker_message(&ui, &mut s, message);
                     applied = true;
                 }
-                if applied {
+                let progress_active = state.borrow().app.ai.progress.is_some();
+                if applied || progress_active {
                     refresh(&ui, &state.borrow());
                 }
             },

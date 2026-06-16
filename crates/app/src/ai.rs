@@ -1,5 +1,6 @@
 use noet_ai::{AiProposal, HousekeepingJob, ProposalTarget, SourceRef};
 use serde::{Deserialize, Serialize};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub type ProposalId = String;
 
@@ -77,6 +78,7 @@ impl AiState {
         self.progress = Some(AiProgress {
             label: label.into(),
             detail: detail.into(),
+            started_unix_millis: current_unix_millis(),
             cancellable,
             cancel_requested: false,
         });
@@ -223,8 +225,22 @@ pub struct QueuedAiJob {
 pub struct AiProgress {
     pub label: String,
     pub detail: String,
+    pub started_unix_millis: u64,
     pub cancellable: bool,
     pub cancel_requested: bool,
+}
+
+impl AiProgress {
+    pub fn elapsed_seconds(&self) -> u64 {
+        current_unix_millis().saturating_sub(self.started_unix_millis) / 1_000
+    }
+}
+
+fn current_unix_millis() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis().min(u128::from(u64::MAX)) as u64)
+        .unwrap_or_default()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

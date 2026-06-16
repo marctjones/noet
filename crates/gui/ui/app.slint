@@ -1186,6 +1186,7 @@ export component AppWindow inherits Window {
     in property <bool> ai-progress-active: false;
     in property <string> ai-progress-label: "";
     in property <string> ai-progress-detail: "";
+    in property <string> ai-progress-elapsed: "";
     in property <bool> ai-progress-cancellable: false;
     in property <int> ai-pending-count: 0;
     in property <[AiProposalUi]> ai-proposals;
@@ -2200,7 +2201,7 @@ export component AppWindow inherits Window {
                                     HorizontalLayout {
                                         SectionTitle { title: "AI PROPOSALS"; detail: root.ai-status + " · " + root.ai-pending-count + " pending"; accent: Theme.accent; horizontal-stretch: 1; }
                                         if root.ai-progress-active: Text {
-                                            text: root.ai-progress-label + " · " + root.ai-progress-detail;
+                                            text: root.ai-progress-label + " · " + root.ai-progress-detail + " · " + root.ai-progress-elapsed;
                                             font-size: (11px * Z.f);
                                             color: Theme.text2;
                                             vertical-alignment: center;

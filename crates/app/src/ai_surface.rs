@@ -7,6 +7,7 @@ pub struct AiSurface {
     pub progress_active: bool,
     pub progress_label: String,
     pub progress_detail: String,
+    pub progress_elapsed: String,
     pub progress_cancellable: bool,
     pub pending_proposals: usize,
     pub proposals: Vec<AiProposalRow>,
@@ -49,6 +50,9 @@ pub fn ai_surface(state: &AiState) -> AiSurface {
                 }
             })
             .unwrap_or_default(),
+        progress_elapsed: progress
+            .map(|progress| elapsed_label(progress.elapsed_seconds()))
+            .unwrap_or_default(),
         progress_cancellable: progress
             .map(|progress| progress.cancellable && !progress.cancel_requested)
             .unwrap_or(false),
@@ -76,6 +80,16 @@ pub fn ai_surface(state: &AiState) -> AiSurface {
                 failure: entry.failure.clone(),
             })
             .collect(),
+    }
+}
+
+fn elapsed_label(seconds: u64) -> String {
+    let minutes = seconds / 60;
+    let seconds = seconds % 60;
+    if minutes == 0 {
+        format!("{seconds}s")
+    } else {
+        format!("{minutes}m {seconds:02}s")
     }
 }
 
@@ -164,10 +178,16 @@ mod tests {
         });
         let job_id = state.enqueue_job(HousekeepingJob::FindUnlabeledMeetings);
         assert!(state.complete_job(&job_id, vec![proposal_id]));
+        state.start_progress("Review note", "Loading local model", true);
 
         let surface = ai_surface(&state);
 
         assert_eq!(surface.status, "Ready");
+        assert!(surface.progress_active);
+        assert_eq!(surface.progress_label, "Review note");
+        assert_eq!(surface.progress_detail, "Loading local model");
+        assert!(!surface.progress_elapsed.is_empty());
+        assert!(surface.progress_cancellable);
         assert_eq!(surface.pending_proposals, 1);
         assert_eq!(surface.proposals[0].kind, "Draft agenda");
         assert_eq!(surface.jobs[0].status, "Completed");

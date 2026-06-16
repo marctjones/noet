@@ -749,6 +749,15 @@ mod tests {
         );
         assert!(
             model
+                .ai
+                .progress
+                .as_ref()
+                .map(|progress| progress.elapsed_seconds() < 2)
+                .unwrap_or(false),
+            "new progress should expose a fresh elapsed timer"
+        );
+        assert!(
+            model
                 .apply(AppCommand::UpdateAiProgressDetail(
                     "Generating proposal".into()
                 ))
