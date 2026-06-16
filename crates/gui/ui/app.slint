@@ -948,6 +948,108 @@ component AgendaRow inherits Rectangle {
     }
 }
 
+component FocusTodoRow inherits Rectangle {
+    in property <TodoItem> t;
+    callback cycle(string);
+    callback edit(string);
+    callback open(string);
+    callback promote(string);
+    height: 50px;
+    border-radius: 6px;
+    background: ftr.has-hover ? Theme.surface3 : transparent;
+    animate background { duration: 100ms; }
+    accessible-role: button;
+    accessible-label: "Open current-note todo " + t.text;
+    accessible-description: t.status + (t.person != "" ? " assigned to " + t.person : "") + (t.project != "" ? " in " + t.project : "") + (t.due != "" ? " due " + t.due : "");
+    accessible-action-default => { root.open(t.id); }
+    ftr := TouchArea { double-clicked => { root.open(t.id); } }
+    HorizontalLayout {
+        padding: 6px;
+        spacing: 7px;
+        Rectangle {
+            width: 18px;
+            height: 18px;
+            y: 3px;
+            border-radius: 4px;
+            border-width: 1.5px;
+            border-color: (t.status == "doing" || ftc.has-hover) ? Theme.accent : Theme.text3;
+            background: t.status == "done" ? #1f9d57 : (t.status == "doing" ? Theme.sel : Theme.surface);
+            accessible-role: checkbox;
+            accessible-checkable: true;
+            accessible-label: "Cycle current-note todo " + root.t.text;
+            accessible-checked: root.t.status == "done";
+            accessible-description: "Current status " + root.t.status;
+            accessible-action-default => { root.cycle(root.t.id); }
+            Text {
+                text: t.status == "done" ? "✓" : (t.status == "doing" ? "•" : "");
+                color: t.status == "done" ? white : Theme.accent;
+                font-size: (13px * Z.f);
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            ftc := TouchArea { mouse-cursor: pointer; clicked => { root.cycle(t.id); } }
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 2px;
+            Text {
+                text: (t.priority != "" ? "[" + t.priority + "] " : "") + t.text;
+                font-size: (12.5px * Z.f);
+                font-weight: 650;
+                color: t.done ? Theme.text3 : Theme.text;
+                overflow: elide;
+            }
+            HorizontalLayout {
+                spacing: 4px;
+                Chip { text: t.status; tint: #eef2f7; ink: #67727d; }
+                Chip { text: t.due; tint: #fde7ea; ink: #9a1b33; }
+                Chip { text: t.project; tint: #e7f7ec; ink: #1f7a44; }
+            }
+        }
+        if ftr.has-hover: MiniBtn { icon: Icons.notes; a11y: "Promote current-note todo " + t.text; clicked => { root.promote(t.id); } }
+        if ftr.has-hover: MiniBtn { icon: Icons.edit; a11y: "Edit current-note todo " + t.text; clicked => { root.edit(t.id); } }
+        MiniBtn { icon: Icons.external; a11y: "Open source note for current-note todo " + t.text; clicked => { root.open(t.id); } }
+    }
+}
+
+component CurrentTodoRail inherits Rectangle {
+    in property <[TodoItem]> todos;
+    in property <int> count;
+    callback cycle(string);
+    callback edit(string);
+    callback open(string);
+    callback promote(string);
+    width: 224px;
+    background: Theme.surface2;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Theme.border;
+    accessible-role: groupbox;
+    accessible-label: "Todos in this note";
+    accessible-description: count + " open";
+    VerticalLayout {
+        padding: 10px;
+        spacing: 6px;
+        SectionTitle { title: "TODOS"; detail: root.count + " in note"; accent: #b8742e; }
+        if root.count == 0: EmptyState { glyph: "✓"; title: "No todos"; hint: "Type - [ ] in the note or use Add task."; }
+        ScrollView {
+            visible: root.count > 0;
+            viewport-width: self.width;
+            vertical-stretch: 1;
+            VerticalLayout {
+                spacing: 4px;
+                for t in root.todos: FocusTodoRow {
+                    t: t;
+                    cycle(id) => { root.cycle(id); }
+                    edit(id) => { root.edit(id); }
+                    open(id) => { root.open(id); }
+                    promote(id) => { root.promote(id); }
+                }
+            }
+        }
+    }
+}
+
 // A row inside a dropdown menu: leading glyph, label, optional shortcut hint,
 // and a destructive (danger) variant for actions like Delete.
 component MenuItem inherits Rectangle {
@@ -1086,6 +1188,7 @@ export component AppWindow inherits Window {
     in property <[TodoItem]> agenda-later;
     in property <[NoteItem]> inbox-notes;
     in property <[TodoItem]> current-todos;
+    in property <int> current-todo-count;
     in property <[NoteRef]> current-backlinks;
     in property <[RelatedRef]> current-related; // prior notes to link this one to
     in property <[RelatedRef]> current-sources; // explicit source:[[note#^anchor]] links
@@ -1132,7 +1235,7 @@ export component AppWindow inherits Window {
 
     // Resizable panes (drag the dividers)
     in-out property <length> rail-width: 232px;
-    in-out property <bool> nav-collapsed: false;
+    in-out property <bool> nav-collapsed: true;
     in-out property <bool> rail-hidden: false;
     // Responsive: below these widths the rails auto-collapse/hide regardless of the
     // user toggle, so a narrow window stays usable (the toggle takes effect again
@@ -1787,6 +1890,7 @@ export component AppWindow inherits Window {
                                                     accent: Theme.accent;
                                                     horizontal-stretch: 1;
                                                 }
+                                                if root.workspace-primary == "notes" && root.current-id != "": ActionButton { icon: Icons.focus; label: root.focus-mode ? "Exit writing" : "Writing"; a11y: root.focus-mode ? "Exit writing mode" : "Writing mode"; clicked => { root.toggle-notes-writing-mode(); } }
                                                 ActionButton { icon: Icons.people; label: root.workspace-left-eff-open ? "" : "Nav"; a11y: "Show navigation drawer"; clicked => { root.workspace-open-pane(root.workspace-left-pane-id); } }
                                                 ActionButton { icon: Icons.panel-right; label: root.workspace-right-eff-open ? "" : "Context"; a11y: "Show context pane"; clicked => { root.workspace-open-pane(root.workspace-right-pane-id); } }
                                                 ActionButton { icon: Icons.tasks; label: root.workspace-bottom-eff-open ? "" : "Queue"; a11y: "Show queue pane"; clicked => { root.workspace-open-pane(root.workspace-bottom-pane-id); } }
@@ -1863,57 +1967,72 @@ export component AppWindow inherits Window {
                                             if root.workspace-primary == "notes": Rectangle {
                                                 vertical-stretch: 1;
                                                 if root.current-id == "": EmptyState { glyph: "[]"; title: "No note selected"; hint: "Choose a note from the navigation drawer or create one."; }
-                                                if root.current-id != "": VerticalLayout {
+                                                if root.current-id != "": HorizontalLayout {
+                                                    width: 100%;
+                                                    height: 100%;
                                                     spacing: 8px;
-                                                    LineEdit { text <=> root.current-title; edited(t) => { root.note-title-edited(t); } }
-                                                    NoteBodySurface {
+                                                    CurrentTodoRail {
                                                         vertical-stretch: 1;
-                                                        editing: root.editing;
-                                                        source-mode <=> root.source-mode;
-                                                        body <=> root.current-body;
-                                                        blocks: root.md-blocks;
-                                                        current-is-typst: root.current-is-typst;
-                                                        render-image: root.render-image;
-                                                        rich-frame: root.rich-frame;
-                                                        rich-a11y: root.rich-a11y;
-                                                        rich-doc-height: root.rich-doc-height;
-                                                        rich-caret-x: root.rich-caret-x;
-                                                        rich-caret-y: root.rich-caret-y;
-                                                        rich-caret-h: root.rich-caret-h;
-                                                        rich-scroll-y <=> root.rich-scroll-y;
-                                                        rich-ac-items <=> root.rich-ac-items;
-                                                        rich-ac-index <=> root.rich-ac-index;
-                                                        rich-ac-open <=> root.rich-ac-open;
-                                                        note-edited => { root.note-edited(); }
-                                                        rich-insert-text(s) => { root.rich-insert-text(s); }
-                                                        rich-chord(s) => { root.rich-chord(s) }
-                                                        rich-special(s) => { root.rich-special(s); }
-                                                        rich-pointer-down(x, y) => { root.rich-pointer-down(x, y); }
-                                                        rich-pointer-drag(x, y) => { root.rich-pointer-drag(x, y); }
-                                                        rich-pointer-double(x, y) => { root.rich-pointer-double(x, y); }
-                                                        rich-resized(w, h) => { root.rich-resized(w, h); }
-                                                        rich-scrolled(y) => { root.rich-scrolled(y); }
-                                                        rich-ac-key(k) => { root.rich-ac-key(k); }
-                                                        rich-ac-pick(i) => { root.rich-ac-pick(i); }
-                                                        activate-segment(kind, value) => {
-                                                            if (kind == "url") { root.open-url(value); }
-                                                            if (kind == "email") { root.open-url("mailto:" + value); }
-                                                            if (kind == "project") { root.toggle-project(value); }
-                                                            if (kind == "person") { root.toggle-person(value); }
-                                                            if (kind == "tag") { root.toggle-tag(value); }
-                                                        }
-                                                        toggle-todo(id) => { root.toggle-todo(id); }
-                                                        toggle-fold(idx) => { root.toggle-fold(idx); }
+                                                        todos: root.current-todos;
+                                                        count: root.current-todo-count;
+                                                        cycle(id) => { root.cycle-todo(id); }
+                                                        edit(id) => { root.edit-todo(id); }
+                                                        open(id) => { root.open-note(id); }
+                                                        promote(id) => { root.promote-task(id); }
                                                     }
-                                                    HorizontalLayout {
-                                                        spacing: 6px;
-                                                        ActionButton { icon: Icons.edit; label: root.editing ? "Done" : "Edit"; clicked => { if (root.editing) { root.stop-editing(); } else { root.source-mode = false; root.editing = true; } } }
-                                                        ActionButton { icon: Icons.focus; label: root.focus-mode ? "Exit writing" : "Writing mode"; a11y: root.focus-mode ? "Exit writing mode" : "Writing mode"; clicked => { root.toggle-notes-writing-mode(); } }
-                                                        ActionButton { icon: Icons.textsize; label: (root.editing && root.source-mode) ? "Preview" : "Source"; clicked => { if (root.editing && root.source-mode) { root.source-mode = false; } else { root.source-mode = true; root.editing = true; } } }
-                                                        ActionButton { icon: Icons.check; label: "Add task"; clicked => { root.open-add-todo(); } }
-                                                        ActionButton { icon: Icons.info; label: "Review note"; clicked => { root.ai-review-note(); } }
-                                                        ActionButton { icon: Icons.branch; label: "Related note"; clicked => { root.new-related-note(); } }
-                                                        ActionButton { icon: Icons.download; label: "Export PDF"; clicked => { root.export-note("pdf"); } }
+                                                    VerticalLayout {
+                                                        horizontal-stretch: 1;
+                                                        spacing: 8px;
+                                                        LineEdit { text <=> root.current-title; edited(t) => { root.note-title-edited(t); } }
+                                                        NoteBodySurface {
+                                                            vertical-stretch: 1;
+                                                            editing: root.editing;
+                                                            source-mode <=> root.source-mode;
+                                                            body <=> root.current-body;
+                                                            blocks: root.md-blocks;
+                                                            current-is-typst: root.current-is-typst;
+                                                            render-image: root.render-image;
+                                                            rich-frame: root.rich-frame;
+                                                            rich-a11y: root.rich-a11y;
+                                                            rich-doc-height: root.rich-doc-height;
+                                                            rich-caret-x: root.rich-caret-x;
+                                                            rich-caret-y: root.rich-caret-y;
+                                                            rich-caret-h: root.rich-caret-h;
+                                                            rich-scroll-y <=> root.rich-scroll-y;
+                                                            rich-ac-items <=> root.rich-ac-items;
+                                                            rich-ac-index <=> root.rich-ac-index;
+                                                            rich-ac-open <=> root.rich-ac-open;
+                                                            note-edited => { root.note-edited(); }
+                                                            rich-insert-text(s) => { root.rich-insert-text(s); }
+                                                            rich-chord(s) => { root.rich-chord(s) }
+                                                            rich-special(s) => { root.rich-special(s); }
+                                                            rich-pointer-down(x, y) => { root.rich-pointer-down(x, y); }
+                                                            rich-pointer-drag(x, y) => { root.rich-pointer-drag(x, y); }
+                                                            rich-pointer-double(x, y) => { root.rich-pointer-double(x, y); }
+                                                            rich-resized(w, h) => { root.rich-resized(w, h); }
+                                                            rich-scrolled(y) => { root.rich-scrolled(y); }
+                                                            rich-ac-key(k) => { root.rich-ac-key(k); }
+                                                            rich-ac-pick(i) => { root.rich-ac-pick(i); }
+                                                            activate-segment(kind, value) => {
+                                                                if (kind == "url") { root.open-url(value); }
+                                                                if (kind == "email") { root.open-url("mailto:" + value); }
+                                                                if (kind == "project") { root.toggle-project(value); }
+                                                                if (kind == "person") { root.toggle-person(value); }
+                                                                if (kind == "tag") { root.toggle-tag(value); }
+                                                            }
+                                                            toggle-todo(id) => { root.toggle-todo(id); }
+                                                            toggle-fold(idx) => { root.toggle-fold(idx); }
+                                                        }
+                                                        HorizontalLayout {
+                                                            spacing: 6px;
+                                                            ActionButton { icon: Icons.edit; label: root.editing ? "Done" : "Edit"; clicked => { if (root.editing) { root.stop-editing(); } else { root.source-mode = false; root.editing = true; } } }
+                                                            ActionButton { icon: Icons.focus; label: root.focus-mode ? "Exit writing" : "Writing mode"; a11y: root.focus-mode ? "Exit writing mode" : "Writing mode"; clicked => { root.toggle-notes-writing-mode(); } }
+                                                            ActionButton { icon: Icons.textsize; label: (root.editing && root.source-mode) ? "Preview" : "Source"; clicked => { if (root.editing && root.source-mode) { root.source-mode = false; } else { root.source-mode = true; root.editing = true; } } }
+                                                            ActionButton { icon: Icons.check; label: "Add task"; clicked => { root.open-add-todo(); } }
+                                                            ActionButton { icon: Icons.info; label: "Review note"; clicked => { root.ai-review-note(); } }
+                                                            ActionButton { icon: Icons.branch; label: "Related note"; clicked => { root.new-related-note(); } }
+                                                            ActionButton { icon: Icons.download; label: "Export PDF"; clicked => { root.export-note("pdf"); } }
+                                                        }
                                                     }
                                                 }
                                             }
@@ -2172,26 +2291,13 @@ export component AppWindow inherits Window {
                                             ScrollView {
                                                 VerticalLayout {
                                                     spacing: 8px;
-                                                    PaneSection {
+                                                    if root.workspace-primary == "oneonone": PaneSection {
                                                         title: "1:1 history";
                                                         detail: root.person-oneonone-count + " notes";
                                                         accent: #9a5b1b;
                                                         for n in root.person-oneonone-notes: NoteRow {
                                                             note: n;
                                                             open(id) => { root.workspace-switch("one-on-one-focus"); root.select-note(id); }
-                                                        }
-                                                    }
-                                                    PaneSection {
-                                                        title: "Todos in this note";
-                                                        detail: root.current-todos.length + " open";
-                                                        accent: #b8742e;
-                                                        if root.current-todos.length == 0: EmptyState { glyph: "✓"; title: "No todos"; hint: "Tasks you type here will appear beside the note."; }
-                                                        for t in root.current-todos: AgendaRow {
-                                                            t: t;
-                                                            cycle(id) => { root.cycle-todo(id); }
-                                                            edit(id) => { root.edit-todo(id); }
-                                                            open(id) => { root.open-note(id); }
-                                                            promote(id) => { root.promote-task(id); }
                                                         }
                                                     }
                                                     PaneSection {

@@ -36,12 +36,17 @@ mod ipc;
 mod startup;
 mod surface_adapters;
 mod tray;
+mod ui_trace;
 mod workspace_adapter;
 
 /// Apply a forwarded single-instance command (or one this instance launched with):
 /// `new-meeting` opens a fresh meeting note; `show` just surfaces the window.
 fn dispatch_cmd(ui: &AppWindow, cmd: &str) {
     use slint::ComponentHandle;
+    ui_trace::event(
+        "single_instance_command",
+        serde_json::json!({ "command": cmd }),
+    );
     match cmd {
         "new-meeting" => {
             let _ = ui.show();
@@ -795,6 +800,7 @@ fn palette_results(b: &Backend, query: &str) -> Vec<PaletteItem> {
 
 /// Dispatch a chosen palette item id (see the `PaletteItem` doc in app.slint).
 fn palette_activate(ui: &AppWindow, id: &str) {
+    ui_trace::event("callback.palette_activate", serde_json::json!({ "id": id }));
     if let Some(v) = id.strip_prefix("v:") {
         ui.invoke_set_view(v.into());
     } else if let Some(nid) = id.strip_prefix("n:") {
@@ -1889,6 +1895,7 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
     ui.set_filter_priority(surface_adapters::filter_value_or_any(&f.priority).into());
     ui.set_filter_due(surface_adapters::due_display(&f.due_bucket).into());
     refresh_tabs(ui, state); // keep the open-notes tab strip in sync
+    ui_trace::refresh(ui, state);
 }
 
 fn sync_ai_settings_status(ui: &AppWindow, settings: &noet_app::AiSettings) {
@@ -2034,8 +2041,31 @@ fn refresh_after_task_writeback<F>(
                 open_in_editor(ui, &state.backend, &current);
             }
             ui.set_status_text(success_message.into());
+            ui_trace::ui_event(
+                "task_writeback",
+                ui,
+                state,
+                serde_json::json!({
+                    "todo_id": todo_id,
+                    "accepted": true,
+                    "message": success_message,
+                }),
+            );
         }
-        Err(e) => ui.set_status_text(format!("Task update failed: {e}").into()),
+        Err(e) => {
+            let message = format!("Task update failed: {e}");
+            ui.set_status_text(message.clone().into());
+            ui_trace::ui_event(
+                "task_writeback",
+                ui,
+                state,
+                serde_json::json!({
+                    "todo_id": todo_id,
+                    "accepted": false,
+                    "message": message,
+                }),
+            );
+        }
     }
     refresh(ui, state);
 }
@@ -2141,6 +2171,7 @@ fn render_read(ui: &AppWindow, b: &Backend, note: &backend::Note) {
             .filter(|task| task.status.is_open())
             .cloned()
             .collect::<Vec<_>>();
+        ui.set_current_todo_count(current_todos.len() as i32);
         ui.set_current_todos(ModelRc::new(VecModel::from(surface_adapters::task_items(
             &current_todos,
         ))));
@@ -2148,6 +2179,7 @@ fn render_read(ui: &AppWindow, b: &Backend, note: &backend::Note) {
             &context.sources,
         ))));
     } else {
+        ui.set_current_todo_count(0);
         ui.set_current_todos(ModelRc::new(VecModel::from(Vec::<TodoItem>::new())));
         ui.set_current_sources(ModelRc::new(VecModel::from(Vec::<RelatedRef>::new())));
     }
@@ -2241,6 +2273,7 @@ fn persist_ai_settings(s: &State) {
 /// Open the vault, build the window, and register every callback. The caller
 /// adds the file watcher + reload timer and runs the event loop (see `main`).
 fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
+    ui_trace::init(&vault);
     // Open without indexing — the window appears instantly regardless of vault
     // size; the first index runs on a background thread (set up by the caller).
     let mut backend = Backend::open_lazy(vault.clone())?;
@@ -2301,6 +2334,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
     // populates it a moment later via on_reindex_finished.
     ui.set_status_text("Indexing…".into());
     refresh(&ui, &state.borrow());
+    ui_trace::ui_event("app_setup", &ui, &state.borrow(), serde_json::json!({}));
 
     // Populate the Settings view. The paths are informational; vault-input is the
     // editable field. The index lives outside the vault (OS cache dir).
@@ -2477,6 +2511,10 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         let ui_w = ui.as_weak();
         ui.on_link_related(move |title| {
             let ui = ui_w.unwrap();
+            ui_trace::event(
+                "callback.link_related",
+                serde_json::json!({ "title": title.to_string() }),
+            );
             RICH.with(|r| {
                 r.borrow_mut()
                     .apply(SredCmd::Insert(format!("[[{title}]] ")))
@@ -2865,11 +2903,19 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
             let proj = s.filter.project.clone();
+            ui_trace::ui_event(
+                "callback.new_note",
+                &ui,
+                &s,
+                serde_json::json!({ "project": proj }),
+            );
             if let Ok(n) = noet_app::create_note_in_workstream(&mut s.backend, &proj) {
                 let id = n.id.clone();
                 // inherit the active workstream context so the note is auto-filed
                 open_in_editor(&ui, &s.backend, &id);
-                s.app.apply(AppCommand::OpenNote(id));
+                let command = AppCommand::OpenNote(id);
+                let outcome = s.app.apply(command.clone());
+                ui_trace::command("command.new_note.open_note", &ui, &s, &command, &outcome);
                 ui.set_status_text(if proj.is_empty() {
                     "New note".into()
                 } else {
@@ -2903,7 +2949,9 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             }
             FOLDS.with(|f| f.borrow_mut().clear()); // fresh folds per note
             open_in_editor(&ui, &s.backend, &id); // records the recent (tab strip)
-            s.app.apply(AppCommand::OpenNote(id.to_string()));
+            let command = AppCommand::OpenNote(id.to_string());
+            let outcome = s.app.apply(command.clone());
+            ui_trace::command("command.select_note.open_note", &ui, &s, &command, &outcome);
             ui.set_editing(false); // selecting shows the read view (content visible)
             ui.set_status_text("".into());
             refresh(&ui, &s); // refresh() rebuilds the tab strip
@@ -3064,6 +3112,12 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
             let todo_id = id.to_string();
+            ui_trace::ui_event(
+                "callback.toggle_todo",
+                &ui,
+                &s,
+                serde_json::json!({ "todo_id": todo_id }),
+            );
             refresh_after_task_writeback(&ui, &mut s, &todo_id, "Task toggled", |backend| {
                 noet_app::toggle_task(backend, &todo_id).map_err(anyhow::Error::msg)
             });
@@ -3089,12 +3143,18 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 let workspace_id = workspace_adapter::workspace_id_from_key(
                     &ui.get_workspace_primary().to_string(),
                 );
-                state
-                    .borrow_mut()
-                    .app
-                    .apply(AppCommand::SwitchWorkspace(workspace_id));
+                let mut s = state.borrow_mut();
+                let command = AppCommand::SwitchWorkspace(workspace_id);
+                let outcome = s.app.apply(command.clone());
+                ui_trace::command("command.set_view.workspace", &ui, &s, &command, &outcome);
             }
             ui.set_view(requested.into());
+            ui_trace::ui_event(
+                "callback.set_view",
+                &ui,
+                &state.borrow(),
+                serde_json::json!({ "view": ui.get_view().to_string() }),
+            );
             refresh(&ui, &state.borrow());
         });
     }
@@ -3107,7 +3167,9 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
             let workspace_id = workspace_adapter::workspace_id_from_key(&workspace_id);
-            let outcome = s.app.apply(AppCommand::SwitchWorkspace(workspace_id));
+            let command = AppCommand::SwitchWorkspace(workspace_id);
+            let outcome = s.app.apply(command.clone());
+            ui_trace::command("command.workspace_switch", &ui, &s, &command, &outcome);
             if !outcome.accepted {
                 if let Some(message) = outcome.message {
                     ui.set_status_text(message.into());
@@ -3126,7 +3188,9 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             }
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
-            let outcome = s.app.apply(AppCommand::OpenPane(pane_id.to_string()));
+            let command = AppCommand::OpenPane(pane_id.to_string());
+            let outcome = s.app.apply(command.clone());
+            ui_trace::command("command.workspace_open_pane", &ui, &s, &command, &outcome);
             if !outcome.accepted {
                 if let Some(message) = outcome.message {
                     ui.set_status_text(message.into());
@@ -3144,7 +3208,9 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             }
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
-            let outcome = s.app.apply(AppCommand::ClosePane(pane_id.to_string()));
+            let command = AppCommand::ClosePane(pane_id.to_string());
+            let outcome = s.app.apply(command.clone());
+            ui_trace::command("command.workspace_close_pane", &ui, &s, &command, &outcome);
             if !outcome.accepted {
                 if let Some(message) = outcome.message {
                     ui.set_status_text(message.into());
@@ -3162,10 +3228,12 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             }
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
-            let _ = s.app.apply(AppCommand::ResizePane {
+            let command = AppCommand::ResizePane {
                 pane_id: pane_id.to_string(),
                 size,
-            });
+            };
+            let outcome = s.app.apply(command.clone());
+            ui_trace::command("command.workspace_resize_pane", &ui, &s, &command, &outcome);
             workspace_adapter::sync(&ui, &s.app);
         });
     }
@@ -3180,11 +3248,27 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             }
             let mut s = state.borrow_mut();
             let surface = workspace_adapter::navigation_surface_from_key(&key);
-            let _ = s.app.apply(AppCommand::SetPaneSurface {
+            let command = AppCommand::SetPaneSurface {
                 pane_id: pane_id.clone(),
                 surface,
-            });
-            let _ = s.app.apply(AppCommand::OpenPane(pane_id));
+            };
+            let outcome = s.app.apply(command.clone());
+            ui_trace::command(
+                "command.workspace_set_nav_surface",
+                &ui,
+                &s,
+                &command,
+                &outcome,
+            );
+            let open_command = AppCommand::OpenPane(pane_id);
+            let open_outcome = s.app.apply(open_command.clone());
+            ui_trace::command(
+                "command.workspace_set_nav_surface.open_pane",
+                &ui,
+                &s,
+                &open_command,
+                &open_outcome,
+            );
             refresh(&ui, &s);
         });
     }
@@ -3194,6 +3278,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_ai_draft_agenda(move || {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
+            ui_trace::ui_event("callback.ai_draft_agenda", &ui, &s, serde_json::json!({}));
             enqueue_ai_draft_agenda(&ui, &mut s);
             refresh(&ui, &s);
         });
@@ -3204,6 +3289,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_ai_review_note(move || {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
+            ui_trace::ui_event("callback.ai_review_note", &ui, &s, serde_json::json!({}));
             enqueue_ai_note_review(&ui, &mut s);
             refresh(&ui, &s);
         });
@@ -3214,6 +3300,12 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_ai_refresh_embeddings(move || {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
+            ui_trace::ui_event(
+                "callback.ai_refresh_embeddings",
+                &ui,
+                &s,
+                serde_json::json!({}),
+            );
             refresh_ai_embeddings(&ui, &mut s);
         });
     }
@@ -3223,6 +3315,12 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_ai_semantic_search(move |query: SharedString| {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
+            ui_trace::ui_event(
+                "callback.ai_semantic_search",
+                &ui,
+                &s,
+                serde_json::json!({ "query": query.to_string() }),
+            );
             run_ai_semantic_search(&ui, &mut s, &query);
             refresh(&ui, &s);
         });
@@ -3233,6 +3331,12 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_ai_open_semantic_result(move |note_id: SharedString| {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
+            ui_trace::ui_event(
+                "callback.ai_open_semantic_result",
+                &ui,
+                &s,
+                serde_json::json!({ "note_id": note_id.to_string() }),
+            );
             open_semantic_result(&ui, &mut s, &note_id);
             refresh(&ui, &s);
         });
@@ -3243,9 +3347,9 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_ai_reject_proposal(move |proposal_id: SharedString| {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
-            let _ = s
-                .app
-                .apply(AppCommand::RejectAiProposal(proposal_id.to_string()));
+            let command = AppCommand::RejectAiProposal(proposal_id.to_string());
+            let outcome = s.app.apply(command.clone());
+            ui_trace::command("command.ai_reject_proposal", &ui, &s, &command, &outcome);
             refresh(&ui, &s);
         });
     }
@@ -3255,9 +3359,9 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_ai_defer_proposal(move |proposal_id: SharedString| {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
-            let _ = s
-                .app
-                .apply(AppCommand::DeferAiProposal(proposal_id.to_string()));
+            let command = AppCommand::DeferAiProposal(proposal_id.to_string());
+            let outcome = s.app.apply(command.clone());
+            ui_trace::command("command.ai_defer_proposal", &ui, &s, &command, &outcome);
             refresh(&ui, &s);
         });
     }
@@ -3267,9 +3371,9 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_ai_accept_proposal(move |proposal_id: SharedString| {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
-            let _ = s
-                .app
-                .apply(AppCommand::MarkAiProposalAccepted(proposal_id.to_string()));
+            let command = AppCommand::MarkAiProposalAccepted(proposal_id.to_string());
+            let outcome = s.app.apply(command.clone());
+            ui_trace::command("command.ai_accept_proposal", &ui, &s, &command, &outcome);
             refresh(&ui, &s);
         });
     }
@@ -3279,9 +3383,9 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_ai_inspect_proposal(move |proposal_id: SharedString| {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
-            let outcome = s
-                .app
-                .apply(AppCommand::InspectAiProposalSource(proposal_id.to_string()));
+            let command = AppCommand::InspectAiProposalSource(proposal_id.to_string());
+            let outcome = s.app.apply(command.clone());
+            ui_trace::command("command.ai_inspect_proposal", &ui, &s, &command, &outcome);
             if outcome.accepted {
                 open_app_selected_source(&ui, &mut s);
             }
@@ -3294,10 +3398,18 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_ai_inspect_proposal_source(move |proposal_id: SharedString, source_index: i32| {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
-            let outcome = s.app.apply(AppCommand::InspectAiProposalSourceAt {
+            let command = AppCommand::InspectAiProposalSourceAt {
                 proposal_id: proposal_id.to_string(),
                 source_index: source_index.max(0) as usize,
-            });
+            };
+            let outcome = s.app.apply(command.clone());
+            ui_trace::command(
+                "command.ai_inspect_proposal_source",
+                &ui,
+                &s,
+                &command,
+                &outcome,
+            );
             if outcome.accepted {
                 open_app_selected_source(&ui, &mut s);
             }
@@ -3313,7 +3425,9 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_ai_cancel(move || {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
-            let outcome = s.app.apply(AppCommand::RequestAiCancel);
+            let command = AppCommand::RequestAiCancel;
+            let outcome = s.app.apply(command.clone());
+            ui_trace::command("command.ai_cancel", &ui, &s, &command, &outcome);
             if outcome.accepted {
                 s.ai_cancel_token.cancel();
                 ui.set_status_text("AI cancel requested".into());
@@ -3331,6 +3445,12 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_set_group_by(move |g: SharedString| {
             let ui = ui_w.unwrap();
             ui.set_group_by(g);
+            ui_trace::ui_event(
+                "callback.set_group_by",
+                &ui,
+                &state.borrow(),
+                serde_json::json!({ "group_by": ui.get_group_by().to_string() }),
+            );
             refresh(&ui, &state.borrow());
         });
     }
@@ -3343,6 +3463,14 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         let search_timer = search_timer.clone();
         ui.on_set_search(move |t: SharedString| {
             state.borrow_mut().filter.search = t.to_string();
+            if let Some(ui) = ui_w.upgrade() {
+                ui_trace::ui_event(
+                    "callback.set_search",
+                    &ui,
+                    &state.borrow(),
+                    serde_json::json!({ "search_len": t.len() }),
+                );
+            }
             let ui_w = ui_w.clone();
             let state = state.clone();
             search_timer.start(
@@ -3376,13 +3504,27 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_toggle_project(move |name: SharedString| {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
+            ui_trace::ui_event(
+                "callback.toggle_project",
+                &ui,
+                &s,
+                serde_json::json!({ "project": name.to_string() }),
+            );
             s.filter.project = if s.filter.project == name.as_str() {
                 String::new()
             } else {
                 name.to_string()
             };
             if ui.get_view() == "workspace" {
-                let _ = s.app.apply(AppCommand::SwitchWorkspace("notes".into()));
+                let command = AppCommand::SwitchWorkspace("notes".into());
+                let outcome = s.app.apply(command.clone());
+                ui_trace::command(
+                    "command.toggle_project.switch_notes",
+                    &ui,
+                    &s,
+                    &command,
+                    &outcome,
+                );
                 ui.set_view("workspace".into());
             } else {
                 ui.set_view("notes".into());
@@ -3398,6 +3540,12 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_toggle_tag(move |name: SharedString| {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
+            ui_trace::ui_event(
+                "callback.toggle_tag",
+                &ui,
+                &s,
+                serde_json::json!({ "tag": name.to_string() }),
+            );
             s.filter.tag = if s.filter.tag == name.as_str() {
                 String::new()
             } else {
@@ -3405,7 +3553,15 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             };
             if ui.get_view() == SharedString::from("workspace") {
                 let workspace_id = workspace_adapter::workspace_id_from_key("notes");
-                let _ = s.app.apply(AppCommand::SwitchWorkspace(workspace_id));
+                let command = AppCommand::SwitchWorkspace(workspace_id);
+                let outcome = s.app.apply(command.clone());
+                ui_trace::command(
+                    "command.toggle_tag.switch_notes",
+                    &ui,
+                    &s,
+                    &command,
+                    &outcome,
+                );
             } else {
                 ui.set_view("notes".into()); // show notes with this label
             }
@@ -3420,6 +3576,12 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_toggle_person(move |name: SharedString| {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
+            ui_trace::ui_event(
+                "callback.toggle_person",
+                &ui,
+                &s,
+                serde_json::json!({ "person": name.to_string() }),
+            );
             s.filter.person = if s.filter.person == name.as_str() {
                 String::new()
             } else {
@@ -3437,6 +3599,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_clear_filters(move || {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
+            ui_trace::ui_event("callback.clear_filters", &ui, &s, serde_json::json!({}));
             s.filter = Filter::default();
             ui.set_search("".into());
             ui.set_status_filter("".into());
@@ -3475,10 +3638,21 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             // Remember the list we came from so the note view can offer a "← Back".
             let origin = ui.get_view().to_string();
             if origin != "notes" {
-                ui.set_note_return_view(origin.into());
+                ui.set_note_return_view(origin.clone().into());
             }
             {
                 let s = state.borrow();
+                ui_trace::ui_event(
+                    "callback.open_note",
+                    &ui,
+                    &s,
+                    serde_json::json!({
+                        "todo_or_note_id": todo_id.to_string(),
+                        "note_id": note_id,
+                        "line": line,
+                        "origin": origin,
+                    }),
+                );
                 open_in_editor(&ui, &s.backend, &note_id); // loads in edit mode + records recent
                 refresh_tabs(&ui, &s);
             }
@@ -3515,6 +3689,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_open_add_todo(move || {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
+            ui_trace::ui_event("callback.open_add_todo", &ui, &s, serde_json::json!({}));
             // Need a note to attach the todo to; make one if none is open.
             if ui.get_current_id().is_empty() {
                 if let Ok(n) = noet_app::create_note(&mut s.backend) {
@@ -3568,6 +3743,12 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_edit_todo(move |id: SharedString| {
             let ui = ui_w.unwrap();
             let s = state.borrow();
+            ui_trace::ui_event(
+                "callback.edit_todo",
+                &ui,
+                &s,
+                serde_json::json!({ "todo_id": id.to_string() }),
+            );
             if let Ok(t) = s.backend.get_todo(&id) {
                 ui.set_form_is_new(false);
                 ui.set_form_id(id);
@@ -3602,12 +3783,30 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let ui = ui_w.unwrap();
             let todo_id = id.to_string();
             let mut s = state.borrow_mut();
-            let _ = s.app.apply(AppCommand::PromoteTask(todo_id.clone()));
+            let command = AppCommand::PromoteTask(todo_id.clone());
+            let outcome = s.app.apply(command.clone());
+            ui_trace::command("command.promote_task", &ui, &s, &command, &outcome);
             match noet_app::promote_task_to_note(&mut s.backend, &todo_id) {
                 Ok(report) => {
                     let promoted_id = report.promoted_note_id;
-                    let _ = s.app.apply(AppCommand::SwitchWorkspace("notes".into()));
-                    let _ = s.app.apply(AppCommand::OpenNote(promoted_id.clone()));
+                    let switch_command = AppCommand::SwitchWorkspace("notes".into());
+                    let switch_outcome = s.app.apply(switch_command.clone());
+                    ui_trace::command(
+                        "command.promote_task.switch_notes",
+                        &ui,
+                        &s,
+                        &switch_command,
+                        &switch_outcome,
+                    );
+                    let open_command = AppCommand::OpenNote(promoted_id.clone());
+                    let open_outcome = s.app.apply(open_command.clone());
+                    ui_trace::command(
+                        "command.promote_task.open_note",
+                        &ui,
+                        &s,
+                        &open_command,
+                        &open_outcome,
+                    );
                     open_in_editor(&ui, &s.backend, &promoted_id);
                     ui.set_view("notes".into());
                     ui.set_status_text("Promoted task to note".into());
@@ -3648,6 +3847,22 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 repeat: ui.get_form_repeat().to_string().trim().to_string(),
             };
             let mut s = state.borrow_mut();
+            ui_trace::ui_event(
+                "callback.save_todo",
+                &ui,
+                &s,
+                serde_json::json!({
+                    "is_new": ui.get_form_is_new(),
+                    "todo_id": ui.get_form_id().to_string(),
+                    "kind": fields.kind,
+                    "status": fields.status,
+                    "text_len": fields.text.len(),
+                    "person": fields.person,
+                    "project": fields.project,
+                    "due": fields.due,
+                    "priority": fields.priority,
+                }),
+            );
             let result = if ui.get_form_is_new() {
                 let note_id = ui.get_current_id().to_string();
                 noet_app::add_task(&mut s.backend, &note_id, &fields).map(|_| ())
@@ -3766,6 +3981,10 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         let ui_w = ui.as_weak();
         ui.on_note_title_edited(move |title: SharedString| {
             let ui = ui_w.unwrap();
+            ui_trace::event(
+                "callback.note_title_edited",
+                serde_json::json!({ "title_len": title.len() }),
+            );
             let body = backend::set_markdown_title(&ui.get_current_body(), &title);
             ui.set_current_body(body.clone().into());
             rich_load(&ui, &body);
@@ -4264,7 +4483,9 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let ui = ui_w.unwrap();
             let name = name.to_string();
             let mut s = state.borrow_mut();
-            s.app.apply(AppCommand::SelectPerson(name.clone()));
+            let command = AppCommand::SelectPerson(name.clone());
+            let outcome = s.app.apply(command.clone());
+            ui_trace::command("command.pick_person", &ui, &s, &command, &outcome);
             ui.set_selected_person(name.clone().into());
             if ui.get_view().to_string() == "workspace" {
                 ui.set_view("workspace".into());
@@ -4285,9 +4506,21 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let ui = ui_w.unwrap();
             let src = ui.get_current_id().to_string();
             if src.is_empty() {
+                ui_trace::ui_event(
+                    "callback.new_related_note",
+                    &ui,
+                    &state.borrow(),
+                    serde_json::json!({ "source_note_id": "", "accepted": false }),
+                );
                 return;
             }
             let mut s = state.borrow_mut();
+            ui_trace::ui_event(
+                "callback.new_related_note",
+                &ui,
+                &s,
+                serde_json::json!({ "source_note_id": src.clone(), "accepted": true }),
+            );
             if let Ok(n) = noet_app::create_related_note(&mut s.backend, &src) {
                 open_in_editor(&ui, &s.backend, &n.id);
                 ui.set_editing(true);
@@ -4451,6 +4684,12 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
             let id = ui.get_current_id().to_string();
+            ui_trace::ui_event(
+                "callback.stop_editing",
+                &ui,
+                &s,
+                serde_json::json!({ "note_id": id, "body_len": ui.get_current_body().len() }),
+            );
             if !id.is_empty() {
                 let _ = noet_app::save_note(
                     &mut s.backend,

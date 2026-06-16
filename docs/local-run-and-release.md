@@ -41,6 +41,15 @@ git diff --check
 Then launch with a disposable vault and use the
 [Manual Review Checklist](manual-review-checklist.md).
 
+For GUI workflow debugging, enable a local JSONL trace:
+
+```bash
+NOET_UI_TRACE=/tmp/noet-ui-trace.jsonl NOET_VAULT=/tmp/noet-review-vault cargo run -p noet-gui
+```
+
+Add `NOET_UI_TRACE_CONTENT=1` only when visible note/search excerpts are needed
+to explain what the reviewer saw.
+
 Visual checkpoints should verify the workspace architecture:
 
 - switching primary surfaces does not destroy the current selection
@@ -48,6 +57,8 @@ Visual checkpoints should verify the workspace architecture:
 - context and queue panes can open, close, resize, and hide responsively
 - 1:1 Focus works after the People pane is closed
 - Markdown task edits write back to the vault
+- trace logs identify the activated callback, app command, command outcome,
+  status/error text, and pane state for any behavior under investigation
 
 ## Local AI Release Gate
 

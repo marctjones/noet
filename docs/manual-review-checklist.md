@@ -39,8 +39,21 @@ Expected review evidence:
 - commit, branch, and app version under review
 - vault path used for each run
 - `scripts/release-smoke.sh` result
-- screenshots or short notes for any visual/layout issue
+- `NOET_UI_TRACE` JSONL path for any workflow where behavior is ambiguous,
+  broken, or visually surprising
+- screenshots of the default workspace, Notes workspace with current-note todos,
+  and split/reference reading while editing
+- short notes for any visual/layout issue
 - issue links for every acceptance gap that remains
+
+When tracing is needed, launch with:
+
+```bash
+NOET_UI_TRACE=/tmp/noet-ui-trace.jsonl NOET_UI_TRACE_CONTENT=1 NOET_VAULT=target/noet-demo-vault cargo run -p noet-gui
+```
+
+Leave `NOET_UI_TRACE_CONTENT` unset for real personal vault review unless visible
+note/search excerpts are necessary to diagnose the issue.
 
 ## Milestone Coverage
 
@@ -56,6 +69,12 @@ Expected review evidence:
 - App launches directly into the workspace shell.
 - Empty vault seeds and opens the Welcome note.
 - Welcome note explains workspace model, Markdown facts, and local AI behavior.
+- First useful action is obvious: resume writing, create a note, quick capture,
+  or choose a person for 1:1.
+- Default pane state is Notes-first: note browser, full context, and queue are
+  closed unless explicitly restored from prior user state.
+- The workspace rail starts collapsed/icon-only and can be expanded deliberately.
+- The screen does not feel like a dashboard before the user has started writing.
 - No terminal errors are printed during normal navigation.
 - App icon, window title, and menu/dock/taskbar identity show Noet.
 - Search, New note, Reindex, Focus, and theme controls are visible at 1280x820.
@@ -106,11 +125,24 @@ Expected review evidence:
 ## Notes Workflow
 
 - Notes drawer lists notes and opens a selected note.
+- The editor is visually dominant; navigation, context, and queue panes support
+  the note rather than competing with it.
+- A focused "Todos in this note" rail is visible with the note and does not
+  require opening the full context pane.
+- Opening the full context pane does not bury or duplicate current-note todos.
+- Writing Mode remains visible when auxiliary panes are open.
 - Writing mode closes the notes drawer and context pane, starts rich editing,
   and keeps the selected note active.
 - Exiting writing mode leaves the selected note active and pane toggle controls
   can reopen supporting panes.
 - Note title and body edits persist after navigating away and back.
+- Inline todos typed in the note appear in "Todos in this note" beside the
+  editor after save/reindex.
+- Current-note todo actions can cycle, edit, open source, and promote without
+  leaving the note workflow unexpectedly.
+- Opening an old note in split/reference view keeps the edited note active.
+- Swapping the split/reference note into the editor is explicit and keeps the
+  previous note available as reference.
 - Context pane shows source links, backlinks, and related notes when present.
 - Promoted task notes show their source note in context.
 - Related note action inserts a normal `[[note]]` link.
@@ -199,6 +231,9 @@ Expected review evidence:
   like Open or Edit.
 - Keyboard-only navigation can switch surfaces, toggle panes, and open palette
   help without pointer input.
+- GUI trace logs record activated callbacks, app commands, command outcomes,
+  refresh snapshots, pane state, status/error text, and visible counts for
+  reviewed workflows.
 
 ## Release Readiness
 

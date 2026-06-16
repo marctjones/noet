@@ -73,7 +73,7 @@ pub enum AppCommand {
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandOutcome {
     pub accepted: bool,
     pub message: Option<String>,

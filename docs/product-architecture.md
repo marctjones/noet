@@ -66,6 +66,51 @@ configuration project.
   protective content-safety behavior.
 - The UI should be calm, dense, native, and task-focused.
 
+## Experience Priority
+
+Noet is note-first. The primary daily activity is writing notes during real
+work: meetings, 1:1s, calls, research, planning, and follow-up. Everything else
+exists to support that writing loop.
+
+The default hierarchy is:
+
+1. **Write the current note.** The editor is the main surface and must keep
+   focus, selection, and scroll position stable.
+2. **Capture todos while writing.** Inline Markdown tasks are the fastest path;
+   the task form is an accelerator, not the main task capture model.
+3. **See current-note todos beside the note.** Tasks typed in the current note
+   should be visible and actionable without switching to a task dashboard.
+4. **Read old notes beside the new note.** Reference/split view should let the
+   user inspect prior notes while continuing to edit the active note.
+5. **Find and curate periodically.** Search, labels, workstreams, Review, Board,
+   semantic search, and AI proposal queues are secondary modes for recall and
+   cleanup.
+
+The steady-state app should therefore feel closer to Bear, Apple Notes, or
+Obsidian's writing flow than to a project dashboard. It should borrow the task
+clarity of Things or OmniFocus only where it helps commitments captured inside
+notes remain findable and actionable. It should avoid Notion-style database
+setup as the price of writing a note.
+
+This is a focus rule, not just a branding preference. The app should not throw
+all available information onto the screen. The Notes workspace starts with an
+icon-only workspace rail, the current note, and a lightweight current-note todo
+rail. Navigation drawers, full context, queues, board views, semantic results,
+and AI proposals are disclosed when the user asks for them.
+
+Pane admission rules:
+
+- **Default visible:** current note, current-note todos, global search, new note,
+  and focus controls.
+- **On-demand:** note browser, backlinks, related notes, source links,
+  reference/split notes, review queues, board lanes, labels, workstreams, and AI
+  proposals.
+- **Never hidden behind mixed context:** todos from the current note. They are
+  part of writing, not a dashboard.
+- **Never blocking:** opening reference, context, task review, or AI proposals
+  must not steal the active edited note unless the user explicitly swaps or
+  navigates.
+
 ## Data Model
 
 The data model has three layers:
@@ -284,6 +329,15 @@ Capture should require almost no setup. The user can open a note, quick capture
 to inbox, or type directly into a meeting note. Structure can be added during or
 after capture using labels, people, links, and tasks.
 
+Capture acceptance:
+
+- the user can start typing a note immediately after opening the app
+- `- [ ]` inline tasks become visible in the current-note todo context
+- `@[[Person]]`, `#workstream/...`, `#label`, `due:...`, and `priority:...`
+  remain optional inline structure, not mandatory form fields
+- quick capture and Add task never force the user to leave the note they are
+  editing unless they explicitly ask to navigate
+
 ### 1:1 Focus
 
 Question: "What do I need to discuss with this person, and what did we agree to?"
@@ -332,6 +386,8 @@ The notes workflow should support:
 
 - note browsing/search
 - editing
+- current-note todo rail
+- read-only reference/split view for old notes
 - backlinks
 - related notes
 - labels
@@ -339,6 +395,9 @@ The notes workflow should support:
 - source task context
 
 The note editor is a work surface. The note browser is navigation.
+
+Opening an old note for reference should not replace the note currently being
+edited. Swapping the reference note into the editor is a deliberate action.
 
 ### Board
 
@@ -764,6 +823,9 @@ GUI tests:
 - rendered surface follows app state
 - navigation panes close independently
 - critical interactions do not disappear from the accessibility tree
+- opt-in trace logs capture startup, refresh snapshots, activated callbacks,
+  app commands, command outcomes, pane state, status/error text, visible counts,
+  and optional visible content excerpts for screenshot-driven debugging
 
 ## Target 1:1 Layout
 

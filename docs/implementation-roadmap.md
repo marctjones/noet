@@ -294,13 +294,61 @@ After the architecture is real, restore and improve daily workflows.
 
 Order:
 
+1. Notes and capture
+2. Current-note todos
+3. Split/reference reading
+4. 1:1 Focus
+5. Tasks
+6. Review
+7. Board
+8. Labels/workstreams
+9. Settings
+
+This order reflects the product priority: Noet is primarily a note-taking app.
+Most user time is spent writing notes; todos are the most important structured
+facts inside notes; finding and curation happen periodically.
+
+Release bar for the note-first redesign:
+
+- [x] The current note remains editable while context panes open, close, or
+  resize.
+- [x] Notes is the default active workspace, and note browser, full context, and
+  AI proposal queue panes start closed.
+- [x] The workspace rail starts collapsed/icon-only so launch does not read as a
+  dashboard or control wall.
+- [x] Inline todos from the current note are visible in a lightweight note-edge
+  rail and use Markdown-backed task actions.
+- [x] The full context pane no longer owns or duplicates current-note todos.
+- [x] A read-only split/reference pane can show an old note while the current
+  note remains active.
+- [x] GUI smoke coverage verifies current-note todos remain beside the editor
+  when a reference note is opened.
+- [x] GUI smoke coverage verifies the focused todo rail is visible while the
+  full context pane is closed, and the Writing Mode control remains available
+  when auxiliary panes are open.
+- [x] Opt-in GUI trace logging records startup, refresh snapshots, activated
+  callbacks, app commands, command outcomes, pane state, status/error text,
+  visible counts, and optional visible content excerpts for workflow debugging.
+- [x] Screenshot review on the demo vault checked the default 1:1 picker and
+  Notes workspace. Finding: the app can still feel too cockpit-heavy before
+  writing starts, while Notes is closer to the target but needs stronger
+  todo/split affordances.
+- [x] Add a deliberate write-first launch policy: default active workspace is
+  Notes. Session restoration can later reopen a different workspace only when it
+  reflects explicit prior user state.
+- [ ] Manual screenshot review should now verify the updated Notes default:
+  collapsed workspace rail, note-edge todo rail, closed auxiliary panes, visible
+  Writing Mode control, no cockpit-style information dump at launch, and trace
+  evidence for any click or callback path that behaves unexpectedly.
+
+Secondary workflow order:
+
 1. 1:1 Focus
-2. Notes
-3. Tasks
-4. Review
-5. Board
-6. Labels/workstreams
-7. Settings
+2. Tasks
+3. Review
+4. Board
+5. Labels/workstreams
+6. Settings
 
 Each workflow should have:
 
@@ -325,8 +373,13 @@ Current Notes progress:
   starts rich editing.
 - [x] App-model and GUI smoke tests cover writing-mode pane closure and
   selection preservation.
+- [x] Current-note todos appear in a focused todo rail beside the editor with
+  task actions wired to Markdown-backed workflows.
+- [x] Read-only split/reference pane can show an old note while the edited note
+  and its todo context remain active.
 - [ ] Manual review still needs to verify read mode, edit mode, source mode,
-  context rows, and note switching on a non-empty vault.
+  context rows, split/reference reading, current-note todo ergonomics, and note
+  switching on a non-empty vault.
 
 Current Tasks/Review/Board progress:
 

@@ -165,6 +165,13 @@ impl Pane {
         }
     }
 
+    pub fn closed(mut self) -> Self {
+        if self.closable {
+            self.open = false;
+        }
+        self
+    }
+
     pub fn close(&mut self) -> bool {
         if self.closable {
             self.open = false;
@@ -275,7 +282,8 @@ impl Workspace {
                         PaneRole::Navigation,
                         PanePlacement::Left,
                         Surface::NoteBrowser,
-                    ),
+                    )
+                    .closed(),
                     Pane::new(
                         "note-editor",
                         PaneRole::Primary,
@@ -287,13 +295,15 @@ impl Workspace {
                         PaneRole::Context,
                         PanePlacement::Right,
                         Surface::Backlinks { note_id: None },
-                    ),
+                    )
+                    .closed(),
                     Pane::new(
                         "ai-proposals",
                         PaneRole::Queue,
                         PanePlacement::Bottom,
                         Surface::AiProposalQueue,
-                    ),
+                    )
+                    .closed(),
                 ],
                 PaneLayout {
                     left: Some("note-browser".into()),
@@ -550,7 +560,7 @@ impl WorkspaceRegistry {
             .map(|workspace| (workspace.id.clone(), workspace))
             .collect();
         Self {
-            active: "one-on-one-focus".into(),
+            active: "notes".into(),
             workspaces,
         }
     }

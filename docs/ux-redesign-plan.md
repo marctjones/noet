@@ -8,17 +8,83 @@ This document focuses on how the user experience should be rebuilt.
 
 ## UX Goal
 
-Noet should feel like a native personal operating console for notes, tasks,
-people, and follow-up. It should not feel like a set of unrelated pages.
+Noet should feel like a native note-taking app with a strong personal work
+memory layer. It should not feel like a dashboard that happens to contain an
+editor.
 
 The user should be able to:
 
-- capture notes quickly
+- start or resume writing a note immediately
+- capture todos inline while typing
+- see todos from the current note beside the editor
+- read old notes in a split/reference pane while editing the current note
 - open a 1:1 workspace for a person
 - close navigation without losing work
-- see note context while editing
+- find notes, people, labels, workstreams, and tasks quickly
 - review tasks without losing source context
 - resize and hide panes based on the current task
+
+## Product Posture
+
+The primary use case is sustained note-taking. Curation, search, task review,
+board views, labels, workstreams, and AI are supporting workflows. They should
+be one gesture away, but they should not compete with the editor by default.
+
+Design comparisons:
+
+- Borrow Apple Notes and Bear's low-friction writing posture.
+- Borrow Obsidian's local Markdown and backlink confidence without exposing a
+  plugin/configuration project as the product.
+- Borrow Things and OmniFocus clarity for commitments, while preserving the
+  source note as the durable context.
+- Avoid Notion-style database-first setup and marketing-dashboard composition.
+- Avoid Logseq/Roam forcing every note into an outline/block workflow.
+
+Screenshot and trace review on the demo vault showed the current app can become
+too cockpit-heavy: navigation, context, and queue panes may all be visible before
+the user has started writing. The redesign should make the editor feel like the
+center of gravity, with secondary panes presented as deliberate aids. Future
+visual review should pair screenshots with `NOET_UI_TRACE` when behavior is
+unclear, so the reviewer can see which callback, app command, pane state, and
+status path actually ran.
+
+## Research-Informed Focus Rules
+
+The redesign should be judged against established human-interface constraints,
+not only against whether all information is technically available.
+
+Research anchors:
+
+- NN/g's [Aesthetic and Minimalist Design](https://www.nngroup.com/articles/ten-usability-heuristics/)
+  heuristic: every extra unit of visible information competes with what matters.
+- NN/g's [Progressive Disclosure](https://www.nngroup.com/articles/progressive-disclosure/):
+  show the most important frequent controls first, then disclose specialized
+  options on request.
+- NN/g's [Visual Hierarchy](https://www.nngroup.com/articles/visual-hierarchy-ux-definition/):
+  a busy screen without clear hierarchy leaves users unsure where to look.
+- NN/g's [Recognition vs. Recall](https://www.nngroup.com/articles/recognition-and-recall/):
+  users should recognize the next useful action in context rather than remember
+  where another pane or mode contains it.
+- Recent HCI note-taking research on the AI assistance dilemma
+  ([Chen et al., 2025](https://arxiv.org/abs/2509.03392)) reinforces that
+  note-taking is active processing and external memory. Noet should support that
+  process instead of replacing it with fully automated summaries or dashboards.
+
+Design rules:
+
+- The default Notes workspace is a collapsed icon rail, current-note todo rail,
+  and editor. Navigation drawers, full context, queues, board views, and AI
+  proposals are opt-in.
+- A pane must earn its space by helping the current task. If it is only useful
+  for search, review, curation, or background AI work, it starts closed.
+- Current-note todos are not part of the mixed context pile. They are a
+  focused companion to the note because they are created while writing.
+- Full context is progressive disclosure: source links, backlinks, related
+  notes, semantic matches, and proposal queues open only when requested.
+- Focus controls must remain visible when auxiliary panes are open. The user
+  should always have an obvious escape back to writing.
+- AI should appear as moderate assistance: suggestions and proposal queues that
+  the user can accept, ignore, or inspect, not automatic rewriting of the note.
 
 ## Core UX Abstractions
 
@@ -78,6 +144,8 @@ Initial surfaces:
 - OneOnOne
 - TaskList
 - Board
+- CurrentNoteTodos
+- ReferenceNote
 - History
 - Backlinks
 - RelatedNotes
@@ -152,18 +220,33 @@ for 1:1 to work, the design is wrong.
 Default layout:
 
 ```text
-navigation pane: NoteBrowser
-primary pane: NoteEditor
-context pane: Backlinks / RelatedNotes / SourceTasks
-queue pane: optional tasks from current note
+workspace rail: icon-only by default
+navigation pane: NoteBrowser, closed by default
+primary pane: CurrentNoteTodos rail + NoteEditor
+context pane: ReferenceNote / Backlinks / RelatedNotes / SourceTasks, closed by default
+queue pane: optional review or AI proposal queue, closed by default
 ```
 
 Behavior:
 
 - selecting a note opens it in the editor surface
 - closing NoteBrowser keeps the note open
+- inline todos in the note appear in a lightweight todo rail without switching
+  modes or opening full context
+- current-note todo actions write back to Markdown
+- opening a note for reference uses the split pane and does not replace the
+  edited note
+- swapping the reference note into the editor is explicit
 - backlinks and related notes follow the selected note
 - task actions preserve source context
+- full context never duplicates the current-note todo list
+
+Writing mode:
+
+- optimizes for uninterrupted typing
+- may close navigation/context/queue panes temporarily
+- must preserve the current note and make pane controls easy to reopen
+- should not hide the fact that the current note contains todos
 
 ## Tasks Workspace
 
@@ -238,8 +321,11 @@ Noet should feel calm, dense, and native.
 
 Priorities:
 
-- clear pane boundaries
-- compact controls
+- editor-first visual hierarchy
+- current-note todos visible but secondary
+- split/reference affordance for old notes
+- clear pane boundaries that do not look like a dashboard grid
+- compact controls with icon affordances for pane toggles and task actions
 - readable typography
 - restrained color
 - strong focus state
@@ -253,6 +339,8 @@ Avoid:
 - decorative dashboards
 - marketing-style cards
 - one-off page layouts
+- making Review/Board the default posture
+- forcing task creation through a modal when inline capture is enough
 - hidden magic metadata
 - oversized hero sections
 - burying common actions in raw property forms

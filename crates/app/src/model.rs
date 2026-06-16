@@ -347,6 +347,11 @@ mod tests {
     #[test]
     fn select_person_updates_one_on_one_surfaces_and_closes_navigation() {
         let mut model = AppModel::new();
+        assert!(
+            model
+                .apply(AppCommand::SwitchWorkspace("one-on-one-focus".into()))
+                .accepted
+        );
         let outcome = model.apply(AppCommand::SelectPerson("Jane Smith".into()));
         assert!(outcome.accepted);
 
@@ -367,6 +372,11 @@ mod tests {
     #[test]
     fn close_navigation_pane_does_not_close_primary_work() {
         let mut model = AppModel::new();
+        assert!(
+            model
+                .apply(AppCommand::SwitchWorkspace("one-on-one-focus".into()))
+                .accepted
+        );
         assert!(model.apply(AppCommand::ClosePane("people".into())).accepted);
 
         let workspace = model.workspaces.active().unwrap();
@@ -378,6 +388,11 @@ mod tests {
     #[test]
     fn one_on_one_meeting_can_close_supporting_panes() {
         let mut model = AppModel::new();
+        assert!(
+            model
+                .apply(AppCommand::SwitchWorkspace("one-on-one-focus".into()))
+                .accepted
+        );
         assert!(
             model
                 .apply(AppCommand::SelectPerson("Jane Smith".into()))
@@ -448,8 +463,35 @@ mod tests {
     }
 
     #[test]
+    fn notes_workspace_is_the_focus_first_default() {
+        let model = AppModel::new();
+        let workspace = model.workspaces.active().unwrap();
+
+        assert_eq!(workspace.id, "notes");
+        assert!(
+            !workspace.pane("note-browser").unwrap().open,
+            "note browser should be opt-in at launch"
+        );
+        assert!(
+            !workspace.pane("note-context").unwrap().open,
+            "full context should be opt-in at launch"
+        );
+        assert!(
+            !workspace.pane("ai-proposals").unwrap().open,
+            "queues should not compete with note taking by default"
+        );
+        assert!(workspace.pane("note-editor").unwrap().open);
+        assert!(model.active_workspace_has_open_work());
+    }
+
+    #[test]
     fn pane_resize_is_clamped_through_command_dispatch() {
         let mut model = AppModel::new();
+        assert!(
+            model
+                .apply(AppCommand::SwitchWorkspace("one-on-one-focus".into()))
+                .accepted
+        );
         assert!(
             model
                 .apply(AppCommand::ResizePane {
@@ -502,6 +544,11 @@ mod tests {
         let mut model = AppModel::new();
         assert!(
             model
+                .apply(AppCommand::SwitchWorkspace("one-on-one-focus".into()))
+                .accepted
+        );
+        assert!(
+            model
                 .apply(AppCommand::SetPaneSurface {
                     pane_id: "people".into(),
                     surface: Surface::LabelBrowser,
@@ -521,6 +568,11 @@ mod tests {
     #[test]
     fn opening_note_does_not_replace_one_on_one_primary_surface() {
         let mut model = AppModel::new();
+        assert!(
+            model
+                .apply(AppCommand::SwitchWorkspace("one-on-one-focus".into()))
+                .accepted
+        );
         assert!(model.apply(AppCommand::OpenNote("n1".into())).accepted);
 
         let workspace = model.workspaces.active().unwrap();

@@ -25,6 +25,9 @@ fn headless_ui_smoke() {
     std::env::set_var("XDG_CACHE_HOME", tmp.join("cache"));
     std::env::set_var("NOET_CONFIG_DIR", tmp.join("config").join("noet"));
     std::env::set_var("NOET_CACHE_DIR", tmp.join("cache").join("noet"));
+    let trace_path = tmp.join("ui-trace.jsonl");
+    std::env::set_var("NOET_UI_TRACE", &trace_path);
+    std::env::set_var("NOET_UI_TRACE_CONTENT", "1");
     let vault = tmp.join("vault");
 
     itest::init_no_event_loop();
@@ -69,6 +72,21 @@ fn headless_ui_smoke() {
         ui.get_view(),
         "workspace",
         "default route is the workspace shell"
+    );
+    assert_eq!(
+        ui.get_workspace_id(),
+        "notes",
+        "default workspace should be note-first"
+    );
+    assert!(
+        !ui.get_workspace_left_open()
+            && !ui.get_workspace_right_open()
+            && !ui.get_workspace_bottom_open(),
+        "Notes should launch with navigation, full context, and queue panes closed"
+    );
+    assert!(
+        ui.get_nav_collapsed(),
+        "workspace rail should start icon-only to reduce launch clutter"
     );
 
     // the licenses view model is populated from the embedded component list
@@ -385,6 +403,14 @@ fn headless_ui_smoke() {
     assert_eq!(saved.ai_timeout_seconds, 30);
     assert_eq!(saved.ai_runtime_bin, "/Users/marc/.cargo/bin/mistralrs");
     assert_eq!(saved.ai_model_root, "/Users/marc/.cache/huggingface/hub");
+    let trace = std::fs::read_to_string(&trace_path).expect("UI trace should be written");
+    assert!(
+        trace.contains("\"event\":\"trace_started\"")
+            && trace.contains("\"event\":\"refresh\"")
+            && trace.contains("\"event\":\"callback.ai_semantic_search\"")
+            && trace.contains("\"current_body_excerpt\""),
+        "UI trace should record startup, refresh snapshots, activated callbacks, and opt-in visible content; trace={trace}"
+    );
 
     let model_file = "Ministral-8B-Instruct-2410-Q4_K_M.gguf";
     let snapshot = tmp
@@ -694,6 +720,59 @@ fn headless_ui_smoke() {
     ElementHandle::find_by_accessible_label(ui, "Toggle task Call client")
         .find(|e| e.accessible_role() == Some(AccessibleRole::Checkbox))
         .expect("rendered todo is exposed as an interactive clean task row");
+    assert!(
+        !ui.get_workspace_right_open(),
+        "full context remains closed while the current-note todo rail is visible"
+    );
+    assert_eq!(
+        ui.get_workspace_primary(),
+        "notes",
+        "focused todo rail is part of the Notes workspace"
+    );
+    assert!(
+        ui.get_current_todos().row_count() >= 1,
+        "current-note todo model should be populated before checking the focused rail"
+    );
+    assert_eq!(
+        ui.get_current_todo_count(),
+        ui.get_current_todos().row_count() as i32,
+        "current-note todo count should drive focused rail visibility"
+    );
+    itest::mock_elapsed_time(std::time::Duration::from_millis(16));
+    let group_labels: Vec<String> = ElementQuery::from_root(ui)
+        .match_descendants()
+        .match_accessible_role(AccessibleRole::Groupbox)
+        .find_all()
+        .into_iter()
+        .filter_map(|e| e.accessible_label().map(|label| label.to_string()))
+        .collect();
+    let todo_labels: Vec<String> = ElementQuery::from_root(ui)
+        .match_descendants()
+        .find_all()
+        .into_iter()
+        .filter_map(|e| e.accessible_label().map(|label| label.to_string()))
+        .filter(|label| label.contains("todo") || label.contains("Call client"))
+        .collect();
+    assert!(
+        group_labels.iter().any(|label| label == "Todos in this note"),
+        "current-note todos should be visible beside the editor without opening full context; groupboxes={group_labels:?}; todo_labels={todo_labels:?}"
+    );
+    ElementHandle::find_by_accessible_label(ui, "Cycle current-note todo Call client")
+        .find(|e| e.accessible_role() == Some(AccessibleRole::Checkbox))
+        .expect("focused todo rail exposes task status without the mixed context pane");
+    ui.invoke_workspace_open_pane(ui.get_workspace_right_pane_id());
+    itest::mock_elapsed_time(std::time::Duration::from_millis(16));
+    let todo_sections = ElementQuery::from_root(ui)
+        .match_descendants()
+        .match_accessible_role(AccessibleRole::Groupbox)
+        .find_all()
+        .into_iter()
+        .filter(|e| e.accessible_label().as_deref() == Some("Todos in this note"))
+        .count();
+    assert!(
+        todo_sections >= 1,
+        "opening full context should keep the focused current-note todo rail available"
+    );
     let rendered_note_id = ui.get_current_id();
     ui.invoke_workspace_open_pane(ui.get_workspace_left_pane_id());
     ui.invoke_workspace_open_pane(ui.get_workspace_right_pane_id());
@@ -1072,6 +1151,19 @@ fn headless_ui_smoke() {
         "current note todo rows should preserve task text"
     );
     ui.invoke_open_in_split(note_b.clone().into()); // reference pane shows B
+    assert_eq!(
+        ui.get_current_id(),
+        note_a,
+        "opening a reference split should not replace the note being edited"
+    );
+    assert_eq!(
+        ui.get_current_todos()
+            .row_data(0)
+            .expect("current note todo should remain visible")
+            .note_id,
+        SharedString::from(note_a.as_str()),
+        "reference reading should keep current-note todos beside the editor"
+    );
     assert_eq!(ui.get_split_note_id(), note_b);
     assert_eq!(ui.get_split_title(), "Split B");
     assert!(

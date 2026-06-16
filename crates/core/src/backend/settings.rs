@@ -4,7 +4,7 @@
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Settings {
     /// Where the markdown vault lives.
     pub vault: PathBuf,
@@ -22,7 +22,7 @@ pub struct Settings {
     pub rail_width: f32,
     #[serde(default)]
     pub notes_width: f32,
-    #[serde(default)]
+    #[serde(default = "default_nav_collapsed")]
     pub nav_collapsed: bool,
     #[serde(default)]
     pub last_view: String,
@@ -47,6 +47,32 @@ pub struct Settings {
     /// Local model cache/root path for GGUF files.
     #[serde(default)]
     pub ai_model_root: String,
+}
+
+fn default_nav_collapsed() -> bool {
+    true
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            vault: PathBuf::new(),
+            wysiwyg_editor: false,
+            window_w: 0.0,
+            window_h: 0.0,
+            rail_width: 0.0,
+            notes_width: 0.0,
+            nav_collapsed: default_nav_collapsed(),
+            last_view: String::new(),
+            pinned_notes: Vec::new(),
+            ai_profile: String::new(),
+            ai_embedding_profile: String::new(),
+            ai_min_free_memory_percent: 0,
+            ai_timeout_seconds: 0,
+            ai_runtime_bin: String::new(),
+            ai_model_root: String::new(),
+        }
+    }
 }
 
 impl Settings {

@@ -24,6 +24,12 @@ The current direction:
 - Markdown files are the source of truth.
 - SQLite is a rebuildable local index.
 - The app is local-only for now.
+- The primary workflow is note-taking. Todos, context, split/reference reading,
+  review, labels, workstreams, and AI support the current note rather than
+  replacing it with a dashboard.
+- The Notes workspace is focus-first: the workspace rail starts icon-only, the
+  current note and current-note todo rail are visible, and navigation, full
+  context, and queues are disclosed on demand.
 - AI work is local open-weight execution first; hosted APIs and account-provider
   integrations are deferred.
 - The UX should be built from workspaces, panes, and reusable surfaces, not
@@ -44,6 +50,9 @@ Implemented foundation:
 - Reusable workspace controls, pane sections, note rows, task rows, task status
   checkboxes, and context rows expose accessibility roles, labels, and default
   actions for assistive technology and GUI automation.
+- Opt-in GUI trace logging (`NOET_UI_TRACE=/path/to/trace.jsonl`) records
+  activated callbacks, app commands, command outcomes, refresh snapshots, pane
+  state, status text, and visible counts for screenshot-driven debugging.
 - The workspace shell has keyboard shortcuts for command palette, shortcut
   help, focus mode, switching primary surfaces, and toggling navigation,
   context, and queue panes.
@@ -59,6 +68,10 @@ Implemented foundation:
   1:1.
 - Empty vaults seed a Welcome note that explains the local Markdown vault,
   Markdown facts, workspaces, panes, and first actions.
+- The Notes workspace defaults to the note-first surface with auxiliary panes
+  closed, shows current-note todos in a lightweight rail, keeps Writing Mode
+  visible under pane pressure, and can keep an old note open in a read-only
+  split/reference pane while the current note remains active.
 - Daily workflow screens are still being migrated onto the new workspace shell;
   the 1:1, task, board, and review flows are the active MVP path.
 
@@ -150,6 +163,8 @@ should open or update a `1:1 Focus` workspace, then the People pane can close.
 
 Capture notes quickly without choosing the perfect folder or view first. Add
 structure through labels, people, workstreams, tasks, and properties when useful.
+Inline tasks are the normal fast path for todos while taking notes; task forms
+and review views are accelerators for editing and curation later.
 
 ### 1:1 Focus
 
@@ -241,6 +256,16 @@ NOET_VAULT=/path/to/vault cargo run -p noet-gui
 
 cargo test --workspace
 ```
+
+For GUI workflow debugging:
+
+```bash
+NOET_UI_TRACE=/tmp/noet-ui-trace.jsonl NOET_UI_TRACE_CONTENT=1 cargo run -p noet-gui
+```
+
+`NOET_UI_TRACE_CONTENT=1` includes visible note/search excerpts in the local
+trace file. Leave it unset when testing against a real personal vault unless the
+content is needed for the debug pass.
 
 During the UX architecture reset, local visual checkpoints are preferred over
 full installer releases. Run the app from source with a disposable vault, review
