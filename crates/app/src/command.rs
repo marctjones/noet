@@ -67,6 +67,10 @@ pub enum AppCommand {
     MarkAiProposalAccepted(String),
     ClearResolvedAiProposals,
     InspectAiProposalSource(String),
+    InspectAiProposalSourceAt {
+        proposal_id: String,
+        source_index: usize,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

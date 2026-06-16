@@ -1,4 +1,4 @@
-use crate::{AiJobStatus, AiState, AiStatus, ProposalStatus};
+use crate::{ai::proposal_sources, AiJobStatus, AiState, AiStatus, ProposalStatus};
 use noet_ai::{ProposalKind, ProposalPayload, ProposalTarget, SourceRef};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -23,9 +23,16 @@ pub struct AiProposalRow {
     pub summary: String,
     pub preview: String,
     pub source: String,
+    pub source_rows: Vec<AiProposalSourceRow>,
     pub rationale: String,
     pub confidence: String,
     pub requires_confirmation: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AiProposalSourceRow {
+    pub label: String,
+    pub navigable: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -64,17 +71,21 @@ pub fn ai_surface(state: &AiState) -> AiSurface {
         proposals: state
             .proposals()
             .iter()
-            .map(|entry| AiProposalRow {
-                id: entry.id.clone(),
-                status: proposal_status_label(&entry.status).into(),
-                kind: proposal_kind_label(&entry.proposal.kind).into(),
-                target: target_label(&entry.proposal.target),
-                summary: proposal_summary(&entry.proposal.payload),
-                preview: proposal_preview(&entry.proposal.payload),
-                source: proposal_source_summary(&entry.proposal.payload, &entry.proposal.target),
-                rationale: entry.proposal.rationale.clone(),
-                confidence: confidence_label(entry.proposal.confidence),
-                requires_confirmation: entry.proposal.requires_confirmation,
+            .map(|entry| {
+                let source_rows = proposal_source_rows(&entry.proposal);
+                AiProposalRow {
+                    id: entry.id.clone(),
+                    status: proposal_status_label(&entry.status).into(),
+                    kind: proposal_kind_label(&entry.proposal.kind).into(),
+                    target: target_label(&entry.proposal.target),
+                    summary: proposal_summary(&entry.proposal.payload),
+                    preview: proposal_preview(&entry.proposal.payload),
+                    source: proposal_source_summary(&source_rows),
+                    source_rows,
+                    rationale: entry.proposal.rationale.clone(),
+                    confidence: confidence_label(entry.proposal.confidence),
+                    requires_confirmation: entry.proposal.requires_confirmation,
+                }
             })
             .collect(),
         jobs: state
@@ -198,56 +209,21 @@ fn proposal_preview(payload: &ProposalPayload) -> String {
     compact_join(lines, "No preview available")
 }
 
-fn proposal_source_summary(payload: &ProposalPayload, target: &ProposalTarget) -> String {
-    let mut sources = proposal_source_labels(payload);
-    if sources.is_empty() {
-        sources.push(target_label(target));
-    }
-    compact_join(sources, "No source")
+fn proposal_source_summary(sources: &[AiProposalSourceRow]) -> String {
+    compact_join(
+        sources.iter().map(|source| source.label.clone()).collect(),
+        "No source",
+    )
 }
 
-fn proposal_source_labels(payload: &ProposalPayload) -> Vec<String> {
-    match payload {
-        ProposalPayload::DraftAgenda(draft) => draft
-            .sections
-            .iter()
-            .flat_map(|section| section.items.iter())
-            .flat_map(|item| item.sources.iter().map(source_label))
-            .collect(),
-        ProposalPayload::ReviewNote(review) => {
-            let mut sources = review
-                .findings
-                .iter()
-                .flat_map(|finding| finding.sources.iter().map(source_label))
-                .collect::<Vec<_>>();
-            sources.extend(
-                review
-                    .label_suggestions
-                    .iter()
-                    .flat_map(|label| label.sources.iter().map(source_label)),
-            );
-            sources.extend(
-                review
-                    .task_extractions
-                    .iter()
-                    .map(|task| source_label(&task.source)),
-            );
-            sources
-        }
-        ProposalPayload::AddLabels(labels) => labels
-            .suggestions
-            .iter()
-            .flat_map(|label| label.sources.iter().map(source_label))
-            .collect(),
-        ProposalPayload::ExtractTasks(tasks) => tasks
-            .tasks
-            .iter()
-            .map(|task| source_label(&task.source))
-            .collect(),
-        ProposalPayload::PromoteTask(task) => vec![source_label(&task.source)],
-        ProposalPayload::PatchNote(patch) => patch.sources.iter().map(source_label).collect(),
-        ProposalPayload::ChangeTaskState(change) => vec![source_label(&change.source)],
-    }
+fn proposal_source_rows(proposal: &noet_ai::AiProposal) -> Vec<AiProposalSourceRow> {
+    proposal_sources(proposal)
+        .into_iter()
+        .map(|source| AiProposalSourceRow {
+            label: source_label(&source),
+            navigable: !matches!(source, SourceRef::Synthetic { .. }),
+        })
+        .collect()
 }
 
 fn source_label(source: &SourceRef) -> String {
@@ -405,9 +381,15 @@ mod tests {
         assert!(rows.iter().any(|row| row.kind == "Draft agenda"
             && row.preview.contains("Follow up")
             && row.source.contains("Task task-1")));
-        assert!(rows.iter().any(|row| row.kind == "Review note"
-            && row.preview.contains("Risk")
-            && row.source.contains("Note note-1")));
+        let review_row = rows
+            .iter()
+            .find(|row| row.kind == "Review note")
+            .expect("review note row");
+        assert!(review_row.preview.contains("Risk"));
+        assert!(review_row.source.contains("Note note-1"));
+        assert_eq!(review_row.source_rows.len(), 1);
+        assert_eq!(review_row.source_rows[0].label, "Note note-1");
+        assert!(review_row.source_rows[0].navigable);
         assert!(rows.iter().any(|row| row.kind == "Add labels"
             && row.preview.contains("#meeting")
             && row.source.contains("Note note-1")));

@@ -1,4 +1,4 @@
-use noet_ai::{AiProposal, HousekeepingJob, ProposalTarget, SourceRef};
+use noet_ai::{AiProposal, HousekeepingJob, ProposalPayload, ProposalTarget, SourceRef};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -169,8 +169,12 @@ impl AiState {
     }
 
     pub fn first_source_for(&self, proposal_id: &str) -> Option<SourceRef> {
+        self.source_for(proposal_id, 0)
+    }
+
+    pub fn source_for(&self, proposal_id: &str, source_index: usize) -> Option<SourceRef> {
         let proposal = &self.proposal(proposal_id)?.proposal;
-        proposal_primary_source(proposal)
+        proposal_sources(proposal).into_iter().nth(source_index)
     }
 
     fn set_proposal_status(&mut self, proposal_id: &str, status: ProposalStatus) -> bool {
@@ -305,8 +309,80 @@ fn default_model_root() -> String {
         .unwrap_or_default()
 }
 
-fn proposal_primary_source(proposal: &AiProposal) -> Option<SourceRef> {
-    match &proposal.target {
+pub(crate) fn proposal_sources(proposal: &AiProposal) -> Vec<SourceRef> {
+    let mut sources = payload_sources(&proposal.payload);
+    if sources.is_empty() {
+        if let Some(source) = target_source(&proposal.target) {
+            push_unique_source(&mut sources, source);
+        }
+    }
+    sources
+}
+
+fn payload_sources(payload: &ProposalPayload) -> Vec<SourceRef> {
+    let mut sources = Vec::new();
+    match payload {
+        ProposalPayload::DraftAgenda(draft) => {
+            for item in draft
+                .sections
+                .iter()
+                .flat_map(|section| section.items.iter())
+            {
+                for source in &item.sources {
+                    push_unique_source(&mut sources, source.clone());
+                }
+            }
+        }
+        ProposalPayload::ReviewNote(review) => {
+            for source in review
+                .findings
+                .iter()
+                .flat_map(|finding| finding.sources.iter())
+            {
+                push_unique_source(&mut sources, source.clone());
+            }
+            for source in review
+                .label_suggestions
+                .iter()
+                .flat_map(|label| label.sources.iter())
+            {
+                push_unique_source(&mut sources, source.clone());
+            }
+            for task in &review.task_extractions {
+                push_unique_source(&mut sources, task.source.clone());
+            }
+        }
+        ProposalPayload::AddLabels(labels) => {
+            for source in labels
+                .suggestions
+                .iter()
+                .flat_map(|label| label.sources.iter())
+            {
+                push_unique_source(&mut sources, source.clone());
+            }
+        }
+        ProposalPayload::ExtractTasks(tasks) => {
+            for task in &tasks.tasks {
+                push_unique_source(&mut sources, task.source.clone());
+            }
+        }
+        ProposalPayload::PromoteTask(task) => {
+            push_unique_source(&mut sources, task.source.clone());
+        }
+        ProposalPayload::PatchNote(patch) => {
+            for source in &patch.sources {
+                push_unique_source(&mut sources, source.clone());
+            }
+        }
+        ProposalPayload::ChangeTaskState(change) => {
+            push_unique_source(&mut sources, change.source.clone());
+        }
+    }
+    sources
+}
+
+fn target_source(target: &ProposalTarget) -> Option<SourceRef> {
+    match target {
         ProposalTarget::Note { note_id } => Some(SourceRef::Note {
             note_id: note_id.clone(),
         }),
@@ -314,5 +390,11 @@ fn proposal_primary_source(proposal: &AiProposal) -> Option<SourceRef> {
             task_id: task_id.clone(),
         }),
         ProposalTarget::Person { .. } | ProposalTarget::Vault => None,
+    }
+}
+
+fn push_unique_source(sources: &mut Vec<SourceRef>, source: SourceRef) {
+    if !sources.contains(&source) {
+        sources.push(source);
     }
 }

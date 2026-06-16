@@ -120,6 +120,14 @@ fn headless_ui_smoke() {
         "AI proposal should expose source context"
     );
     assert!(
+        !proposal_card.source_one.is_empty(),
+        "AI proposal should expose a primary source row"
+    );
+    assert!(
+        proposal_card.source_one_navigable,
+        "AI proposal primary source should be inspectable"
+    );
+    assert!(
         proposal_card.confidence.ends_with('%'),
         "AI proposal should expose confidence"
     );
@@ -127,6 +135,52 @@ fn headless_ui_smoke() {
         ui.get_workspace_bottom_surface_id(),
         "ai-proposal-queue",
         "AI review should open the AI proposal queue surface"
+    );
+    let (source_one_id, source_two_id, multi_source_id) = {
+        let mut state = ctx.state.borrow_mut();
+        let source_one = noet_app::create_note_from_body(
+            &mut state.backend,
+            "AI source one",
+            "# AI source one\n\nFirst source note.\n",
+        )
+        .expect("first source fixture note");
+        let source_two = noet_app::create_note_from_body(
+            &mut state.backend,
+            "AI source two",
+            "# AI source two\n\nSecond source note.\n",
+        )
+        .expect("second source fixture note");
+        let proposal_id = state
+            .app
+            .apply(AppCommand::EnqueueAiProposal(
+                multi_source_label_test_proposal(&source_one.id, &source_two.id),
+            ))
+            .message
+            .expect("multi-source test proposal id");
+        (source_one.id, source_two.id, proposal_id)
+    };
+    refresh(ui, &ctx.state.borrow());
+    let multi_source_row = proposal_row(ui, &multi_source_id).expect("multi-source proposal row");
+    assert!(
+        multi_source_row.source.contains(&source_one_id)
+            && multi_source_row.source.contains(&source_two_id),
+        "multi-source proposal should summarize both sources: {}",
+        multi_source_row.source
+    );
+    assert_eq!(
+        multi_source_row.source_one.to_string(),
+        format!("Note {source_one_id}")
+    );
+    assert_eq!(
+        multi_source_row.source_two.to_string(),
+        format!("Note {source_two_id}")
+    );
+    assert!(multi_source_row.source_two_navigable);
+    ui.invoke_ai_inspect_proposal_source(multi_source_id.clone().into(), 1);
+    assert_eq!(
+        ui.get_current_id().to_string(),
+        source_two_id,
+        "indexed source inspection should open the selected source note"
     );
     let (accept_id, reject_id, defer_id) = {
         let note_id = ui.get_current_id().to_string();
@@ -1889,6 +1943,44 @@ fn label_test_proposal(note_id: &str, label: &str) -> noet_ai::AiProposal {
         confidence: 0.75,
         requires_confirmation: true,
     }
+}
+
+fn multi_source_label_test_proposal(
+    source_one_id: &str,
+    source_two_id: &str,
+) -> noet_ai::AiProposal {
+    noet_ai::AiProposal {
+        kind: noet_ai::ProposalKind::AddLabels,
+        target: noet_ai::ProposalTarget::Vault,
+        payload: noet_ai::ProposalPayload::AddLabels(noet_ai::LabelSuggestions {
+            suggestions: vec![noet_ai::LabelSuggestion {
+                label: "multi-source".into(),
+                reason: "Exercise indexed source inspection".into(),
+                sources: vec![
+                    noet_ai::SourceRef::Note {
+                        note_id: source_one_id.into(),
+                    },
+                    noet_ai::SourceRef::Note {
+                        note_id: source_two_id.into(),
+                    },
+                ],
+            }],
+        }),
+        rationale: "Exercise indexed source inspection.".into(),
+        confidence: 0.8,
+        requires_confirmation: true,
+    }
+}
+
+fn proposal_row(ui: &AppWindow, proposal_id: &str) -> Option<AiProposalUi> {
+    let rows = ui.get_ai_proposals();
+    for index in 0..rows.row_count() {
+        let row = rows.row_data(index)?;
+        if row.id == proposal_id {
+            return Some(row);
+        }
+    }
+    None
 }
 
 fn proposal_status(ui: &AppWindow, proposal_id: &str) -> Option<String> {

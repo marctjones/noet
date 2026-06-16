@@ -99,6 +99,13 @@ export struct AiProposalUi {
     summary: string,
     preview: string,
     source: string,
+    source-one: string,
+    source-one-navigable: bool,
+    source-two: string,
+    source-two-navigable: bool,
+    source-three: string,
+    source-three-navigable: bool,
+    source-more: string,
     rationale: string,
     confidence: string,
     requires-confirmation: bool,
@@ -1237,6 +1244,7 @@ export component AppWindow inherits Window {
     callback ai-defer-proposal(string);
     callback ai-accept-proposal(string);
     callback ai-inspect-proposal(string);
+    callback ai-inspect-proposal-source(string, int);
     callback ai-cancel();
     // Plaintext/source mode: show the raw markdown in a TextEdit instead of the
     // WYSIWYG sred surface.
@@ -2239,6 +2247,14 @@ export component AppWindow inherits Window {
                                                     Text { text: p.summary; font-size: (12px * Z.f); color: Theme.text2; wrap: word-wrap; max-height: 36px; overflow: elide; }
                                                     Text { text: p.preview; font-size: (11px * Z.f); color: Theme.text; wrap: word-wrap; max-height: 42px; overflow: elide; }
                                                     Text { text: "Source: " + p.source; font-size: (10px * Z.f); color: Theme.text3; overflow: elide; }
+                                                    HorizontalLayout {
+                                                        spacing: 5px;
+                                                        if p.source-one != "" && p.source-one-navigable: Button { text: "1"; accessible-label: "Inspect source " + p.source-one; clicked => { root.ai-inspect-proposal-source(p.id, 0); } }
+                                                        if p.source-two != "" && p.source-two-navigable: Button { text: "2"; accessible-label: "Inspect source " + p.source-two; clicked => { root.ai-inspect-proposal-source(p.id, 1); } }
+                                                        if p.source-three != "" && p.source-three-navigable: Button { text: "3"; accessible-label: "Inspect source " + p.source-three; clicked => { root.ai-inspect-proposal-source(p.id, 2); } }
+                                                        if p.source-more != "": Text { text: p.source-more; font-size: (10px * Z.f); color: Theme.text3; vertical-alignment: center; overflow: elide; }
+                                                        Rectangle { horizontal-stretch: 1; }
+                                                    }
                                                     Text { text: p.target + " · " + p.confidence; font-size: (10px * Z.f); color: Theme.text3; overflow: elide; }
                                                     if p.rationale != "": Text { text: p.rationale; font-size: (10px * Z.f); color: Theme.text3; wrap: word-wrap; max-height: 28px; overflow: elide; }
                                                     HorizontalLayout {

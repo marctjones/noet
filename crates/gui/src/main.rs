@@ -827,6 +827,17 @@ fn palette_activate(ui: &AppWindow, id: &str) {
 }
 
 fn ai_proposal_ui(row: AiProposalRow) -> AiProposalUi {
+    let source_one = proposal_source_label(&row, 0);
+    let source_two = proposal_source_label(&row, 1);
+    let source_three = proposal_source_label(&row, 2);
+    let source_more = if row.source_rows.len() > 3 {
+        format!("+{} more", row.source_rows.len() - 3)
+    } else {
+        String::new()
+    };
+    let source_one_navigable = proposal_source_navigable(&row, 0);
+    let source_two_navigable = proposal_source_navigable(&row, 1);
+    let source_three_navigable = proposal_source_navigable(&row, 2);
     AiProposalUi {
         id: row.id.into(),
         status: row.status.into(),
@@ -835,10 +846,31 @@ fn ai_proposal_ui(row: AiProposalRow) -> AiProposalUi {
         summary: row.summary.into(),
         preview: row.preview.into(),
         source: row.source.into(),
+        source_one: source_one.into(),
+        source_one_navigable,
+        source_two: source_two.into(),
+        source_two_navigable,
+        source_three: source_three.into(),
+        source_three_navigable,
+        source_more: source_more.into(),
         rationale: row.rationale.into(),
         confidence: row.confidence.into(),
         requires_confirmation: row.requires_confirmation,
     }
+}
+
+fn proposal_source_label(row: &AiProposalRow, index: usize) -> String {
+    row.source_rows
+        .get(index)
+        .map(|source| source.label.clone())
+        .unwrap_or_default()
+}
+
+fn proposal_source_navigable(row: &AiProposalRow, index: usize) -> bool {
+    row.source_rows
+        .get(index)
+        .map(|source| source.navigable)
+        .unwrap_or(false)
 }
 
 fn ai_job_ui(row: AiJobRow) -> AiJobUi {
@@ -1866,6 +1898,43 @@ fn open_in_editor(ui: &AppWindow, b: &Backend, note_id: &str) {
         ui.set_editing(true);
         SredEditorAdapter::load_note_body(ui, &n.body);
         render_read(ui, b, &n); // still feeds entity-chip / backlink models
+    }
+}
+
+fn open_app_selected_source(ui: &AppWindow, state: &mut State) {
+    let target =
+        state
+            .app
+            .selection
+            .note_id
+            .as_deref()
+            .map(|note_id| (note_id.to_string(), None))
+            .or_else(|| {
+                state.app.selection.task_id.as_deref().map(|task_id| {
+                    match task_id.rsplit_once(':') {
+                        Some((note_id, line)) => (note_id.to_string(), line.parse::<usize>().ok()),
+                        None => (task_id.to_string(), None),
+                    }
+                })
+            });
+    let Some((note_id, line)) = target else {
+        return;
+    };
+
+    let current = ui.get_current_id().to_string();
+    if ui.get_editing() && !current.is_empty() && current != note_id {
+        let _ = noet_app::save_note(
+            &mut state.backend,
+            &current,
+            &ui.get_current_title(),
+            &ui.get_current_body(),
+        );
+    }
+    open_in_editor(ui, &state.backend, &note_id);
+    ui.set_editing(false);
+    ui.set_content_pane_open(true);
+    if let Some(line) = line {
+        rich_goto_line(ui, line);
     }
 }
 
@@ -3116,9 +3185,31 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_ai_inspect_proposal(move |proposal_id: SharedString| {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
-            let _ = s
+            let outcome = s
                 .app
                 .apply(AppCommand::InspectAiProposalSource(proposal_id.to_string()));
+            if outcome.accepted {
+                open_app_selected_source(&ui, &mut s);
+            }
+            refresh(&ui, &s);
+        });
+    }
+    {
+        let ui_w = ui.as_weak();
+        let state = state.clone();
+        ui.on_ai_inspect_proposal_source(move |proposal_id: SharedString, source_index: i32| {
+            let ui = ui_w.unwrap();
+            let mut s = state.borrow_mut();
+            let outcome = s.app.apply(AppCommand::InspectAiProposalSourceAt {
+                proposal_id: proposal_id.to_string(),
+                source_index: source_index.max(0) as usize,
+            });
+            if outcome.accepted {
+                open_app_selected_source(&ui, &mut s);
+            }
+            if let Some(message) = outcome.message {
+                ui.set_status_text(message.into());
+            }
             refresh(&ui, &s);
         });
     }

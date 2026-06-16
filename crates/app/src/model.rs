@@ -260,24 +260,15 @@ impl AppModel {
                 CommandOutcome::accepted_with_message(removed.to_string())
             }
             AppCommand::InspectAiProposalSource(proposal_id) => {
-                match self.ai.first_source_for(&proposal_id) {
-                    Some(SourceRef::Note { note_id })
-                    | Some(SourceRef::NoteHeading { note_id, .. })
-                    | Some(SourceRef::SourceSpan { note_id, .. }) => {
-                        self.selection.select_note(note_id);
-                        CommandOutcome::accepted()
-                    }
-                    Some(SourceRef::Task { task_id }) => {
-                        self.selection.select_task(task_id);
-                        CommandOutcome::accepted()
-                    }
-                    Some(SourceRef::Synthetic { .. }) => {
-                        CommandOutcome::rejected("AI proposal source is not navigable")
-                    }
-                    None => CommandOutcome::rejected(format!(
-                        "AI proposal has no navigable source: {proposal_id}"
-                    )),
-                }
+                let source = self.ai.first_source_for(&proposal_id);
+                inspect_ai_source(&mut self.selection, source, &proposal_id)
+            }
+            AppCommand::InspectAiProposalSourceAt {
+                proposal_id,
+                source_index,
+            } => {
+                let source = self.ai.source_for(&proposal_id, source_index);
+                inspect_ai_source(&mut self.selection, source, &proposal_id)
             }
         }
     }
@@ -292,6 +283,33 @@ impl AppModel {
                     .any(|pane| pane.open && pane.role == PaneRole::Primary)
             })
             .unwrap_or(false)
+    }
+}
+
+fn inspect_ai_source(
+    selection: &mut crate::SelectionState,
+    source: Option<SourceRef>,
+    proposal_id: &str,
+) -> CommandOutcome {
+    match source {
+        Some(SourceRef::Note { note_id })
+        | Some(SourceRef::NoteHeading { note_id, .. })
+        | Some(SourceRef::SourceSpan { note_id, .. }) => {
+            selection.select_note(note_id);
+            selection.clear_task();
+            CommandOutcome::accepted()
+        }
+        Some(SourceRef::Task { task_id }) => {
+            selection.select_task(task_id);
+            selection.clear_note();
+            CommandOutcome::accepted()
+        }
+        Some(SourceRef::Synthetic { .. }) => {
+            CommandOutcome::rejected("AI proposal source is not navigable")
+        }
+        None => CommandOutcome::rejected(format!(
+            "AI proposal has no navigable source: {proposal_id}"
+        )),
     }
 }
 
@@ -310,7 +328,10 @@ fn with_active_workspace(
 mod tests {
     use crate::{AiJobStatus, AiStatus, AppCommand, AppModel, Surface};
     use noet_ai::HousekeepingJob;
-    use noet_ai::{AgendaDraft, AiProposal, ProposalKind, ProposalPayload, ProposalTarget};
+    use noet_ai::{
+        AgendaDraft, AgendaItem, AgendaSection, AiProposal, ProposalKind, ProposalPayload,
+        ProposalTarget, SourceRef,
+    };
 
     #[test]
     fn selection_state_can_change_without_layout_operations() {
@@ -799,6 +820,23 @@ mod tests {
         assert_eq!(model.selection.note_id.as_deref(), Some("note-1"));
     }
 
+    #[test]
+    fn inspecting_indexed_ai_proposal_source_updates_selection() {
+        let mut model = AppModel::new();
+        assert!(
+            model
+                .apply(AppCommand::EnqueueAiProposal(multi_source_agenda_proposal()))
+                .accepted
+        );
+        let outcome = model.apply(AppCommand::InspectAiProposalSourceAt {
+            proposal_id: "ai-proposal-1".into(),
+            source_index: 1,
+        });
+
+        assert!(outcome.accepted);
+        assert_eq!(model.selection.note_id.as_deref(), Some("note-2"));
+    }
+
     fn agenda_proposal() -> AiProposal {
         AiProposal {
             kind: ProposalKind::DraftAgenda,
@@ -808,6 +846,38 @@ mod tests {
             payload: ProposalPayload::DraftAgenda(AgendaDraft {
                 person: "Jane Smith".into(),
                 sections: Vec::new(),
+            }),
+            rationale: "Prior follow-ups mention Jane.".into(),
+            confidence: 0.9,
+            requires_confirmation: false,
+        }
+    }
+
+    fn multi_source_agenda_proposal() -> AiProposal {
+        AiProposal {
+            kind: ProposalKind::DraftAgenda,
+            target: ProposalTarget::Person {
+                name: "Jane Smith".into(),
+            },
+            payload: ProposalPayload::DraftAgenda(AgendaDraft {
+                person: "Jane Smith".into(),
+                sections: vec![AgendaSection {
+                    title: "Follow-ups".into(),
+                    items: vec![
+                        AgendaItem {
+                            text: "Review note one".into(),
+                            sources: vec![SourceRef::Note {
+                                note_id: "note-1".into(),
+                            }],
+                        },
+                        AgendaItem {
+                            text: "Review note two".into(),
+                            sources: vec![SourceRef::Note {
+                                note_id: "note-2".into(),
+                            }],
+                        },
+                    ],
+                }],
             }),
             rationale: "Prior follow-ups mention Jane.".into(),
             confidence: 0.9,
