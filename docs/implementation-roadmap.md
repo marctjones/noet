@@ -16,6 +16,67 @@ more about hardening the workflow surfaces, reducing Slint-owned product logic,
 and making the typed parsed-note model the shared contract for indexing,
 rendering, autocomplete, and write-back.
 
+## Service Boundaries
+
+These boundaries are the implementation contract for new work. GUI code may
+adapt Slint events and render models, but product workflows and persistence
+decisions should live below the GUI layer.
+
+`noet-core` owns the durable local data model:
+
+- Markdown vault IO and Markdown write-back mutations.
+- Noet Markdown parsing, typed inline facts, source spans, and parser
+  diagnostics.
+- Rebuildable SQLite indexing, query APIs, workflow read models, export, and
+  background reindex primitives.
+- Disposable cache/index placement outside the Markdown vault.
+
+`noet-ai` owns UI-independent local AI contracts:
+
+- Local model profiles, embedding profiles, runtime settings, and runtime
+  traits.
+- Inline `mistral.rs` chat and embedding adapters behind feature gates.
+- Structured proposal payloads, local-only defaults, cancellation/progress
+  contracts, and tests that prevent hosted fallback or content-safety filtering.
+
+`noet-app` owns product workflow services and app state:
+
+- `AppModel`, `AppCommand`, selection, navigation, workspace, pane, and surface
+  state.
+- Note write-back workflows in `note_workflow`.
+- Task write-back workflows in `task_workflow`.
+- Smart-list persistence workflows in `smart_list_workflow`.
+- AI proposal application in `ai_apply`.
+- AI product workflows in `ai_workflow` and housekeeping in `ai_housekeeping`.
+- Semantic search/index policy, context collection, refresh/search mechanics,
+  stale-search blocking, and semantic index persistence in `ai_semantic`.
+- Deterministic AI surface rows in `ai_surface`.
+
+`noet-gui` owns native presentation and platform glue:
+
+- Slint rendering, generated UI callbacks, accessibility wiring, menus, window
+  state, tray/startup integration, and IPC.
+- `SredEditorAdapter` hosting and editor-only incomplete-token scanning.
+- Slint model adapters in `surface_adapters` and `workspace_adapter`.
+- Local AI worker spawning, memory preflight, progress forwarding, and concrete
+  runtime loading through `ai_runtime`; these remain adapters over `noet-ai` and
+  `noet-app` contracts, not product workflow owners.
+
+Practical rules:
+
+- New Markdown mutations should enter through `noet-app` workflow functions or
+  typed app commands, then delegate to `noet-core`.
+- New AI features should assemble product context in `noet-app`, execute through
+  `noet-ai` runtime traits, and return reviewable proposals or read-only result
+  surfaces.
+- Reindex and semantic refresh must not silently load local models. Embedding
+  refresh stays a visible, manual AI job until the policy changes.
+- Semantic index files belong under the disposable backend index/cache
+  directory, never in the Markdown vault.
+- GUI callbacks may collect UI field values, invoke app services, refresh
+  surfaces, and report status; they should not independently decide product
+  write-back behavior.
+
 ## Live GitHub Roadmap Order
 
 The GitHub tracker is the live execution order. The roadmap below explains why
@@ -26,7 +87,7 @@ the work is ordered this way; GitHub issues are the actionable units.
    release readiness work.
    - #51 M4 epic: Architecture cleanup and daily workflow finish
    - #59 Define durable service boundaries for AI, indexing, and workspace state
-   - #60 Consolidate mutation write-back behind typed app commands
+   - #60 Consolidate mutation write-back behind typed app commands (closed)
    - #61 Move remaining workflow orchestration out of Slint callbacks
    - #54 Bring 1:1 Focus to daily-use quality
    - #55 Bring Notes workspace to daily-use quality

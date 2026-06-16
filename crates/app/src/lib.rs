@@ -26,8 +26,10 @@ pub use ai::{
 pub use ai_apply::{apply_ai_proposal, AiApplyReport};
 pub use ai_housekeeping::run_housekeeping_job;
 pub use ai_semantic::{
-    SemanticEntry, SemanticIndex, SemanticIndexStorage, SemanticMatch, SemanticRefreshPolicy,
-    SemanticRefreshTrigger, SemanticStaleSearchBehavior,
+    collect_semantic_contexts, load_semantic_index, refresh_semantic_index, save_semantic_index,
+    semantic_index_path, stale_semantic_note_count, SemanticEntry, SemanticIndex,
+    SemanticIndexStorage, SemanticMatch, SemanticRefreshPolicy, SemanticRefreshTrigger,
+    SemanticStaleSearchBehavior,
 };
 pub use ai_surface::{ai_surface, AiJobRow, AiProposalRow, AiSurface};
 pub use command::{AppCommand, CommandOutcome};

@@ -1,7 +1,8 @@
 use noet_ai::{EmbeddingInput, EmbeddingRequest, EmbeddingRuntime, SourceRef};
-use noet_core::NoteContext;
+use noet_core::{Backend, Filter, NoteContext};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
+use std::path::PathBuf;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SemanticRefreshPolicy {
@@ -45,6 +46,76 @@ pub enum SemanticStaleSearchBehavior {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SemanticIndexStorage {
     DisposableIndexCache,
+}
+
+pub fn collect_semantic_contexts(backend: &Backend) -> Result<Vec<NoteContext>, String> {
+    let notes = backend
+        .query_notes(&Filter::default())
+        .map_err(|err| err.to_string())?;
+    Ok(notes
+        .iter()
+        .filter_map(|note| backend.note_context(&note.id).ok())
+        .collect())
+}
+
+pub fn refresh_semantic_index<R>(
+    index: &mut SemanticIndex,
+    runtime: &R,
+    profile_id: impl Into<String>,
+    contexts: &[NoteContext],
+) -> Result<usize, String>
+where
+    R: EmbeddingRuntime,
+{
+    let profile_id = profile_id.into();
+    let note_ids = semantic_note_ids(contexts);
+    index.prune_missing_notes(&note_ids);
+    let stale_contexts = index
+        .stale_note_contexts(&profile_id, contexts)
+        .into_iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    if stale_contexts.is_empty() {
+        return Ok(index.entries().len());
+    }
+    index.replace_changed_notes(runtime, profile_id, &stale_contexts)
+}
+
+pub fn stale_semantic_note_count(
+    index: &mut SemanticIndex,
+    profile_id: &str,
+    contexts: &[NoteContext],
+) -> usize {
+    let note_ids = semantic_note_ids(contexts);
+    index.prune_missing_notes(&note_ids);
+    index.stale_note_contexts(profile_id, contexts).len()
+}
+
+pub fn semantic_index_path(backend: &Backend) -> PathBuf {
+    backend.index_dir().join("semantic-index.json")
+}
+
+pub fn load_semantic_index(backend: &Backend) -> SemanticIndex {
+    std::fs::read_to_string(semantic_index_path(backend))
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default()
+}
+
+pub fn save_semantic_index(backend: &Backend, index: &SemanticIndex) -> Result<(), String> {
+    let path = semantic_index_path(backend);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    let raw = serde_json::to_string_pretty(index).map_err(|err| err.to_string())?;
+    std::fs::write(path, raw).map_err(|err| err.to_string())
+}
+
+fn semantic_note_ids(contexts: &[NoteContext]) -> BTreeSet<String> {
+    contexts
+        .iter()
+        .map(|context| context.note.note.id.clone())
+        .collect()
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -248,8 +319,11 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> Option<f32> {
 mod tests {
     use super::*;
     use noet_ai::{AiResult, AiUsage, EmbeddingResponse, EmbeddingVector};
-    use noet_core::{Note, NoteContext, NoteFacts, ParsedNote, SourceRef as CoreSourceRef};
+    use noet_core::{
+        Backend, Filter, Note, NoteContext, NoteFacts, ParsedNote, SourceRef as CoreSourceRef,
+    };
     use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     struct FakeEmbeddingRuntime;
 
@@ -382,6 +456,49 @@ mod tests {
         );
     }
 
+    #[test]
+    fn semantic_service_collects_persists_and_refreshes_outside_vault() {
+        let (mut backend, dir) = backend_with_note("# Launch\n\nlaunch checklist\n");
+        let contexts = collect_semantic_contexts(&backend).unwrap();
+        let mut index = SemanticIndex::default();
+
+        let count = refresh_semantic_index(
+            &mut index,
+            &FakeEmbeddingRuntime,
+            "nomic-embed-text-v1-5",
+            &contexts,
+        )
+        .unwrap();
+        save_semantic_index(&backend, &index).unwrap();
+        let loaded = load_semantic_index(&backend);
+
+        assert_eq!(count, 1);
+        assert_eq!(loaded.entries().len(), 1);
+        assert!(
+            semantic_index_path(&backend).starts_with(backend.index_dir()),
+            "semantic index must live with the disposable backend index cache"
+        );
+        assert!(
+            !dir.join("semantic-index.json").exists(),
+            "semantic index must not be written into the markdown vault"
+        );
+        assert_eq!(
+            stale_semantic_note_count(&mut index, "nomic-embed-text-v1-5", &contexts),
+            0
+        );
+
+        let note = backend.query_notes(&Filter::default()).unwrap()[0].clone();
+        backend
+            .save_note(&note.id, "Changed", "# Changed\n\nbudget review\n")
+            .unwrap();
+        let changed = collect_semantic_contexts(&backend).unwrap();
+        assert_eq!(
+            stale_semantic_note_count(&mut index, "nomic-embed-text-v1-5", &changed),
+            1
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
     fn note_context(id: &str, body: &str) -> NoteContext {
         NoteContext {
             note: ParsedNote {
@@ -408,5 +525,22 @@ mod tests {
             related: Vec::new(),
             sources: Vec::<CoreSourceRef>::new(),
         }
+    }
+
+    fn backend_with_note(body: &str) -> (Backend, PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "noet-ai-semantic-service-test-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or_default()
+        ));
+        std::fs::create_dir_all(dir.join("notes")).unwrap();
+        let mut backend = Backend::open_at(dir.clone(), dir.join("cache")).unwrap();
+        let note = backend.new_note().unwrap();
+        backend.save_note(&note.id, "Launch", body).unwrap();
+        backend.reindex_all().unwrap();
+        (backend, dir)
     }
 }

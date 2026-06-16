@@ -1083,7 +1083,7 @@ fn refresh_ai_embeddings(ui: &AppWindow, state: &mut State) {
     state.app.ai.set_status(noet_app::AiStatus::Indexing);
 
     if !use_preview_ai_runtime() {
-        let contexts = match semantic_contexts(state) {
+        let contexts = match noet_app::collect_semantic_contexts(&state.backend) {
             Ok(contexts) => contexts,
             Err(message) => {
                 let _ = state.app.apply(AppCommand::FailAiJob {
@@ -1137,7 +1137,7 @@ fn refresh_ai_embeddings(ui: &AppWindow, state: &mut State) {
                 job_id,
                 proposal_ids: Vec::new(),
             });
-            let _ = save_semantic_index(&state.backend, &state.semantic_index);
+            let _ = noet_app::save_semantic_index(&state.backend, &state.semantic_index);
             state.app.ai.set_status(noet_app::AiStatus::Ready);
             ui.set_status_text(format!("Refreshed embeddings for {count} notes").into());
         }
@@ -1156,33 +1156,19 @@ fn refresh_ai_embeddings(ui: &AppWindow, state: &mut State) {
 }
 
 fn refresh_ai_embeddings_inner(state: &mut State) -> Result<usize, String> {
-    let contexts = semantic_contexts(state)?;
+    let contexts = noet_app::collect_semantic_contexts(&state.backend)?;
     let profile_id = state.app.ai.settings.selected_embedding_profile_id.clone();
-    let note_ids = contexts
-        .iter()
-        .map(|context| context.note.note.id.clone())
-        .collect::<std::collections::BTreeSet<_>>();
-    state.semantic_index.prune_missing_notes(&note_ids);
-    let stale_contexts = state
-        .semantic_index
-        .stale_note_contexts(&profile_id, &contexts)
-        .into_iter()
-        .cloned()
-        .collect::<Vec<_>>();
-    if stale_contexts.is_empty() {
-        return Ok(state.semantic_index.entries().len());
-    }
-
     if use_preview_ai_runtime() {
-        return state.semantic_index.replace_changed_notes(
+        return noet_app::refresh_semantic_index(
+            &mut state.semantic_index,
             &PreviewEmbeddingRuntime,
             profile_id,
-            &stale_contexts,
+            &contexts,
         );
     }
 
     require_free_memory(state.app.ai.settings.min_free_memory_percent)?;
-    refresh_ai_embeddings_with_inline_runtime(state, profile_id, &stale_contexts)
+    refresh_ai_embeddings_with_inline_runtime(state, profile_id, &contexts)
 }
 
 fn run_local_embedding_refresh(
@@ -1190,67 +1176,17 @@ fn run_local_embedding_refresh(
     profile_id: String,
     contexts: Vec<noet_core::NoteContext>,
 ) -> Result<(SemanticIndex, usize), String> {
-    let note_ids = contexts
-        .iter()
-        .map(|context| context.note.note.id.clone())
-        .collect::<std::collections::BTreeSet<_>>();
-    index.prune_missing_notes(&note_ids);
-    let stale_contexts = index
-        .stale_note_contexts(&profile_id, &contexts)
-        .into_iter()
-        .cloned()
-        .collect::<Vec<_>>();
-    if stale_contexts.is_empty() {
-        let count = index.entries().len();
-        return Ok((index, count));
-    }
-    let count =
-        refresh_semantic_index_with_inline_runtime(&mut index, profile_id, &stale_contexts)?;
+    let count = refresh_semantic_index_with_inline_runtime(&mut index, profile_id, &contexts)?;
     Ok((index, count))
 }
 
-fn semantic_contexts(state: &State) -> Result<Vec<noet_core::NoteContext>, String> {
-    let notes = state
-        .backend
-        .query_notes(&Filter::default())
-        .map_err(|err| err.to_string())?;
-    Ok(notes
-        .iter()
-        .filter_map(|note| state.backend.note_context(&note.id).ok())
-        .collect())
-}
-
 fn semantic_stale_count(state: &mut State, profile_id: &str) -> Result<usize, String> {
-    let contexts = semantic_contexts(state)?;
-    let note_ids = contexts
-        .iter()
-        .map(|context| context.note.note.id.clone())
-        .collect::<std::collections::BTreeSet<_>>();
-    state.semantic_index.prune_missing_notes(&note_ids);
-    Ok(state
-        .semantic_index
-        .stale_note_contexts(profile_id, &contexts)
-        .len())
-}
-
-fn semantic_index_path(backend: &Backend) -> PathBuf {
-    backend.index_dir().join("semantic-index.json")
-}
-
-fn load_semantic_index(backend: &Backend) -> SemanticIndex {
-    std::fs::read_to_string(semantic_index_path(backend))
-        .ok()
-        .and_then(|raw| serde_json::from_str(&raw).ok())
-        .unwrap_or_default()
-}
-
-fn save_semantic_index(backend: &Backend, index: &SemanticIndex) -> Result<(), String> {
-    let path = semantic_index_path(backend);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|err| err.to_string())?;
-    }
-    let raw = serde_json::to_string_pretty(index).map_err(|err| err.to_string())?;
-    std::fs::write(path, raw).map_err(|err| err.to_string())
+    let contexts = noet_app::collect_semantic_contexts(&state.backend)?;
+    Ok(noet_app::stale_semantic_note_count(
+        &mut state.semantic_index,
+        profile_id,
+        &contexts,
+    ))
 }
 
 fn run_ai_semantic_search(ui: &AppWindow, state: &mut State, query: &str) {
@@ -1417,7 +1353,7 @@ fn refresh_semantic_index_with_inline_runtime(
     }
     let runtime = noet_ai::MistralRsInlineEmbeddingRuntime::load(profile_id.clone())
         .map_err(|err| format!("{err:?}"))?;
-    index.replace_changed_notes(&runtime, profile_id, contexts)
+    noet_app::refresh_semantic_index(index, &runtime, profile_id, contexts)
 }
 
 #[cfg(not(feature = "mistralrs-inline"))]
@@ -1521,7 +1457,7 @@ fn apply_ai_worker_message(ui: &AppWindow, state: &mut State, message: AiWorkerM
                     proposal_ids: Vec::new(),
                 });
                 let _ = state.app.apply(AppCommand::ClearAiProgress);
-                let _ = save_semantic_index(&state.backend, &state.semantic_index);
+                let _ = noet_app::save_semantic_index(&state.backend, &state.semantic_index);
                 state.app.ai.set_status(noet_app::AiStatus::Ready);
                 ui.set_status_text(format!("Refreshed embeddings for {count} notes").into());
             }
@@ -2149,7 +2085,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
     let now = chrono::Local::now();
     let saved_settings = backend::Settings::load().unwrap_or_default();
     let pinned = saved_settings.pinned_notes.clone();
-    let semantic_index = load_semantic_index(&backend);
+    let semantic_index = noet_app::load_semantic_index(&backend);
     let (ai_worker_tx, ai_worker_rx) = mpsc::channel();
     let state = Rc::new(RefCell::new(State {
         backend,
