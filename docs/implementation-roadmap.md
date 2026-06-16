@@ -343,7 +343,7 @@ Release bar for the note-first redesign:
   todo sources can open beside the active editor.
 - [x] Add source-line highlighting inside the read-only reference pane for
   cross-note todos.
-- [ ] Redesign meeting todos into explicit This meeting, Carryover, Waiting or
+- [x] Redesign meeting todos into explicit This meeting, Carryover, Waiting or
   delegated, and collapsed Related open loops sections.
 - [ ] Manual screenshot review should now verify the updated Notes default:
   collapsed workspace rail, note-edge todo rail, closed auxiliary panes, visible

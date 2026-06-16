@@ -549,6 +549,8 @@ pub struct OneOnOneSurface {
     pub discuss: Vec<TodoItem>,
     pub delegated: Vec<TodoItem>,
     pub delegated_history: Vec<TodoItem>,
+    pub waiting_delegated: Vec<TodoItem>,
+    pub related_open_loops: Vec<TodoItem>,
     pub other: Vec<TodoItem>,
     pub current_id: String,
     pub current_title: String,
@@ -567,6 +569,8 @@ impl Default for OneOnOneSurface {
             discuss: Vec::new(),
             delegated: Vec::new(),
             delegated_history: Vec::new(),
+            waiting_delegated: Vec::new(),
+            related_open_loops: Vec::new(),
             other: Vec::new(),
             current_id: String::new(),
             current_title: String::new(),
@@ -627,6 +631,41 @@ pub fn one_on_one_surface(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
+    let last_followup_ids = last_followups
+        .iter()
+        .map(|task| task.id.to_string())
+        .collect::<std::collections::HashSet<_>>();
+    let is_current_note_task = |task: &&backend::TaskFact| {
+        current
+            .map(|note| task.source.note_id == note.id)
+            .unwrap_or(false)
+    };
+    let is_last_followup_task = |task: &&backend::TaskFact| last_followup_ids.contains(&task.id);
+    let waiting_delegated = context
+        .open_items
+        .iter()
+        .filter(|task| {
+            matches!(
+                task.workflow,
+                backend::TaskWorkflow::Delegated | backend::TaskWorkflow::Waiting
+            ) && !is_current_note_task(task)
+                && !is_last_followup_task(task)
+        })
+        .map(todo_item_from_fact)
+        .collect::<Vec<_>>();
+    let related_open_loops = context
+        .open_items
+        .iter()
+        .filter(|task| {
+            !is_current_note_task(task)
+                && !is_last_followup_task(task)
+                && !matches!(
+                    task.workflow,
+                    backend::TaskWorkflow::Delegated | backend::TaskWorkflow::Waiting
+                )
+        })
+        .map(todo_item_from_fact)
+        .collect::<Vec<_>>();
 
     OneOnOneSurface {
         discuss: discuss.iter().map(todo_item_from_fact).collect(),
@@ -637,6 +676,8 @@ pub fn one_on_one_surface(
             .filter(|task| is_followup_history_workflow(&task.workflow))
             .map(todo_item_from_fact)
             .collect(),
+        waiting_delegated,
+        related_open_loops,
         other: context
             .open_items
             .iter()
@@ -1269,9 +1310,23 @@ See [[Client/Acme]] and https://example.test
             TaskWorkflow::Delegated,
             TaskStatus::Doing,
         );
+        let old_waiting = task(
+            "other:2",
+            "other",
+            "Waiting on handoff",
+            TaskWorkflow::Waiting,
+            TaskStatus::Todo,
+        );
+        let old_delegated = task(
+            "other:3",
+            "other",
+            "Delegated old action",
+            TaskWorkflow::Delegated,
+            TaskStatus::Todo,
+        );
         let mine = task(
-            "cur:4",
-            "cur",
+            "other:4",
+            "other",
             "My prep",
             TaskWorkflow::Mine,
             TaskStatus::Todo,
@@ -1288,6 +1343,8 @@ See [[Client/Acme]] and https://example.test
                 prior_followup.clone(),
                 waiting.clone(),
                 delegated.clone(),
+                old_waiting,
+                old_delegated,
                 mine.clone(),
             ],
             followups: vec![prior_followup],
@@ -1303,9 +1360,12 @@ See [[Client/Acme]] and https://example.test
         assert_eq!(surface.count, 2);
         assert_eq!(surface.discuss.len(), 2);
         assert_eq!(surface.delegated.len(), 1);
-        assert_eq!(surface.delegated_history.len(), 3);
+        assert_eq!(surface.delegated_history.len(), 5);
+        assert_eq!(surface.waiting_delegated.len(), 2);
+        assert_eq!(surface.related_open_loops.len(), 1);
         assert_eq!(surface.other.len(), 1);
         assert_eq!(surface.other[0].text.to_string(), "My prep");
+        assert_eq!(surface.related_open_loops[0].text.to_string(), "My prep");
         assert_eq!(surface.last_followups.len(), 1);
         assert_eq!(surface.last_followups[0].text.to_string(), "Revisit budget");
         assert_eq!(surface.history_notes[0].title.to_string(), "Current 1:1");

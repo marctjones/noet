@@ -1281,7 +1281,7 @@ fn headless_ui_smoke() {
             .save_note(
                 &n.id,
                 "Alice 1:1",
-                "# Alice 1:1\n\n- [ ] follow up @[[Alice]] #followup\n- [ ] delegate back to @[[Alice]] #delegated\n",
+                "# Alice 1:1\n\n- [ ] stray related loop @[[Alice]] #followup\n- [ ] delegate back to @[[Alice]] #delegated\n- [ ] waiting on handoff @[[Alice]] #waiting\n",
             )
             .unwrap();
         let previous = st.backend.new_note().unwrap();
@@ -1297,7 +1297,7 @@ fn headless_ui_smoke() {
             .save_note(
                 &current.id,
                 "Alice current 1:1",
-                "# Alice current 1:1\n\n#meeting/one-on-one\n@[[Alice]]\n\nCurrent notes.\n",
+                "# Alice current 1:1\n\n#meeting/one-on-one\n@[[Alice]]\n\nCurrent notes.\n\n- [ ] decide launch date @[[Alice]] #followup\n",
             )
             .unwrap();
     }
@@ -1427,6 +1427,42 @@ fn headless_ui_smoke() {
         ui.get_person_last_followups().row_count() >= 1,
         "unresolved prior follow-ups are surfaced for carryover"
     );
+    assert!(
+        ui.get_person_waiting_delegated().row_count() >= 2,
+        "meeting sidecar data separates older waiting/delegated items"
+    );
+    assert!(
+        ui.get_person_related_open_loops().row_count() >= 1,
+        "meeting sidecar data exposes other related open loops separately"
+    );
+    for label in [
+        "Meeting todos",
+        "This meeting",
+        "Carryover",
+        "Waiting or delegated",
+        "Related open loops",
+    ] {
+        ElementHandle::find_by_accessible_label(ui, label)
+            .find(|e| e.accessible_role() == Some(AccessibleRole::Groupbox))
+            .unwrap_or_else(|| panic!("1:1 meeting sidecar exposes {label} group"));
+    }
+    let visible_meeting_todo_buttons = ElementQuery::from_root(ui)
+        .match_descendants()
+        .match_accessible_role(AccessibleRole::Button)
+        .find_all();
+    assert!(
+        visible_meeting_todo_buttons.iter().all(|e| {
+            e.accessible_label().as_deref() != Some("Open meeting todo stray related loop")
+        }),
+        "related open loops start collapsed to keep the meeting surface focused"
+    );
+    ElementHandle::find_by_accessible_label(ui, "Expand Related open loops")
+        .find(|e| e.accessible_role() == Some(AccessibleRole::Button))
+        .expect("related open loops can be expanded on demand")
+        .invoke_accessible_default_action();
+    ElementHandle::find_by_accessible_label(ui, "Open meeting todo stray related loop")
+        .find(|e| e.accessible_role() == Some(AccessibleRole::Button))
+        .expect("expanded related open loops expose the full todo row");
     let carryover = ui.get_person_last_followups().row_data(0).unwrap();
     ui.invoke_carry_followup(carryover.id.clone());
     assert!(

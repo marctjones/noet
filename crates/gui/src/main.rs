@@ -1745,6 +1745,12 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
         ui.set_person_delegated_history(ModelRc::new(VecModel::from(
             oneonone_surface.delegated_history,
         )));
+        ui.set_person_waiting_delegated(ModelRc::new(VecModel::from(
+            oneonone_surface.waiting_delegated,
+        )));
+        ui.set_person_related_open_loops(ModelRc::new(VecModel::from(
+            oneonone_surface.related_open_loops,
+        )));
         ui.set_person_other(ModelRc::new(VecModel::from(oneonone_surface.other)));
         ui.set_person_current_oneonone_id(oneonone_surface.current_id.clone().into());
         ui.set_person_current_oneonone_title(oneonone_surface.current_title.clone().into());
