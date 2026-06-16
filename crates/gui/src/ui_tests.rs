@@ -1043,7 +1043,11 @@ fn headless_ui_smoke() {
         let mut st = ctx.state.borrow_mut();
         let a = st.backend.new_note().unwrap();
         st.backend
-            .save_note(&a.id, "Split A", "# Split A\n\nbody a\n")
+            .save_note(
+                &a.id,
+                "Split A",
+                "# Split A\n\nbody a\n\n- [ ] capture follow-up @[[Ava]] #followup due:2026-07-01\n",
+            )
             .unwrap();
         let b = st.backend.new_note().unwrap();
         st.backend
@@ -1054,6 +1058,19 @@ fn headless_ui_smoke() {
     }
     ctx.state.borrow_mut().backend.reindex_all().unwrap();
     ui.invoke_select_note(note_a.clone().into()); // editor shows A
+    assert!(
+        ui.get_current_todos().row_count() >= 1,
+        "context pane should expose todos from the note being edited"
+    );
+    let current_todo = ui
+        .get_current_todos()
+        .row_data(0)
+        .expect("current note todo row");
+    assert_eq!(current_todo.note_id, SharedString::from(note_a.as_str()));
+    assert!(
+        current_todo.text.contains("capture follow-up"),
+        "current note todo rows should preserve task text"
+    );
     ui.invoke_open_in_split(note_b.clone().into()); // reference pane shows B
     assert_eq!(ui.get_split_note_id(), note_b);
     assert_eq!(ui.get_split_title(), "Split B");

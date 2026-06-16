@@ -2132,11 +2132,25 @@ fn render_read(ui: &AppWindow, b: &Backend, note: &backend::Note) {
     ui.set_current_related(ModelRc::new(VecModel::from(
         surface_adapters::related_refs(&related),
     )));
-    let sources = b
-        .note_context(&note.id)
-        .map(|context| surface_adapters::source_refs(&context.sources))
-        .unwrap_or_default();
-    ui.set_current_sources(ModelRc::new(VecModel::from(sources)));
+    if let Ok(context) = b.note_context(&note.id) {
+        let current_todos = context
+            .note
+            .facts
+            .tasks
+            .iter()
+            .filter(|task| task.status.is_open())
+            .cloned()
+            .collect::<Vec<_>>();
+        ui.set_current_todos(ModelRc::new(VecModel::from(surface_adapters::task_items(
+            &current_todos,
+        ))));
+        ui.set_current_sources(ModelRc::new(VecModel::from(surface_adapters::source_refs(
+            &context.sources,
+        ))));
+    } else {
+        ui.set_current_todos(ModelRc::new(VecModel::from(Vec::<TodoItem>::new())));
+        ui.set_current_sources(ModelRc::new(VecModel::from(Vec::<RelatedRef>::new())));
+    }
 }
 
 /// The built-but-not-yet-driven app: window, shared state, and the background-

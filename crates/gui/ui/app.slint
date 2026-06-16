@@ -1085,6 +1085,7 @@ export component AppWindow inherits Window {
     in property <[TodoItem]> agenda-week;
     in property <[TodoItem]> agenda-later;
     in property <[NoteItem]> inbox-notes;
+    in property <[TodoItem]> current-todos;
     in property <[NoteRef]> current-backlinks;
     in property <[RelatedRef]> current-related; // prior notes to link this one to
     in property <[RelatedRef]> current-sources; // explicit source:[[note#^anchor]] links
@@ -2178,6 +2179,19 @@ export component AppWindow inherits Window {
                                                         for n in root.person-oneonone-notes: NoteRow {
                                                             note: n;
                                                             open(id) => { root.workspace-switch("one-on-one-focus"); root.select-note(id); }
+                                                        }
+                                                    }
+                                                    PaneSection {
+                                                        title: "Todos in this note";
+                                                        detail: root.current-todos.length + " open";
+                                                        accent: #b8742e;
+                                                        if root.current-todos.length == 0: EmptyState { glyph: "✓"; title: "No todos"; hint: "Tasks you type here will appear beside the note."; }
+                                                        for t in root.current-todos: AgendaRow {
+                                                            t: t;
+                                                            cycle(id) => { root.cycle-todo(id); }
+                                                            edit(id) => { root.edit-todo(id); }
+                                                            open(id) => { root.open-note(id); }
+                                                            promote(id) => { root.promote-task(id); }
                                                         }
                                                     }
                                                     PaneSection {
