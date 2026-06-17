@@ -262,12 +262,23 @@ cargo test --workspace
 For GUI workflow debugging:
 
 ```bash
-NOET_UI_TRACE=/tmp/noet-ui-trace.jsonl NOET_UI_TRACE_CONTENT=1 cargo run -p noet-gui
+NOET_DISABLE_IPC=1 NOET_DISABLE_TRAY=1 NOET_UI_TRACE=/tmp/noet-ui-trace.jsonl NOET_UI_TRACE_CONTENT=1 cargo run -p noet-gui
 ```
 
 `NOET_UI_TRACE_CONTENT=1` includes visible note/search excerpts in the local
 trace file. Leave it unset when testing against a real personal vault unless the
-content is needed for the debug pass.
+content is needed for the debug pass. `NOET_DISABLE_IPC=1` ensures the debug
+launch opens the repo build instead of forwarding to another running Noet
+instance. `NOET_DISABLE_TRAY=1` keeps the review launch focused on the main
+window instead of macOS tray/global-hotkey setup.
+
+For live Computer Use/accessibility inspection on macOS, use the targetable
+review app bundle:
+
+```bash
+scripts/build-visual-review-app.sh
+open "target/noet-visual-review/Noet Visual Review.app"
+```
 
 During the UX architecture reset, local visual checkpoints are preferred over
 full installer releases. Run the app from source with a disposable vault, review

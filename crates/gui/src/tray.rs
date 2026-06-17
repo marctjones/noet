@@ -30,6 +30,10 @@ mod imp {
     /// Build the tray icon + menu and start polling its events. Returns `None` if
     /// the tray can't be created (then Noet just runs without it).
     pub fn setup(ui: &AppWindow) -> Option<Tray> {
+        if crate::runtime_flags::disable_tray() {
+            return None;
+        }
+
         let menu = Menu::new();
         let mi_meeting = MenuItem::new("New meeting note   Ctrl+Alt+N", true, None);
         let mi_capture = MenuItem::new("Quick capture   Ctrl+Alt+C", true, None);

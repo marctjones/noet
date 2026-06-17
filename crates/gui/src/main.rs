@@ -25,6 +25,7 @@ mod ai_worker;
 mod chrome;
 mod ipc;
 mod palette;
+mod runtime_flags;
 mod startup;
 mod surface_adapters;
 mod tray;
@@ -3861,6 +3862,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         dirty,
         _ai_worker_timer,
     } = setup_app(vault.clone())?;
+    ui_trace::event("main_setup_complete", serde_json::json!({}));
 
     // Live file-reload: watch the vault for external edits (another editor,
     // OneDrive/Drive sync) and rebuild in the BACKGROUND so the UI never blocks.
@@ -3871,11 +3873,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     //     write files too, and those are already indexed incrementally; reacting
     //     to them would spin up needless background rebuilds while you type.
     let (fs_tx, fs_rx) = std::sync::mpsc::channel();
+    ui_trace::event("watcher_setup_start", serde_json::json!({}));
     let mut watcher = notify::recommended_watcher(move |res| {
         let _ = fs_tx.send(res);
     })?;
     use notify::Watcher;
     watcher.watch(&vault.join("notes"), notify::RecursiveMode::Recursive)?;
+    ui_trace::event("watcher_setup_complete", serde_json::json!({}));
 
     let reload_timer = slint::Timer::default();
     {
@@ -3915,12 +3919,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // System tray (Windows + macOS): keep it alive for the session so it stays one
     // click away. No-op / None on Linux.
+    ui_trace::event("tray_setup_start", serde_json::json!({}));
     let _tray: Option<tray::Tray> = tray::setup(&ui);
+    ui_trace::event(
+        "tray_setup_complete",
+        serde_json::json!({ "active": _tray.is_some() }),
+    );
 
     // Win11 chrome (dark titlebar + Mica hint): apply shortly after launch, once the
     // native window exists. Kept-alive single-shot timer; chrome::apply is a no-op
     // off Windows, so this is harmless everywhere.
     let _chrome_timer = {
+        ui_trace::event("chrome_timer_setup_start", serde_json::json!({}));
         let dark = ui.global::<Theme>().get_dark();
         let timer = slint::Timer::default();
         timer.start(
@@ -3928,28 +3938,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::time::Duration::from_millis(600),
             move || chrome::apply(dark),
         );
+        ui_trace::event("chrome_timer_setup_complete", serde_json::json!({}));
         timer
     };
 
     // Single-instance server (Unix): forward future `--new-meeting` launches into
     // this UI. Held in `_ipc` so the socket lives for the session.
     let _ipc: Option<ipc::Server> = {
+        ui_trace::event("ipc_setup_start", serde_json::json!({}));
         let weak = ui.as_weak();
-        ipc::serve(move |cmd| {
+        let server = ipc::serve(move |cmd| {
             let weak = weak.clone();
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(ui) = weak.upgrade() {
                     dispatch_cmd(&ui, &cmd);
                 }
             });
-        })
+        });
+        ui_trace::event(
+            "ipc_setup_complete",
+            serde_json::json!({ "active": server.is_some() }),
+        );
+        server
     };
     // If this instance was itself launched with an action, run it now that the UI exists.
     if launch_cmd == "new-meeting" || launch_cmd == "capture" {
         dispatch_cmd(&ui, launch_cmd);
     }
 
-    ui.run()?;
+    ui_trace::event("event_loop_start", serde_json::json!({}));
+    ui.show()?;
+    slint::run_event_loop_until_quit()?;
+    ui_trace::event("event_loop_stop", serde_json::json!({}));
     drop(watcher);
     Ok(())
 }

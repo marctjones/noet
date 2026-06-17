@@ -5,8 +5,13 @@
 //! action over the socket (no global key grab, no tray). No-op on Windows, where the
 //! tray + global hotkey cover the same ground.
 
+fn disabled_by_env() -> bool {
+    crate::runtime_flags::disable_ipc()
+}
+
 #[cfg(unix)]
 mod imp {
+    use super::disabled_by_env;
     use std::io::{Read, Write};
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::{Path, PathBuf};
@@ -66,6 +71,9 @@ mod imp {
     /// If another instance is listening, send `cmd` and return true (caller should
     /// then exit). False if we're the primary (nothing listening).
     pub fn forward_if_running(cmd: &str) -> bool {
+        if disabled_by_env() {
+            return false;
+        }
         forward_at(&sock_path(), cmd)
     }
 
@@ -73,6 +81,9 @@ mod imp {
     /// thread) for each forwarded command. Keep the returned guard alive. Best-effort
     /// — `None` if the socket can't be bound (then Noet just runs without IPC).
     pub fn serve(on_cmd: impl Fn(String) + Send + 'static) -> Option<Server> {
+        if disabled_by_env() {
+            return None;
+        }
         serve_at(sock_path(), on_cmd)
     }
 
@@ -81,6 +92,22 @@ mod imp {
         use super::*;
         use std::sync::mpsc;
         use std::time::Duration;
+
+        #[test]
+        fn env_flag_parses_review_ipc_override() {
+            for value in ["1", "true", "TRUE", "on", "yes", " yes "] {
+                assert!(
+                    crate::runtime_flags::env_flag_enabled(value),
+                    "{value:?} should enable the override"
+                );
+            }
+            for value in ["", "0", "false", "off", "no", "anything-else"] {
+                assert!(
+                    !crate::runtime_flags::env_flag_enabled(value),
+                    "{value:?} should not enable the override"
+                );
+            }
+        }
 
         #[test]
         fn forwards_command_to_the_primary() {
@@ -119,11 +146,16 @@ mod imp {
 
 #[cfg(not(unix))]
 mod imp {
+    use super::disabled_by_env;
+
     pub struct Server;
     pub fn forward_if_running(_cmd: &str) -> bool {
         false
     }
     pub fn serve(_on_cmd: impl Fn(String) + Send + 'static) -> Option<Server> {
+        if disabled_by_env() {
+            return None;
+        }
         None
     }
 }

@@ -17,13 +17,21 @@ Prepare a realistic review vault:
 
 ```bash
 scripts/reset-demo-vault.sh target/noet-demo-vault
-NOET_VAULT=target/noet-demo-vault cargo run -p noet-gui
+NOET_DISABLE_IPC=1 NOET_DISABLE_TRAY=1 NOET_VAULT=target/noet-demo-vault cargo run -p noet-gui
+```
+
+For live Computer Use or macOS accessibility inspection, prefer the review app
+bundle so the app has a unique, targetable bundle id:
+
+```bash
+scripts/build-visual-review-app.sh
+open "target/noet-visual-review/Noet Visual Review.app"
 ```
 
 Also do a first-run pass against an empty disposable vault:
 
 ```bash
-NOET_VAULT=/tmp/noet-empty-review-vault cargo run -p noet-gui
+NOET_DISABLE_IPC=1 NOET_DISABLE_TRAY=1 NOET_VAULT=/tmp/noet-empty-review-vault cargo run -p noet-gui
 ```
 
 Only run model-backed AI acceptance on a prepared machine after a memory
@@ -49,7 +57,7 @@ Expected review evidence:
 When tracing is needed, launch with:
 
 ```bash
-NOET_UI_TRACE=/tmp/noet-ui-trace.jsonl NOET_UI_TRACE_CONTENT=1 NOET_VAULT=target/noet-demo-vault cargo run -p noet-gui
+NOET_DISABLE_IPC=1 NOET_DISABLE_TRAY=1 NOET_UI_TRACE=/tmp/noet-ui-trace.jsonl NOET_UI_TRACE_CONTENT=1 NOET_VAULT=target/noet-demo-vault cargo run -p noet-gui
 ```
 
 Leave `NOET_UI_TRACE_CONTENT` unset for real personal vault review unless visible

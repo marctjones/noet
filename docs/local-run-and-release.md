@@ -41,14 +41,30 @@ git diff --check
 Then launch with a disposable vault and use the
 [Manual Review Checklist](manual-review-checklist.md).
 
+For live accessibility or Computer Use inspection on macOS, build and open the
+review app bundle. It has a unique bundle id so it does not collide with an
+installed Noet app:
+
+```bash
+scripts/build-visual-review-app.sh
+open "target/noet-visual-review/Noet Visual Review.app"
+```
+
 For GUI workflow debugging, enable a local JSONL trace:
 
 ```bash
-NOET_UI_TRACE=/tmp/noet-ui-trace.jsonl NOET_VAULT=/tmp/noet-review-vault cargo run -p noet-gui
+NOET_DISABLE_IPC=1 NOET_DISABLE_TRAY=1 NOET_UI_TRACE=/tmp/noet-ui-trace.jsonl NOET_VAULT=/tmp/noet-review-vault cargo run -p noet-gui
 ```
 
 Add `NOET_UI_TRACE_CONTENT=1` only when visible note/search excerpts are needed
 to explain what the reviewer saw.
+
+`NOET_DISABLE_IPC=1` keeps a review launch from forwarding to an already running
+installed Noet instance, which makes live visual inspection target the build
+under review. `NOET_DISABLE_TRAY=1` removes macOS tray/global-hotkey setup from
+the visual pass so accessibility inspection can target the main window directly.
+The review app bundle applies those flags automatically and runs with
+`NOET_AI_RUNTIME=preview` so no local model is loaded during visual checks.
 
 Visual checkpoints should verify the workspace architecture:
 
