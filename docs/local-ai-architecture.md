@@ -130,12 +130,21 @@ benchmark settings above and `mistralrs-inline-metal` enabled:
 | EmbeddingGemma 300M | embedding refresh + semantic search | n/a | n/a | 28.87s | 3.17 GB |
 | Mistral 7B Q4_K_M | cancel smoke | n/a | n/a | 10.66s | 2.23 GB |
 
+Direct embedded throughput snapshot on the same machine, using the new
+`noet-ai` benchmark binary and a short prompt sweep:
+
+| Model | Sweep Output Tokens | Elapsed | Output TPS |
+| --- | ---: | ---: | ---: |
+| Mistral 7B Q4_K_M | 220 | 12.59s | 17.47 |
+| Ministral 8B Q4_K_M | 111 | 7.23s | 15.35 |
+| Mistral Nemo Q4_K_M | 179 | 16.40s | 10.91 |
+
 With Metal available, the embedded Noet path is the preferred local AI
 execution mode on Apple Silicon. The important change is responsiveness, not a
 different product boundary: Noet still runs local-only, still stays reviewable,
 and still falls back to CPU when Metal is unavailable. The next profiling pass
-should compare the 8B and Nemo chat tiers through the same embedded path before
-changing the default model recommendation.
+should expand this to the remaining prompt classes before changing the default
+model recommendation.
 
 The light tier is for quick cleanup, labels, extraction, and low-latency
 background work. The default tier is for everyday Noet workflows. The heavy tier
