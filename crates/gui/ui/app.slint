@@ -1713,9 +1713,9 @@ export component AppWindow inherits Window {
     in-out property <string> ai-timeout-seconds: "300";
     in-out property <string> ai-model-root;
     in-out property <string> ai-model-root-status;
-    in property <string> ai-local-policy: "Local AI prompts run through embedded mistral.rs. Noet does not redact or sanitize your vault content before model calls.";
-    in property <string> ai-resource-policy: "Noet checks free memory before loading a model. AI jobs run off the UI thread and can be canceled.";
-    in property <string> ai-embedding-policy: "Embeddings refresh manually and are stored with the app index/cache outside your Markdown vault.";
+    in property <string> ai-local-policy: "Local AI runs through embedded mistral.rs. The default chat model is Ministral 8B; Noet does not redact or sanitize vault content before model calls.";
+    in property <string> ai-resource-policy: "Noet checks free memory before loading a model, runs AI work off the UI thread, and lets you cancel long jobs.";
+    in property <string> ai-embedding-policy: "Embeddings refresh manually, use the selected inline embedding model, and stay in the app index/cache outside your Markdown vault.";
     // About / open-source licenses view.
     in-out property <string> app-version;
     in-out property <[LicenseRow]> license-rows;
@@ -2038,6 +2038,11 @@ export component AppWindow inherits Window {
                                 ScrollView {
                                     VerticalLayout {
                                         spacing: 6px;
+                                        if root.projects.length == 0 && root.tags.length == 0 && root.hub-name == "" && root.label-context-label == "": EmptyState {
+                                            glyph: "#";
+                                            title: "No labels or workstreams yet";
+                                            hint: "Use #label or ▸workstream in a note to populate this drawer.";
+                                        }
                                         Text { text: "WORKSTREAMS"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
                                         for p in root.projects: FacetRow {
                                             name: "[[" + p.label + "]]";
@@ -2051,7 +2056,7 @@ export component AppWindow inherits Window {
                                         if root.hub-name != "": Text { text: "SELECTED WORKSTREAM"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
                                         if root.hub-name != "": Text { text: root.hub-name; font-size: (13px * Z.f); font-weight: 700; color: Theme.text; overflow: elide; }
                                         if root.hub-name != "": Text { text: "OPEN TASKS"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
-                                        if root.hub-name != "" && root.hub-todos.length == 0: EmptyState { glyph: "[]"; title: "No open tasks"; hint: ""; }
+                                        if root.hub-name != "" && root.hub-todos.length == 0: EmptyState { glyph: "[]"; title: "No open tasks"; hint: "Tag the workstream with a task or open a related note to surface work here."; }
                                         if root.hub-name != "": VerticalLayout {
                                             spacing: 4px;
                                             for t in root.hub-todos: AgendaRow {
@@ -2063,7 +2068,7 @@ export component AppWindow inherits Window {
                                             }
                                         }
                                         if root.hub-name != "": Text { text: "NOTES"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
-                                        if root.hub-name != "" && root.hub-notes.length == 0: EmptyState { glyph: "[]"; title: "No notes"; hint: ""; }
+                                        if root.hub-name != "" && root.hub-notes.length == 0: EmptyState { glyph: "[]"; title: "No notes"; hint: "Related notes appear here once this workstream is used in notes."; }
                                         if root.hub-name != "": VerticalLayout {
                                             spacing: 4px;
                                             for n in root.hub-notes: NoteRow {
@@ -2072,6 +2077,7 @@ export component AppWindow inherits Window {
                                             }
                                         }
                                         Text { text: "LABELS"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
+                                        if root.label-context-label == "" && root.projects.length == 0 && root.tags.length == 0: Text { text: "Use the current note to add #labels or ▸workstreams, then they appear here."; font-size: (11px * Z.f); color: Theme.text3; wrap: word-wrap; }
                                         for t in root.tags: FacetRow {
                                             name: "#" + t.label;
                                             depth: t.depth;
@@ -2084,7 +2090,7 @@ export component AppWindow inherits Window {
                                         if root.label-context-label != "": Text { text: "SELECTED LABEL"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
                                         if root.label-context-label != "": Text { text: "#" + root.label-context-label; font-size: (13px * Z.f); font-weight: 700; color: Theme.text; overflow: elide; }
                                         if root.label-context-label != "": Text { text: "OPEN TASKS"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
-                                        if root.label-context-label != "" && root.label-context-open-tasks.length == 0: EmptyState { glyph: "[]"; title: "No open tasks"; hint: ""; }
+                                        if root.label-context-label != "" && root.label-context-open-tasks.length == 0: EmptyState { glyph: "[]"; title: "No open tasks"; hint: "Open tasks tagged with this label will show up here."; }
                                         if root.label-context-label != "": VerticalLayout {
                                             spacing: 4px;
                                             for t in root.label-context-open-tasks: AgendaRow {
@@ -2096,7 +2102,7 @@ export component AppWindow inherits Window {
                                             }
                                         }
                                         if root.label-context-label != "": Text { text: "NOTES"; font-size: (10px * Z.f); letter-spacing: 1px; color: Theme.text3; }
-                                        if root.label-context-label != "" && root.label-context-notes.length == 0: EmptyState { glyph: "[]"; title: "No notes"; hint: ""; }
+                                        if root.label-context-label != "" && root.label-context-notes.length == 0: EmptyState { glyph: "[]"; title: "No notes"; hint: "Notes carrying this label will show here after indexing."; }
                                         if root.label-context-label != "": VerticalLayout {
                                             spacing: 4px;
                                             for n in root.label-context-notes: NoteRow {
@@ -2565,14 +2571,15 @@ export component AppWindow inherits Window {
                                                 vertical-stretch: 1;
                                                 VerticalLayout {
                                                     spacing: 10px;
-                                                    Field { label: "Vault"; LineEdit { text <=> root.vault-input; placeholder-text: root.vault-path; } }
+                                                    Field { label: "Vault root"; LineEdit { text <=> root.vault-input; placeholder-text: root.vault-path; } }
                                                     Text { text: "Index: " + root.index-path; font-size: (12px * Z.f); color: Theme.text3; wrap: word-wrap; }
                                                     Text { text: "Settings: " + root.settings-path; font-size: (12px * Z.f); color: Theme.text3; wrap: word-wrap; }
+                                                    Text { text: "Noet keeps notes local. The vault is Markdown, the index is rebuildable, and AI settings stay inside the app."; font-size: (12px * Z.f); color: Theme.text2; wrap: word-wrap; }
                                                     Text { text: root.ai-local-policy; font-size: (12px * Z.f); color: Theme.text2; wrap: word-wrap; }
                                                     Text { text: root.ai-resource-policy; font-size: (12px * Z.f); color: Theme.text3; wrap: word-wrap; }
                                                     Text { text: root.ai-embedding-policy; font-size: (12px * Z.f); color: Theme.text3; wrap: word-wrap; }
                                                     Field {
-                                                        label: "AI profile";
+                                                        label: "Chat model";
                                                         ComboBox {
                                                             model: ["mistral-7b-instruct-v0-3-gguf-q4-k-m", "ministral-8b-instruct-2410-gguf-q4-k-m", "mistral-nemo-instruct-2407-gguf-q4-k-m"];
                                                             current-value <=> root.ai-profile;
@@ -2580,7 +2587,7 @@ export component AppWindow inherits Window {
                                                         }
                                                     }
                                                     Field {
-                                                        label: "AI embedding";
+                                                        label: "Embedding model";
                                                         ComboBox {
                                                             model: ["embedding-gemma-300m", "snowflake-arctic-embed-s", "granite-embedding-30m-english", "nomic-embed-text-v1-5"];
                                                             current-value <=> root.ai-embedding-profile;
@@ -2588,7 +2595,7 @@ export component AppWindow inherits Window {
                                                         }
                                                     }
                                                     Field {
-                                                        label: "AI min free memory %";
+                                                        label: "Memory floor %";
                                                         ComboBox {
                                                             model: ["25", "35", "50", "65"];
                                                             current-value <=> root.ai-min-free-memory;
@@ -2596,7 +2603,7 @@ export component AppWindow inherits Window {
                                                         }
                                                     }
                                                     Field {
-                                                        label: "AI timeout seconds";
+                                                        label: "Timeout (s)";
                                                         ComboBox {
                                                             model: ["120", "300", "600", "900"];
                                                             current-value <=> root.ai-timeout-seconds;
@@ -2606,7 +2613,7 @@ export component AppWindow inherits Window {
                                                     Field {
                                                         label: "AI runtime";
                                                         Text {
-                                                            text: "Inline mistral.rs";
+                                                            text: "Embedded mistral.rs";
                                                             color: Theme.text;
                                                             font-size: (13px * Z.f);
                                                             vertical-alignment: center;

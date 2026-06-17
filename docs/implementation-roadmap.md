@@ -387,6 +387,10 @@ Current Notes progress:
   task actions wired to Markdown-backed workflows.
 - [x] Read-only split/reference pane can show an old note while the edited note
   and its todo context remain active.
+- [x] The Settings view explains local AI defaults, memory preflight, and
+  embedding storage more clearly.
+- [x] The labels/workstreams drawer now gives explicit empty-state guidance
+  instead of leaving sections blank.
 - [ ] Manual review still needs to verify read mode, edit mode, source mode,
   context rows, split/reference reading, readable todo sidecar rows, todo peek
   behavior, source-line highlighting, and note switching on a non-empty vault.
@@ -465,6 +469,8 @@ Remaining AI hardening:
   source inspection.
   - [x] Add proposal previews, source summaries, confidence, and rationale to
     the proposal queue.
+  - [x] Tighten proposal-card density and action layout so review stays
+    source-first instead of card-heavy.
   - [x] Add deterministic GUI smoke coverage for accept, reject, defer, and
     indexed source inspection.
   - [x] Let users inspect specific source references instead of only the

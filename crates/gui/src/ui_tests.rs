@@ -252,23 +252,34 @@ fn headless_ui_smoke() {
         noet_core::backend::Settings::load().is_some(),
         "settings.json should have been written"
     );
+    assert_eq!(
+        ui.get_ai_profile(),
+        "ministral-8b-instruct-2410-gguf-q4-k-m",
+        "chat model should default to Ministral 8B"
+    );
     ui.invoke_set_ai_profile("mistral-nemo-instruct-2407-gguf-q4-k-m".into());
     ui.invoke_set_ai_embedding_profile("granite-embedding-30m-english".into());
     ui.invoke_set_ai_min_free_memory("95".into());
     ui.invoke_set_ai_timeout_seconds("5".into());
     assert!(
-        ui.get_ai_local_policy()
-            .contains("does not redact or sanitize"),
+        ui.get_ai_local_policy().contains("Ministral 8B")
+            && ui
+                .get_ai_local_policy()
+                .contains("does not redact or sanitize"),
         "settings should communicate that local AI trusts user-owned vault content"
     );
     assert!(
         ui.get_ai_resource_policy().contains("checks free memory")
-            && ui.get_ai_resource_policy().contains("off the UI thread"),
+            && ui.get_ai_resource_policy().contains("off the UI thread")
+            && ui.get_ai_resource_policy().contains("cancel long jobs"),
         "settings should explain the local AI resource behavior"
     );
     assert!(
         ui.get_ai_embedding_policy()
-            .contains("outside your Markdown vault"),
+            .contains("selected inline embedding model")
+            && ui
+                .get_ai_embedding_policy()
+                .contains("outside your Markdown vault"),
         "settings should explain where semantic embeddings are stored"
     );
     ui.invoke_set_ai_model_root(
