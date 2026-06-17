@@ -118,7 +118,7 @@ on Apple Silicon.
 
 Expected local model cache inputs for the current smokes:
 
-- chat profile: `mistral-7b-instruct-v0-3-gguf-q4-k-m`
+- chat profile: `ministral-8b-instruct-2410-gguf-q4-k-m`
 - embedding profile: `embedding-gemma-300m`
 - model root: `~/.cache/huggingface/hub`
 
