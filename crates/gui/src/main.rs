@@ -3,7 +3,7 @@
 
 use crate::ai_worker::AiWorkerMessage;
 use noet_ai::AiCancelToken;
-use noet_app::{ai_surface, AiJobRow, AiProposalRow, AppCommand, AppModel, SemanticIndex};
+use noet_app::{ai_surface, AppCommand, AppModel, SemanticIndex};
 use noet_core::backend;
 use noet_core::backend::{Backend, Filter, TodoFields};
 use slint::{Model, ModelRc, SharedString, VecModel};
@@ -814,63 +814,6 @@ fn palette_activate(ui: &AppWindow, id: &str) {
     }
 }
 
-fn ai_proposal_ui(row: AiProposalRow) -> AiProposalUi {
-    let source_one = proposal_source_label(&row, 0);
-    let source_two = proposal_source_label(&row, 1);
-    let source_three = proposal_source_label(&row, 2);
-    let source_more = if row.source_rows.len() > 3 {
-        format!("+{} more", row.source_rows.len() - 3)
-    } else {
-        String::new()
-    };
-    let source_one_navigable = proposal_source_navigable(&row, 0);
-    let source_two_navigable = proposal_source_navigable(&row, 1);
-    let source_three_navigable = proposal_source_navigable(&row, 2);
-    AiProposalUi {
-        id: row.id.into(),
-        status: row.status.into(),
-        kind: row.kind.into(),
-        target: row.target.into(),
-        summary: row.summary.into(),
-        preview: row.preview.into(),
-        source: row.source.into(),
-        source_one: source_one.into(),
-        source_one_navigable,
-        source_two: source_two.into(),
-        source_two_navigable,
-        source_three: source_three.into(),
-        source_three_navigable,
-        source_more: source_more.into(),
-        rationale: row.rationale.into(),
-        confidence: row.confidence.into(),
-        requires_confirmation: row.requires_confirmation,
-    }
-}
-
-fn proposal_source_label(row: &AiProposalRow, index: usize) -> String {
-    row.source_rows
-        .get(index)
-        .map(|source| source.label.clone())
-        .unwrap_or_default()
-}
-
-fn proposal_source_navigable(row: &AiProposalRow, index: usize) -> bool {
-    row.source_rows
-        .get(index)
-        .map(|source| source.navigable)
-        .unwrap_or(false)
-}
-
-fn ai_job_ui(row: AiJobRow) -> AiJobUi {
-    AiJobUi {
-        id: row.id.into(),
-        status: row.status.into(),
-        kind: row.kind.into(),
-        produced_proposals: row.produced_proposals as i32,
-        failure: row.failure.unwrap_or_default().into(),
-    }
-}
-
 fn resolve_external_url(external: &str) -> Option<String> {
     let ext = external.trim();
     if ext.starts_with("http://") || ext.starts_with("https://") {
@@ -915,11 +858,14 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
     ui.set_ai_proposals(ModelRc::new(VecModel::from(
         ai.proposals
             .into_iter()
-            .map(ai_proposal_ui)
+            .map(surface_adapters::ai_proposal_item)
             .collect::<Vec<_>>(),
     )));
     ui.set_ai_jobs(ModelRc::new(VecModel::from(
-        ai.jobs.into_iter().map(ai_job_ui).collect::<Vec<_>>(),
+        ai.jobs
+            .into_iter()
+            .map(surface_adapters::ai_job_item)
+            .collect::<Vec<_>>(),
     )));
     // Only recompute what the visible view needs. The left-rail facets + filter
     // chrome below always run (they're cheap and shown on every view); the heavy

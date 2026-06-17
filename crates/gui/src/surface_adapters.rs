@@ -4,8 +4,8 @@ use noet_core::backend::Filter;
 use slint::{Image, ModelRc, SharedString, VecModel};
 
 use crate::{
-    BoardColumn, CalCell, FacetItem, FilterChip, GanttItem, MdBlock, NoteItem, NoteRef, NoteTab,
-    RelatedRef, Segment, TodoItem,
+    AiJobUi, AiProposalUi, BoardColumn, CalCell, FacetItem, FilterChip, GanttItem, MdBlock,
+    NoteItem, NoteRef, NoteTab, RelatedRef, Segment, TodoItem,
 };
 
 pub fn note_item(n: &backend::Note) -> NoteItem {
@@ -30,6 +30,63 @@ pub fn note_items(notes: &[backend::Note]) -> Vec<NoteItem> {
 
 pub fn recent_note_items(notes: &[backend::Note], limit: usize) -> Vec<NoteItem> {
     notes.iter().take(limit).map(note_item).collect()
+}
+
+pub fn ai_proposal_item(row: noet_app::AiProposalRow) -> AiProposalUi {
+    let source_one = proposal_source_label(&row, 0);
+    let source_two = proposal_source_label(&row, 1);
+    let source_three = proposal_source_label(&row, 2);
+    let source_more = if row.source_rows.len() > 3 {
+        format!("+{} more", row.source_rows.len() - 3)
+    } else {
+        String::new()
+    };
+    let source_one_navigable = proposal_source_navigable(&row, 0);
+    let source_two_navigable = proposal_source_navigable(&row, 1);
+    let source_three_navigable = proposal_source_navigable(&row, 2);
+    AiProposalUi {
+        id: row.id.into(),
+        status: row.status.into(),
+        kind: row.kind.into(),
+        target: row.target.into(),
+        summary: row.summary.into(),
+        preview: row.preview.into(),
+        source: row.source.into(),
+        source_one: source_one.into(),
+        source_one_navigable,
+        source_two: source_two.into(),
+        source_two_navigable,
+        source_three: source_three.into(),
+        source_three_navigable,
+        source_more: source_more.into(),
+        rationale: row.rationale.into(),
+        confidence: row.confidence.into(),
+        requires_confirmation: row.requires_confirmation,
+    }
+}
+
+pub fn ai_job_item(row: noet_app::AiJobRow) -> AiJobUi {
+    AiJobUi {
+        id: row.id.into(),
+        status: row.status.into(),
+        kind: row.kind.into(),
+        produced_proposals: row.produced_proposals as i32,
+        failure: row.failure.unwrap_or_default().into(),
+    }
+}
+
+fn proposal_source_label(row: &noet_app::AiProposalRow, index: usize) -> String {
+    row.source_rows
+        .get(index)
+        .map(|source| source.label.clone())
+        .unwrap_or_default()
+}
+
+fn proposal_source_navigable(row: &noet_app::AiProposalRow, index: usize) -> bool {
+    row.source_rows
+        .get(index)
+        .map(|source| source.navigable)
+        .unwrap_or(false)
 }
 
 pub fn facet_items(items: &[backend::Project], active: &str) -> Vec<FacetItem> {
