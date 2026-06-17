@@ -2,13 +2,11 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 use crate::ai_runtime::{
-    local_model_specs, local_runtime_settings, require_free_memory, use_preview_ai_runtime,
-    PreviewAiRuntime, PreviewEmbeddingRuntime,
+    local_runtime_settings, require_free_memory, use_preview_ai_runtime, PreviewAiRuntime,
+    PreviewEmbeddingRuntime,
 };
-use noet_ai::{
-    AiCancelToken, AiProgressUpdate, AiResult, HousekeepingJob, LocalRuntimeSettings,
-    MistralRsInlineChatRuntime,
-};
+use crate::ai_worker::{ai_error_message, cancelled_status, AiWorkerMessage};
+use noet_ai::{AiCancelToken, HousekeepingJob};
 use noet_app::{
     ai_surface, ai_workflow, AiJobRow, AiProposalRow, AppCommand, AppModel, SemanticIndex,
     SemanticRefreshPolicy, SemanticStaleSearchBehavior, Surface,
@@ -23,11 +21,13 @@ use sred_core::{
     TokenSpec as SredToken,
 };
 use std::cell::{Cell, RefCell};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::mpsc;
 
 mod ai_runtime;
+mod ai_settings;
+mod ai_worker;
 mod chrome;
 mod ipc;
 mod startup;
@@ -618,22 +618,6 @@ pub(crate) struct State {
     pub(crate) pinned: Vec<String>,
 }
 
-enum AiWorkerMessage {
-    Proposal {
-        success: String,
-        failure_prefix: String,
-        proposal: Result<noet_ai::AiProposal, String>,
-    },
-    EmbeddingRefresh {
-        job_id: String,
-        result: Result<(SemanticIndex, usize), String>,
-    },
-    SemanticSearch {
-        result: Result<Vec<noet_app::SemanticMatch>, String>,
-    },
-    ProgressDetail(String),
-}
-
 /// Resolve the vault location. Precedence: an explicit `$NOET_VAULT` (transient
 /// override) → the persisted `settings.json` → the default under Documents. The
 /// default is written to settings.json on first run so the location is explicit
@@ -926,8 +910,9 @@ fn enqueue_ai_draft_agenda(ui: &AppWindow, state: &mut State) {
         ui.set_workspace_bottom_open(true);
         ui.set_status_text("AI agenda draft running locally".into());
         std::thread::spawn(move || {
-            let proposal = run_local_agenda(runtime_settings, context, options, cancel, tx.clone())
-                .map_err(ai_error_message);
+            let proposal =
+                ai_worker::run_local_agenda(runtime_settings, context, options, cancel, tx.clone())
+                    .map_err(ai_error_message);
             let _ = tx.send(AiWorkerMessage::Proposal {
                 success: "Queued agenda proposal".into(),
                 failure_prefix: "AI agenda draft failed".into(),
@@ -998,9 +983,14 @@ fn enqueue_ai_note_review(ui: &AppWindow, state: &mut State) {
         ui.set_workspace_bottom_open(true);
         ui.set_status_text("AI note review running locally".into());
         std::thread::spawn(move || {
-            let proposal =
-                run_local_note_review(runtime_settings, context, options, cancel, tx.clone())
-                    .map_err(ai_error_message);
+            let proposal = ai_worker::run_local_note_review(
+                runtime_settings,
+                context,
+                options,
+                cancel,
+                tx.clone(),
+            )
+            .map_err(ai_error_message);
             let _ = tx.send(AiWorkerMessage::Proposal {
                 success: "Queued note review proposal".into(),
                 failure_prefix: "AI note review failed".into(),
@@ -1032,60 +1022,6 @@ fn enqueue_ai_note_review(ui: &AppWindow, state: &mut State) {
     ui.set_workspace_bottom_surface_id("ai-proposal-queue".into());
     ui.set_workspace_bottom_open(true);
     ui.set_status_text(format!("Queued note review proposal {id}").into());
-}
-
-fn run_local_agenda(
-    runtime_settings: LocalRuntimeSettings,
-    context: noet_core::OneOnOneContext,
-    options: ai_workflow::AgendaDraftOptions,
-    cancel: AiCancelToken,
-    progress_tx: mpsc::Sender<AiWorkerMessage>,
-) -> AiResult<noet_ai::AiProposal> {
-    let runtime = MistralRsInlineChatRuntime::load(runtime_settings, options.profile_id.clone())?;
-    ai_workflow::draft_one_on_one_agenda_cancellable(
-        &runtime,
-        &context,
-        &options,
-        &cancel,
-        move |update| {
-            send_ai_progress_update(&progress_tx, update);
-        },
-    )
-}
-
-fn run_local_note_review(
-    runtime_settings: LocalRuntimeSettings,
-    context: noet_core::NoteContext,
-    options: ai_workflow::NoteReviewOptions,
-    cancel: AiCancelToken,
-    progress_tx: mpsc::Sender<AiWorkerMessage>,
-) -> AiResult<noet_ai::AiProposal> {
-    let runtime = MistralRsInlineChatRuntime::load(runtime_settings, options.profile_id.clone())?;
-    ai_workflow::review_current_note_cancellable(
-        &runtime,
-        &context,
-        &options,
-        &cancel,
-        move |update| {
-            send_ai_progress_update(&progress_tx, update);
-        },
-    )
-}
-
-fn send_ai_progress_update(tx: &mpsc::Sender<AiWorkerMessage>, update: AiProgressUpdate) {
-    if update.output_chunks == 1 || update.output_chunks % 8 == 0 {
-        let _ = tx.send(AiWorkerMessage::ProgressDetail(format!(
-            "Generating response ({} chunks, {} chars)",
-            update.output_chunks, update.output_chars
-        )));
-    }
-}
-
-fn ai_error_message(err: noet_ai::AiRuntimeError) -> String {
-    match err {
-        noet_ai::AiRuntimeError::Cancelled => "Cancelled".into(),
-        other => format!("{other:?}"),
-    }
 }
 
 fn refresh_ai_embeddings(ui: &AppWindow, state: &mut State) {
@@ -1138,7 +1074,7 @@ fn refresh_ai_embeddings(ui: &AppWindow, state: &mut State) {
         ui.set_workspace_bottom_open(true);
         ui.set_status_text("AI embedding refresh running locally".into());
         std::thread::spawn(move || {
-            let result = run_local_embedding_refresh(index, profile_id, contexts);
+            let result = ai_worker::run_local_embedding_refresh(index, profile_id, contexts);
             let _ = tx.send(AiWorkerMessage::EmbeddingRefresh { job_id, result });
         });
         refresh(ui, state);
@@ -1184,15 +1120,6 @@ fn refresh_ai_embeddings_inner(state: &mut State) -> Result<usize, String> {
 
     require_free_memory(state.app.ai.settings.min_free_memory_percent)?;
     refresh_ai_embeddings_with_inline_runtime(state, profile_id, &contexts)
-}
-
-fn run_local_embedding_refresh(
-    mut index: SemanticIndex,
-    profile_id: String,
-    contexts: Vec<noet_core::NoteContext>,
-) -> Result<(SemanticIndex, usize), String> {
-    let count = refresh_semantic_index_with_inline_runtime(&mut index, profile_id, &contexts)?;
-    Ok((index, count))
 }
 
 fn semantic_stale_count(state: &mut State, profile_id: &str) -> Result<usize, String> {
@@ -1258,7 +1185,7 @@ fn run_ai_semantic_search(ui: &AppWindow, state: &mut State, query: &str) {
         });
         ui.set_status_text("AI semantic search running locally".into());
         std::thread::spawn(move || {
-            let result = run_local_semantic_search(index, profile_id, query, 8);
+            let result = ai_worker::run_local_semantic_search(index, profile_id, query, 8);
             let _ = tx.send(AiWorkerMessage::SemanticSearch { result });
         });
         return;
@@ -1317,15 +1244,6 @@ fn semantic_match_ui(state: &State, matches: &[noet_app::SemanticMatch]) -> Vec<
         .collect()
 }
 
-fn run_local_semantic_search(
-    index: SemanticIndex,
-    profile_id: String,
-    query: String,
-    limit: usize,
-) -> Result<Vec<noet_app::SemanticMatch>, String> {
-    search_semantic_index_with_inline_runtime(&index, profile_id, &query, limit)
-}
-
 fn open_semantic_result(ui: &AppWindow, state: &mut State, note_id: &str) {
     let current = ui.get_current_id().to_string();
     if ui.get_editing() && !current.is_empty() && current != note_id {
@@ -1351,38 +1269,11 @@ fn refresh_ai_embeddings_with_inline_runtime(
     profile_id: String,
     contexts: &[noet_core::NoteContext],
 ) -> Result<usize, String> {
-    refresh_semantic_index_with_inline_runtime(&mut state.semantic_index, profile_id, contexts)
-}
-
-fn refresh_semantic_index_with_inline_runtime(
-    index: &mut SemanticIndex,
-    profile_id: String,
-    contexts: &[noet_core::NoteContext],
-) -> Result<usize, String> {
-    if !noet_ai::inline_embedding_supported(&profile_id) {
-        return Err(format!(
-            "Embedding profile {profile_id} is not supported by the inline mistral.rs runtime"
-        ));
-    }
-    let runtime = noet_ai::MistralRsInlineEmbeddingRuntime::load(profile_id.clone())
-        .map_err(|err| format!("{err:?}"))?;
-    noet_app::refresh_semantic_index(index, &runtime, profile_id, contexts)
-}
-
-fn search_semantic_index_with_inline_runtime(
-    index: &SemanticIndex,
-    profile_id: String,
-    query: &str,
-    limit: usize,
-) -> Result<Vec<noet_app::SemanticMatch>, String> {
-    if !noet_ai::inline_embedding_supported(&profile_id) {
-        return Err(format!(
-            "Embedding profile {profile_id} is not supported by the inline mistral.rs runtime"
-        ));
-    }
-    let runtime = noet_ai::MistralRsInlineEmbeddingRuntime::load(profile_id.clone())
-        .map_err(|err| format!("{err:?}"))?;
-    index.search(&runtime, profile_id, query, limit)
+    ai_worker::refresh_semantic_index_with_inline_runtime(
+        &mut state.semantic_index,
+        profile_id,
+        contexts,
+    )
 }
 
 fn selected_person_for_ai(ui: &AppWindow, state: &State) -> String {
@@ -1485,13 +1376,6 @@ fn apply_ai_worker_message(ui: &AppWindow, state: &mut State, message: AiWorkerM
     }
 }
 
-fn cancelled_status(failure_prefix: &str) -> String {
-    failure_prefix
-        .strip_suffix(" failed")
-        .map(|prefix| format!("{prefix} canceled"))
-        .unwrap_or_else(|| "AI request canceled".into())
-}
-
 fn open_ai_queue(app: &mut AppModel) {
     let _ = app.apply(AppCommand::SwitchWorkspace("notes".into()));
     let bottom_id = "ai-proposals".to_string();
@@ -1544,7 +1428,7 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
     let b = &state.backend;
     let f = &state.filter;
     workspace_adapter::sync(ui, &state.app);
-    sync_ai_settings_status(ui, &state.app.ai.settings);
+    ai_settings::sync_status(ui, &state.app.ai.settings);
     let ai = ai_surface(&state.app.ai);
     ui.set_ai_status(ai.status.into());
     ui.set_ai_progress_active(ai.progress_active);
@@ -1833,48 +1717,6 @@ pub(crate) fn refresh(ui: &AppWindow, state: &State) {
     ui.set_filter_due(surface_adapters::due_display(&f.due_bucket).into());
     refresh_tabs(ui, state); // keep the open-notes tab strip in sync
     ui_trace::refresh(ui, state);
-}
-
-fn sync_ai_settings_status(ui: &AppWindow, settings: &noet_app::AiSettings) {
-    ui.set_ai_model_root_status(ai_model_root_status(settings).into());
-}
-
-fn ai_model_root_status(settings: &noet_app::AiSettings) -> String {
-    let root = settings.model_root.trim();
-    if root.is_empty() {
-        return "Model root not configured. Set the folder that contains Hugging Face GGUF model files.".into();
-    }
-
-    let root_path = Path::new(root);
-    if !root_path.exists() {
-        return format!("Model root not found: {root}");
-    }
-
-    let specs = local_model_specs(root_path);
-    let total = specs.len();
-    let ready = specs.values().filter(|spec| model_file_ready(spec)).count();
-    let selected_ready = specs
-        .get(&settings.selected_profile_id)
-        .map(model_file_ready)
-        .unwrap_or(false);
-
-    if selected_ready {
-        format!(
-            "Model root ready for {} ({ready}/{total} supported chat profiles found).",
-            settings.selected_profile_id
-        )
-    } else if ready > 0 {
-        format!(
-            "Model root found, but selected profile {} is missing ({ready}/{total} supported chat profiles found).",
-            settings.selected_profile_id
-        )
-    } else {
-        "Model root found, but no supported GGUF chat model files were detected.".into()
-    }
-}
-
-fn model_file_ready(spec: &noet_ai::LocalModelSpec) -> bool {
-    spec.model_dir.join(&spec.quantized_file).exists()
 }
 
 fn typst_src_image(b: &Backend, src: &str) -> Option<slint::Image> {
@@ -2181,41 +2023,6 @@ fn persist_pins(s: &State) {
     let _ = cfg.save();
 }
 
-fn restore_ai_settings(app: &mut AppModel, cfg: &backend::Settings) {
-    if !cfg.ai_profile.is_empty() {
-        let _ = app.apply(AppCommand::SetAiProfile(cfg.ai_profile.clone()));
-    }
-    if !cfg.ai_embedding_profile.is_empty() {
-        let _ = app.apply(AppCommand::SetAiEmbeddingProfile(
-            cfg.ai_embedding_profile.clone(),
-        ));
-    }
-    if cfg.ai_min_free_memory_percent != 0 {
-        let _ = app.apply(AppCommand::SetAiMinFreeMemoryPercent(
-            cfg.ai_min_free_memory_percent,
-        ));
-    }
-    if cfg.ai_timeout_seconds != 0 {
-        let _ = app.apply(AppCommand::SetAiTimeoutSeconds(cfg.ai_timeout_seconds));
-    }
-    if !cfg.ai_model_root.is_empty() {
-        let _ = app.apply(AppCommand::SetAiModelRoot(cfg.ai_model_root.clone()));
-    }
-}
-
-fn persist_ai_settings(s: &State) {
-    let mut cfg = backend::Settings::load().unwrap_or_default();
-    if cfg.vault.as_os_str().is_empty() {
-        cfg.vault = s.backend.vault.clone();
-    }
-    cfg.ai_profile = s.app.ai.settings.selected_profile_id.clone();
-    cfg.ai_embedding_profile = s.app.ai.settings.selected_embedding_profile_id.clone();
-    cfg.ai_min_free_memory_percent = s.app.ai.settings.min_free_memory_percent;
-    cfg.ai_timeout_seconds = s.app.ai.settings.timeout_seconds;
-    cfg.ai_model_root = s.app.ai.settings.model_root.clone();
-    let _ = cfg.save();
-}
-
 /// Open the vault, build the window, and register every callback. The caller
 /// adds the file watcher + reload timer and runs the event loop (see `main`).
 fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
@@ -2244,7 +2051,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         cal_month: chrono::Datelike::month(&now),
         pinned,
     }));
-    restore_ai_settings(&mut state.borrow_mut().app, &saved_settings);
+    ai_settings::restore(&mut state.borrow_mut().app, &saved_settings);
 
     // Guards for background reindexing: `indexing` prevents overlapping rebuilds;
     // `dirty` remembers a file change that arrived mid-rebuild so we rerun once.
@@ -2338,7 +2145,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let mut s = state.borrow_mut();
             let profile = profile.to_string();
             let _ = s.app.apply(AppCommand::SetAiProfile(profile.clone()));
-            persist_ai_settings(&s);
+            ai_settings::persist(&s);
             ui.set_ai_profile(profile.clone().into());
             ui.set_status_text(format!("AI profile set to {profile}").into());
             refresh(&ui, &s);
@@ -2354,7 +2161,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let _ = s
                 .app
                 .apply(AppCommand::SetAiEmbeddingProfile(profile.clone()));
-            persist_ai_settings(&s);
+            ai_settings::persist(&s);
             ui.set_ai_embedding_profile(profile.clone().into());
             ui.set_status_text(format!("AI embedding profile set to {profile}").into());
             refresh(&ui, &s);
@@ -2369,7 +2176,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let parsed = percent.to_string().parse::<u8>().unwrap_or(25);
             let _ = s.app.apply(AppCommand::SetAiMinFreeMemoryPercent(parsed));
             let clamped = s.app.ai.settings.min_free_memory_percent;
-            persist_ai_settings(&s);
+            ai_settings::persist(&s);
             ui.set_ai_min_free_memory(clamped.to_string().into());
             ui.set_status_text(format!("AI memory preflight requires {clamped}% free").into());
             refresh(&ui, &s);
@@ -2384,7 +2191,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let parsed = seconds.to_string().parse::<u64>().unwrap_or(300);
             let _ = s.app.apply(AppCommand::SetAiTimeoutSeconds(parsed));
             let clamped = s.app.ai.settings.timeout_seconds;
-            persist_ai_settings(&s);
+            ai_settings::persist(&s);
             ui.set_ai_timeout_seconds(clamped.to_string().into());
             ui.set_status_text(format!("AI runtime timeout set to {clamped}s").into());
             refresh(&ui, &s);
@@ -2398,7 +2205,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let mut s = state.borrow_mut();
             let path = path.to_string();
             let _ = s.app.apply(AppCommand::SetAiModelRoot(path.clone()));
-            persist_ai_settings(&s);
+            ai_settings::persist(&s);
             ui.set_ai_model_root(path.clone().into());
             ui.set_status_text(format!("AI model root set to {path}").into());
             refresh(&ui, &s);
