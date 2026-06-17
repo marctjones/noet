@@ -121,25 +121,21 @@ needed and the Xcode Metal compiler is installed. The GUI must run the existing
 memory preflight before constructing inline chat or embedding runtimes, because
 construction is the point where local model weights are loaded.
 
-Latest local smoke results on this machine, with the conservative benchmark
-settings above:
+Latest embedded Noet smoke results on this machine, with the conservative
+benchmark settings above and `mistralrs-inline-metal` enabled:
 
 | Model | Prompt | TTFT | Decode TPS | Wall | Max RSS |
 | --- | --- | ---: | ---: | ---: | ---: |
-| Mistral 7B Q4_K_M | labels | 24.36s | 7.42 | 32.21s | 5.55 GB |
-| Mistral 7B Q4_K_M | tasks | 22.65s | 6.00 | 33.76s | 5.50 GB |
-| Mistral 7B Q4_K_M | patch | 27.40s | 6.33 | 43.83s | 5.50 GB |
-| Mistral 7B Q4_K_M | long context | 304.03s | 6.57 | 338.44s | 7.56 GB |
-| Ministral 8B Q4_K_M | labels | 8.04s | 9.64 | 11.94s | 8.29 GB |
-| Ministral 8B Q4_K_M | tasks | 7.60s | 10.38 | 12.22s | 8.29 GB |
-| Ministral 8B Q4_K_M | patch | 8.69s | 10.20 | 16.69s | 8.29 GB |
-| Ministral 8B Q4_K_M | long context | 97.83s | 7.64 | 114.70s | 9.29 GB |
-| Mistral Nemo Q4_K_M | labels | 11.79s | 7.25 | 22.10s | 12.18 GB |
+| Mistral 7B Q4_K_M | note review + agenda drafting | n/a | n/a | 51.48s | 4.06 GB |
+| EmbeddingGemma 300M | embedding refresh + semantic search | n/a | n/a | 28.87s | 3.17 GB |
+| Mistral 7B Q4_K_M | cancel smoke | n/a | n/a | 10.66s | 2.23 GB |
 
-For the first integrated release, Ministral 8B is the best default from these
-measurements: it is materially faster than Mistral 7B on short Noet workflows
-and uses less memory than Mistral Nemo. Keep Mistral 7B as the light fallback
-and Mistral Nemo as an explicit heavy-profile option.
+With Metal available, the embedded Noet path is the preferred local AI
+execution mode on Apple Silicon. The important change is responsiveness, not a
+different product boundary: Noet still runs local-only, still stays reviewable,
+and still falls back to CPU when Metal is unavailable. The next profiling pass
+should compare the 8B and Nemo chat tiers through the same embedded path before
+changing the default model recommendation.
 
 The light tier is for quick cleanup, labels, extraction, and low-latency
 background work. The default tier is for everyday Noet workflows. The heavy tier

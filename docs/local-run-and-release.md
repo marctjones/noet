@@ -112,6 +112,10 @@ The same model-backed checks can be run through the release smoke script:
 NOET_RUN_LOCAL_MODEL_SMOKES=1 scripts/release-smoke.sh
 ```
 
+When Metal is installed, these smokes exercise the embedded Noet runtime with
+`mistralrs-inline-metal`, which is the path to use for local benchmark numbers
+on Apple Silicon.
+
 Expected local model cache inputs for the current smokes:
 
 - chat profile: `mistral-7b-instruct-v0-3-gguf-q4-k-m`
