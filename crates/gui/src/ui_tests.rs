@@ -13,6 +13,7 @@ use super::*;
 use crate::ai_runtime::local_model_specs;
 use i_slint_backend_testing as itest;
 use itest::{AccessibleRole, ElementHandle, ElementQuery};
+use noet_ai::HousekeepingJob;
 use slint::platform::{Key, WindowEvent};
 use slint::{ComponentHandle, LogicalSize, Model, SharedString};
 
