@@ -94,14 +94,15 @@ setup as the price of writing a note.
 
 This is a focus rule, not just a branding preference. The app should not throw
 all available information onto the screen. The Notes workspace starts with an
-icon-only workspace rail, the current note, and a lightweight current-note todo
-rail. Navigation drawers, full context, queues, board views, semantic results,
+icon-only workspace rail and the current note as the dominant surface. A
+lightweight current-note todo rail appears on the note edge when the note has
+todos. Navigation drawers, full context, queues, board views, semantic results,
 and AI proposals are disclosed when the user asks for them.
 
 Pane admission rules:
 
-- **Default visible:** current note, current-note todos, global search, new note,
-  and focus controls.
+- **Default visible:** current note, current-note todos when present, global
+  search, new note, add-task, and focus controls.
 - **On-demand:** note browser, backlinks, related notes, source links,
   reference/split notes, review queues, board lanes, labels, workstreams, and AI
   proposals.
@@ -113,7 +114,9 @@ Pane admission rules:
 
 Todo display contract:
 
-- Current-note todos are a note companion, not a general task list.
+- Current-note todos are a note companion, not a general task list. The rail is
+  present only when useful, and it must not force users to open the full context
+  pane while writing.
 - The default representation is a readable sidecar row: status control, todo
   text wrapped to two lines, and only high-value metadata.
 - The current note title is omitted for current-note todos because the source is

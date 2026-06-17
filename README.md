@@ -28,8 +28,9 @@ The current direction:
   review, labels, workstreams, and AI support the current note rather than
   replacing it with a dashboard.
 - The Notes workspace is focus-first: the workspace rail starts icon-only, the
-  current note and current-note todo rail are visible, and navigation, full
-  context, and queues are disclosed on demand.
+  current note is visually dominant, current-note todos appear in a lightweight
+  note-edge rail when present, and navigation, full context, and queues are
+  disclosed on demand.
 - AI work is local open-weight execution first; hosted APIs and account-provider
   integrations are deferred.
 - The UX should be built from workspaces, panes, and reusable surfaces, not
@@ -69,9 +70,10 @@ Implemented foundation:
 - Empty vaults seed a Welcome note that explains the local Markdown vault,
   Markdown facts, workspaces, panes, and first actions.
 - The Notes workspace defaults to the note-first surface with auxiliary panes
-  closed, shows current-note todos in a lightweight rail, keeps Writing Mode
-  visible under pane pressure, and can keep an old note open in a read-only
-  split/reference pane while the current note remains active.
+  closed, shows current-note todos in a lightweight note-edge rail only when
+  useful, keeps Writing Mode visible under pane pressure, and can keep an old
+  note open in a read-only split/reference pane while the current note remains
+  active.
 - Daily workflow screens are still being migrated onto the new workspace shell;
   the 1:1, task, board, and review flows are the active MVP path.
 

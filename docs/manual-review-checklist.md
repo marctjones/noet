@@ -132,8 +132,10 @@ note/search excerpts are necessary to diagnose the issue.
 - Notes drawer lists notes and opens a selected note.
 - The editor is visually dominant; navigation, context, and queue panes support
   the note rather than competing with it.
-- A focused "Todos in this note" rail is visible with the note and does not
-  require opening the full context pane.
+- A focused "Todos in this note" rail appears beside the editor when the
+  current note has todos and does not require opening the full context pane.
+- Notes without todos do not show an empty todo pane; the Add task control stays
+  available in the editor actions.
 - Opening the full context pane does not bury or duplicate current-note todos.
 - Writing Mode remains visible when auxiliary panes are open.
 - Writing mode closes the notes drawer and context pane, starts rich editing,

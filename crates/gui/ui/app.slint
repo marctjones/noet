@@ -1069,7 +1069,9 @@ component CurrentTodoRail inherits Rectangle {
     callback edit(string);
     callback open(string);
     callback promote(string);
-    width: 208px;
+    preferred-width: 216px;
+    min-width: 200px;
+    max-width: 216px;
     background: Theme.surface2;
     border-radius: 8px;
     border-width: 1px;
@@ -2292,7 +2294,7 @@ export component AppWindow inherits Window {
                                                     width: 100%;
                                                     height: 100%;
                                                     spacing: 8px;
-                                                    CurrentTodoRail {
+                                                    if root.current-todo-count > 0: CurrentTodoRail {
                                                         vertical-stretch: 1;
                                                         todos: root.current-todos;
                                                         count: root.current-todo-count;
@@ -2350,8 +2352,8 @@ export component AppWindow inherits Window {
                                                             ActionButton { icon: Icons.focus; label: root.focus-mode ? "Exit writing" : "Writing mode"; a11y: root.focus-mode ? "Exit writing mode" : "Writing mode"; clicked => { root.toggle-notes-writing-mode(); } }
                                                             ActionButton { icon: Icons.textsize; label: (root.editing && root.source-mode) ? "Preview" : "Source"; clicked => { if (root.editing && root.source-mode) { root.source-mode = false; } else { root.source-mode = true; root.editing = true; } } }
                                                             ActionButton { icon: Icons.check; label: "Add task"; clicked => { root.open-add-todo(); } }
-                                                            ActionButton { icon: Icons.branch; label: "Related note"; clicked => { root.new-related-note(); } }
-                                                            ActionButton { icon: Icons.download; label: "Export PDF"; clicked => { root.export-note("pdf"); } }
+                                                            if !root.editing: ActionButton { icon: Icons.branch; label: "Related note"; clicked => { root.new-related-note(); } }
+                                                            if !root.editing: ActionButton { icon: Icons.download; label: "Export PDF"; clicked => { root.export-note("pdf"); } }
                                                         }
                                                     }
                                                     if root.split-note-id != "": Rectangle {

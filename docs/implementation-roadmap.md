@@ -317,7 +317,7 @@ Release bar for the note-first redesign:
 - [x] The workspace rail starts collapsed/icon-only so launch does not read as a
   dashboard or control wall.
 - [x] Inline todos from the current note are visible in a lightweight note-edge
-  rail and use Markdown-backed task actions.
+  rail when present and use Markdown-backed task actions.
 - [x] The full context pane no longer owns or duplicates current-note todos.
 - [x] A read-only split/reference pane can show an old note while the current
   note remains active.
@@ -338,7 +338,8 @@ Release bar for the note-first redesign:
   reflects explicit prior user state.
 - [x] Redesign current-note todo rows into the sidecar/peek model: two-line
   readable default rows, capped visible count, Show more overflow, full-text
-  peek/detail, and current-note source jumps without stealing the active editor.
+  peek/detail, hidden empty state for notes with no todos, and current-note
+  source jumps without stealing the active editor.
 - [x] Render the read-only reference pane in the Notes workspace so cross-note
   todo sources can open beside the active editor.
 - [x] Add source-line highlighting inside the read-only reference pane for
