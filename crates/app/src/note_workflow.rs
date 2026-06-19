@@ -1,5 +1,5 @@
 use crate::command::AppCommand;
-use noet_core::{Backend, Filter, Note};
+use noet_core::{backend as core_backend, Backend, Filter, Note};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NewNoteWorkflowReport {
@@ -49,6 +49,22 @@ pub struct DeleteNoteWorkflowReport {
     pub replacement_note_id: Option<String>,
     pub status_message: String,
     pub open_in_edit_mode: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ToggleNoteKindWorkflowRequest {
+    pub note_id: String,
+    pub current_kind: String,
+    pub current_title: String,
+    pub current_body: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ToggleNoteKindWorkflowReport {
+    pub note_id: String,
+    pub new_kind: String,
+    pub rendered_kind: String,
+    pub status_message: String,
 }
 
 pub fn create_note(backend: &mut Backend) -> Result<Note, String> {
@@ -271,6 +287,42 @@ pub fn set_note_kind(backend: &mut Backend, note_id: &str, kind: &str) -> Result
     backend
         .set_note_kind(note_id, kind)
         .map_err(|err| err.to_string())
+}
+
+pub fn toggle_note_kind(
+    backend: &mut Backend,
+    request: ToggleNoteKindWorkflowRequest,
+) -> Result<Option<ToggleNoteKindWorkflowReport>, String> {
+    let note_id = request.note_id.trim();
+    if note_id.is_empty() {
+        return Ok(None);
+    }
+
+    let new_kind = match request.current_kind.trim() {
+        "auto" => "markdown",
+        "markdown" => "typst",
+        _ => "auto",
+    };
+    save_note(
+        backend,
+        note_id,
+        &request.current_title,
+        &request.current_body,
+    )?;
+    set_note_kind(backend, note_id, new_kind)?;
+    let detected = core_backend::detect_kind(&request.current_body);
+    let rendered_kind = if new_kind == "auto" {
+        detected
+    } else {
+        new_kind
+    };
+
+    Ok(Some(ToggleNoteKindWorkflowReport {
+        note_id: note_id.into(),
+        new_kind: new_kind.into(),
+        rendered_kind: rendered_kind.into(),
+        status_message: format!("Mode: {new_kind} (renders as {rendered_kind})"),
+    }))
 }
 
 #[cfg(test)]
@@ -558,6 +610,78 @@ mod tests {
         assert!(delete_note_and_select_replacement(&mut backend, " ")
             .unwrap()
             .is_none());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn toggle_note_kind_workflow_saves_body_and_reports_render_mode() {
+        let (mut backend, dir) = backend();
+        let note = create_note_from_body(&mut backend, "Note", "# Note\n\nOld\n").unwrap();
+
+        let report = toggle_note_kind(
+            &mut backend,
+            ToggleNoteKindWorkflowRequest {
+                note_id: note.id.clone(),
+                current_kind: "auto".into(),
+                current_title: "Note".into(),
+                current_body: "# Note\n\nUpdated\n".into(),
+            },
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(report.note_id, note.id);
+        assert_eq!(report.new_kind, "markdown");
+        assert_eq!(report.rendered_kind, "markdown");
+        assert_eq!(
+            report.status_message,
+            "Mode: markdown (renders as markdown)"
+        );
+        let saved = backend.load_note(&report.note_id).unwrap();
+        assert_eq!(saved.kind, "markdown");
+        assert!(saved.body.contains("Updated"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn toggle_note_kind_workflow_auto_uses_detected_render_kind() {
+        let (mut backend, dir) = backend();
+        let note = create_note_from_body(&mut backend, "Note", "#import \"x.typ\"\n").unwrap();
+
+        let report = toggle_note_kind(
+            &mut backend,
+            ToggleNoteKindWorkflowRequest {
+                note_id: note.id.clone(),
+                current_kind: "typst".into(),
+                current_title: "Note".into(),
+                current_body: "#import \"x.typ\"\n".into(),
+            },
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(report.new_kind, "auto");
+        assert_eq!(report.rendered_kind, "typst");
+        assert_eq!(report.status_message, "Mode: auto (renders as typst)");
+        assert_eq!(backend.load_note(&note.id).unwrap().kind, "auto");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn toggle_note_kind_workflow_noops_without_note_id() {
+        let (mut backend, dir) = backend();
+
+        assert!(toggle_note_kind(
+            &mut backend,
+            ToggleNoteKindWorkflowRequest {
+                note_id: " ".into(),
+                current_kind: "auto".into(),
+                current_title: "Note".into(),
+                current_body: "# Note\n".into(),
+            },
+        )
+        .unwrap()
+        .is_none());
         std::fs::remove_dir_all(dir).ok();
     }
 

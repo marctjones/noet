@@ -3903,27 +3903,24 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             if id.is_empty() {
                 return;
             }
-            // cycle Auto → Markdown → Typst → Auto
-            let new_kind = match ui.get_current_kind().as_str() {
-                "auto" => "markdown",
-                "markdown" => "typst",
-                _ => "auto",
-            };
-            let _ = noet_app::save_note(
+            match noet_app::toggle_note_kind(
                 &mut s.backend,
-                &id,
-                &ui.get_current_title(),
-                &ui.get_current_body(),
-            );
-            let _ = noet_app::set_note_kind(&mut s.backend, &id, new_kind);
-            ui.set_current_kind(new_kind.into());
-            let detected = backend::detect_kind(&ui.get_current_body());
-            let shown = if new_kind == "auto" {
-                detected
-            } else {
-                new_kind
-            };
-            ui.set_status_text(format!("Mode: {new_kind} (renders as {shown})").into());
+                noet_app::ToggleNoteKindWorkflowRequest {
+                    note_id: id,
+                    current_kind: ui.get_current_kind().to_string(),
+                    current_title: ui.get_current_title().to_string(),
+                    current_body: ui.get_current_body().to_string(),
+                },
+            ) {
+                Ok(Some(report)) => {
+                    ui.set_current_kind(report.new_kind.into());
+                    ui.set_status_text(report.status_message.into());
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    ui.set_status_text(format!("Error: {err}").into());
+                }
+            }
         });
     }
 
