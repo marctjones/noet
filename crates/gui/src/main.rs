@@ -2033,23 +2033,35 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             ui.set_note_return_view("".into()); // browsing a note ends a todo follow-up trail
             ui.set_content_pane_open(true); // reveal the editor pane if it was collapsed
             let mut s = state.borrow_mut();
-            // persist in-progress edits to the previously open note before switching
-            let cur = ui.get_current_id().to_string();
-            if ui.get_editing() && !cur.is_empty() && cur != id.as_str() {
-                let _ = noet_app::save_note(
-                    &mut s.backend,
-                    &cur,
-                    &ui.get_current_title(),
-                    &ui.get_current_body(),
-                );
+            let report = noet_app::select_note(
+                &mut s.backend,
+                noet_app::SelectNoteWorkflowRequest {
+                    note_id: id.to_string(),
+                    current_note_id: ui.get_current_id().to_string(),
+                    current_title: ui.get_current_title().to_string(),
+                    current_body: ui.get_current_body().to_string(),
+                    current_is_editing: ui.get_editing(),
+                },
+            );
+            match report {
+                Ok(report) => {
+                    FOLDS.with(|f| f.borrow_mut().clear()); // fresh folds per note
+                    open_in_editor(&ui, &s.backend, &report.note_id); // records the recent (tab strip)
+                    let outcome = s.app.apply(report.open_command.clone());
+                    ui_trace::command(
+                        "command.select_note.open_note",
+                        &ui,
+                        &s,
+                        &report.open_command,
+                        &outcome,
+                    );
+                    ui.set_editing(report.open_in_edit_mode);
+                    ui.set_status_text(report.status_message.into());
+                }
+                Err(err) => {
+                    ui.set_status_text(format!("Error: {err}").into());
+                }
             }
-            FOLDS.with(|f| f.borrow_mut().clear()); // fresh folds per note
-            open_in_editor(&ui, &s.backend, &id); // records the recent (tab strip)
-            let command = AppCommand::OpenNote(id.to_string());
-            let outcome = s.app.apply(command.clone());
-            ui_trace::command("command.select_note.open_note", &ui, &s, &command, &outcome);
-            ui.set_editing(false); // selecting shows the read view (content visible)
-            ui.set_status_text("".into());
             refresh(&ui, &s); // refresh() rebuilds the tab strip
         });
     }

@@ -9,6 +9,24 @@ pub struct NewNoteWorkflowReport {
     pub open_in_edit_mode: bool,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SelectNoteWorkflowRequest {
+    pub note_id: String,
+    pub current_note_id: String,
+    pub current_title: String,
+    pub current_body: String,
+    pub current_is_editing: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SelectNoteWorkflowReport {
+    pub note_id: String,
+    pub open_command: AppCommand,
+    pub status_message: String,
+    pub open_in_edit_mode: bool,
+    pub saved_previous_note: bool,
+}
+
 pub fn create_note(backend: &mut Backend) -> Result<Note, String> {
     backend.new_note().map_err(|err| err.to_string())
 }
@@ -49,6 +67,36 @@ pub fn create_note_for_workstream(
         note_id,
         status_message,
         open_in_edit_mode: true,
+    })
+}
+
+pub fn select_note(
+    backend: &mut Backend,
+    request: SelectNoteWorkflowRequest,
+) -> Result<SelectNoteWorkflowReport, String> {
+    let note_id = request.note_id.trim().to_string();
+    if note_id.is_empty() {
+        return Err("Select a note first.".into());
+    }
+
+    let current_note_id = request.current_note_id.trim();
+    let saved_previous_note =
+        request.current_is_editing && !current_note_id.is_empty() && current_note_id != note_id;
+    if saved_previous_note {
+        save_note(
+            backend,
+            current_note_id,
+            &request.current_title,
+            &request.current_body,
+        )?;
+    }
+
+    Ok(SelectNoteWorkflowReport {
+        open_command: AppCommand::OpenNote(note_id.clone()),
+        note_id,
+        status_message: String::new(),
+        open_in_edit_mode: false,
+        saved_previous_note,
     })
 }
 
@@ -248,6 +296,64 @@ mod tests {
         assert!(report.open_in_edit_mode);
         let saved = backend.load_note(&report.note_id).unwrap();
         assert!(saved.body.contains("#workstream/clients/acme"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn select_note_workflow_saves_current_edit_before_switching() {
+        let (mut backend, dir) = backend();
+        let current = create_note_from_body(&mut backend, "Current", "# Current\n\nOld\n").unwrap();
+        let target = create_note_from_body(&mut backend, "Target", "# Target\n\n").unwrap();
+
+        let report = select_note(
+            &mut backend,
+            SelectNoteWorkflowRequest {
+                note_id: target.id.clone(),
+                current_note_id: current.id.clone(),
+                current_title: "Current".into(),
+                current_body: "# Current\n\nUpdated draft\n".into(),
+                current_is_editing: true,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(report.open_command, AppCommand::OpenNote(target.id.clone()));
+        assert_eq!(report.note_id, target.id);
+        assert_eq!(report.status_message, "");
+        assert!(!report.open_in_edit_mode);
+        assert!(report.saved_previous_note);
+        assert!(backend
+            .load_note(&current.id)
+            .unwrap()
+            .body
+            .contains("Updated draft"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn select_note_workflow_skips_save_when_not_editing() {
+        let (mut backend, dir) = backend();
+        let current = create_note_from_body(&mut backend, "Current", "# Current\n\nOld\n").unwrap();
+        let target = create_note_from_body(&mut backend, "Target", "# Target\n\n").unwrap();
+
+        let report = select_note(
+            &mut backend,
+            SelectNoteWorkflowRequest {
+                note_id: target.id.clone(),
+                current_note_id: current.id.clone(),
+                current_title: "Current".into(),
+                current_body: "# Current\n\nShould not save\n".into(),
+                current_is_editing: false,
+            },
+        )
+        .unwrap();
+
+        assert!(!report.saved_previous_note);
+        assert!(!backend
+            .load_note(&current.id)
+            .unwrap()
+            .body
+            .contains("Should not save"));
         std::fs::remove_dir_all(dir).ok();
     }
 
