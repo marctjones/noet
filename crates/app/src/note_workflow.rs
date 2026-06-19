@@ -85,6 +85,19 @@ pub struct TemplateNoteWorkflowReport {
     pub open_in_edit_mode: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RestoreNoteWorkflowReport {
+    pub filename: String,
+    pub status_message: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ArchiveNoteWorkflowReport {
+    pub note_id: String,
+    pub archived: bool,
+    pub status_message: String,
+}
+
 pub fn create_note(backend: &mut Backend) -> Result<Note, String> {
     backend.new_note().map_err(|err| err.to_string())
 }
@@ -336,10 +349,44 @@ pub fn restore_note(backend: &mut Backend, filename: &str) -> Result<(), String>
         .map_err(|err| err.to_string())
 }
 
+pub fn restore_note_workflow(
+    backend: &mut Backend,
+    filename: &str,
+) -> Result<Option<RestoreNoteWorkflowReport>, String> {
+    let filename = filename.trim();
+    if filename.is_empty() {
+        return Ok(None);
+    }
+
+    restore_note(backend, filename)?;
+    Ok(Some(RestoreNoteWorkflowReport {
+        filename: filename.into(),
+        status_message: "Restored from trash".into(),
+    }))
+}
+
 pub fn archive_note(backend: &mut Backend, note_id: &str, archive: bool) -> Result<(), String> {
     backend
         .archive_note(note_id, archive)
         .map_err(|err| err.to_string())
+}
+
+pub fn archive_note_workflow(
+    backend: &mut Backend,
+    note_id: &str,
+    archive: bool,
+) -> Result<Option<ArchiveNoteWorkflowReport>, String> {
+    let note_id = note_id.trim();
+    if note_id.is_empty() {
+        return Ok(None);
+    }
+
+    archive_note(backend, note_id, archive)?;
+    Ok(Some(ArchiveNoteWorkflowReport {
+        note_id: note_id.into(),
+        archived: archive,
+        status_message: if archive { "Archived" } else { "Unarchived" }.into(),
+    }))
 }
 
 pub fn set_note_kind(backend: &mut Backend, note_id: &str, kind: &str) -> Result<(), String> {
@@ -730,6 +777,74 @@ mod tests {
         let (mut backend, dir) = backend();
 
         assert!(delete_note_and_select_replacement(&mut backend, " ")
+            .unwrap()
+            .is_none());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn restore_note_workflow_reports_restored_file() {
+        let (mut backend, dir) = backend();
+        let note = create_note_from_body(&mut backend, "Restore", "# Restore\n\n").unwrap();
+        delete_note(&mut backend, &note.id).unwrap();
+        let filename = backend.list_trash().unwrap()[0].0.clone();
+
+        let report = restore_note_workflow(&mut backend, &filename)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(report.filename, filename);
+        assert_eq!(report.status_message, "Restored from trash");
+        assert!(backend
+            .query_notes(&Filter::default())
+            .unwrap()
+            .iter()
+            .any(|candidate| candidate.id == note.id));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn restore_note_workflow_noops_without_filename() {
+        let (mut backend, dir) = backend();
+
+        assert!(restore_note_workflow(&mut backend, " ").unwrap().is_none());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn archive_note_workflow_reports_archive_state() {
+        let (mut backend, dir) = backend();
+        let note = create_note_from_body(&mut backend, "Archive", "# Archive\n\n").unwrap();
+
+        let archived = archive_note_workflow(&mut backend, &note.id, true)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(archived.note_id, note.id);
+        assert!(archived.archived);
+        assert_eq!(archived.status_message, "Archived");
+        assert!(backend
+            .query_notes(&Filter {
+                show_archived: true,
+                ..Default::default()
+            })
+            .unwrap()
+            .iter()
+            .any(|candidate| candidate.id == archived.note_id));
+
+        let unarchived = archive_note_workflow(&mut backend, &note.id, false)
+            .unwrap()
+            .unwrap();
+        assert!(!unarchived.archived);
+        assert_eq!(unarchived.status_message, "Unarchived");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn archive_note_workflow_noops_without_note_id() {
+        let (mut backend, dir) = backend();
+
+        assert!(archive_note_workflow(&mut backend, " ", true)
             .unwrap()
             .is_none());
         std::fs::remove_dir_all(dir).ok();

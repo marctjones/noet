@@ -3646,8 +3646,15 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_restore_note(move |filename: SharedString| {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
-            let _ = noet_app::restore_note(&mut s.backend, &filename);
-            ui.set_status_text("Restored from trash".into());
+            match noet_app::restore_note_workflow(&mut s.backend, &filename) {
+                Ok(Some(report)) => {
+                    ui.set_status_text(report.status_message.into());
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    ui.set_status_text(format!("Error: {err}").into());
+                }
+            }
             refresh(&ui, &s);
         });
     }
@@ -3852,12 +3859,15 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 return;
             }
             let mut s = state.borrow_mut();
-            let _ = noet_app::archive_note(&mut s.backend, &id, archive);
-            ui.set_status_text(if archive {
-                "Archived".into()
-            } else {
-                "Unarchived".into()
-            });
+            match noet_app::archive_note_workflow(&mut s.backend, &id, archive) {
+                Ok(Some(report)) => {
+                    ui.set_status_text(report.status_message.into());
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    ui.set_status_text(format!("Error: {err}").into());
+                }
+            }
             refresh(&ui, &s);
         });
     }
@@ -3872,12 +3882,15 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 return;
             }
             let mut s = state.borrow_mut();
-            let _ = noet_app::archive_note(&mut s.backend, &id, archive);
-            ui.set_status_text(if archive {
-                "Archived".into()
-            } else {
-                "Unarchived".into()
-            });
+            match noet_app::archive_note_workflow(&mut s.backend, &id, archive) {
+                Ok(Some(report)) => {
+                    ui.set_status_text(report.status_message.into());
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    ui.set_status_text(format!("Error: {err}").into());
+                }
+            }
             refresh(&ui, &s);
         });
     }
