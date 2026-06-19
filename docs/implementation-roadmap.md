@@ -95,12 +95,13 @@ the work is ordered this way; GitHub issues are the actionable units.
    - #56 Bring Tasks, Review, and Board to write-back quality
 2. **M5 - Runtime QA and Release Readiness**
    P0: prove runtime behavior, GUI quality, local AI responsiveness, packaging,
-   and release smoke evidence.
-   - #74 M5 epic: Runtime QA and release readiness
+   and release smoke evidence. Completed with
+   [M5 Release Evidence](m5-release-evidence.md).
+   - #74 M5 epic: Runtime QA and release readiness (closed)
    - #62 Run local AI calls on non-blocking worker threads (closed)
    - #64 Add AI job progress, elapsed time, and cancel controls (closed)
    - #63 Add release-gate coverage for inline local AI builds (closed)
-   - #57 Run manual GUI review and close automation gaps
+   - #57 Run manual GUI review and close automation gaps (closed)
    - #58 Track platform packaging and release gates after M4 (closed)
 3. **M6 - AI Workflow Quality**
    P1: improve AI proposal quality after the release gate without changing the
@@ -112,6 +113,7 @@ the work is ordered this way; GitHub issues are the actionable units.
 4. **M7 - Post-MVP Workflow Expansion**
    P2: expand product depth after the MVP release.
    - #73 M7 epic: Post-MVP workflow expansion
+   - #75 Improve current-note todo rail readability and drill-in
    - #68 Bring labels and workstreams to cleanup-quality UX
    - #71 Improve onboarding, empty states, and settings clarity
    - #69 Expand manual review checklist into full app acceptance suite (closed)
