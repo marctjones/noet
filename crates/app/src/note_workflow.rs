@@ -1,4 +1,13 @@
+use crate::command::AppCommand;
 use noet_core::{Backend, Note};
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct NewNoteWorkflowReport {
+    pub note_id: String,
+    pub open_command: AppCommand,
+    pub status_message: String,
+    pub open_in_edit_mode: bool,
+}
 
 pub fn create_note(backend: &mut Backend) -> Result<Note, String> {
     backend.new_note().map_err(|err| err.to_string())
@@ -21,6 +30,26 @@ pub fn create_note_in_workstream(backend: &mut Backend, workstream: &str) -> Res
         file_note(backend, &note.id, workstream)?;
     }
     backend.load_note(&note.id).map_err(|err| err.to_string())
+}
+
+pub fn create_note_for_workstream(
+    backend: &mut Backend,
+    workstream: &str,
+) -> Result<NewNoteWorkflowReport, String> {
+    let workstream = workstream.trim();
+    let note = create_note_in_workstream(backend, workstream)?;
+    let note_id = note.id;
+    let status_message = if workstream.is_empty() {
+        "New note".to_string()
+    } else {
+        format!("New note in {workstream}")
+    };
+    Ok(NewNoteWorkflowReport {
+        open_command: AppCommand::OpenNote(note_id.clone()),
+        note_id,
+        status_message,
+        open_in_edit_mode: true,
+    })
 }
 
 pub fn save_note(
@@ -112,7 +141,10 @@ mod tests {
     use super::*;
     use noet_core::{Backend, Filter};
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    static TEST_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     #[test]
     fn note_lifecycle_routes_through_app_workflow() {
@@ -185,14 +217,49 @@ mod tests {
         std::fs::remove_dir_all(dir).ok();
     }
 
+    #[test]
+    fn new_note_workflow_reports_default_note_action() {
+        let (mut backend, dir) = backend();
+
+        let report = create_note_for_workstream(&mut backend, "").unwrap();
+
+        assert_eq!(
+            report.open_command,
+            AppCommand::OpenNote(report.note_id.clone())
+        );
+        assert_eq!(report.status_message, "New note");
+        assert!(report.open_in_edit_mode);
+        let saved = backend.load_note(&report.note_id).unwrap();
+        assert!(!saved.body.contains("#workstream/"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn new_note_workflow_files_active_workstream() {
+        let (mut backend, dir) = backend();
+
+        let report = create_note_for_workstream(&mut backend, " clients/acme ").unwrap();
+
+        assert_eq!(
+            report.open_command,
+            AppCommand::OpenNote(report.note_id.clone())
+        );
+        assert_eq!(report.status_message, "New note in clients/acme");
+        assert!(report.open_in_edit_mode);
+        let saved = backend.load_note(&report.note_id).unwrap();
+        assert!(saved.body.contains("#workstream/clients/acme"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
     fn backend() -> (Backend, PathBuf) {
         let dir = std::env::temp_dir().join(format!(
-            "noet-note-workflow-test-{}-{}",
+            "noet-note-workflow-test-{}-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map(|duration| duration.as_nanos())
-                .unwrap_or_default()
+                .unwrap_or_default(),
+            TEST_DIR_COUNTER.fetch_add(1, Ordering::Relaxed)
         ));
         std::fs::create_dir_all(dir.join("notes")).unwrap();
         let mut backend = Backend::open_at(dir.clone(), dir.join("cache")).unwrap();

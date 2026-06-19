@@ -2001,20 +2001,24 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 &s,
                 serde_json::json!({ "project": proj }),
             );
-            if let Ok(n) = noet_app::create_note_in_workstream(&mut s.backend, &proj) {
-                let id = n.id.clone();
-                // inherit the active workstream context so the note is auto-filed
-                open_in_editor(&ui, &s.backend, &id);
-                let command = AppCommand::OpenNote(id);
-                let outcome = s.app.apply(command.clone());
-                ui_trace::command("command.new_note.open_note", &ui, &s, &command, &outcome);
-                ui.set_status_text(if proj.is_empty() {
-                    "New note".into()
-                } else {
-                    format!("New note in {proj}").into()
-                });
-                ui.set_editing(true); // new notes open straight into edit mode
-                ui.set_view("notes".into());
+            match noet_app::create_note_for_workstream(&mut s.backend, &proj) {
+                Ok(report) => {
+                    open_in_editor(&ui, &s.backend, &report.note_id);
+                    let outcome = s.app.apply(report.open_command.clone());
+                    ui_trace::command(
+                        "command.new_note.open_note",
+                        &ui,
+                        &s,
+                        &report.open_command,
+                        &outcome,
+                    );
+                    ui.set_status_text(report.status_message.into());
+                    ui.set_editing(report.open_in_edit_mode);
+                    ui.set_view("notes".into());
+                }
+                Err(err) => {
+                    ui.set_status_text(format!("Error: {err}").into());
+                }
             }
             refresh(&ui, &s);
         });

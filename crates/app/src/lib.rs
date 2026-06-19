@@ -43,9 +43,10 @@ pub use history_workflow::{
 pub use model::AppModel;
 pub use navigation::{FilterToken, NavigationState};
 pub use note_workflow::{
-    add_tag_to_note, archive_note, attach_path_to_note, create_note, create_note_from_body,
-    create_note_from_template, create_note_in_workstream, create_related_note, delete_note,
-    file_note, restore_note, save_note, seed_note_if_vault_empty, set_note_kind,
+    add_tag_to_note, archive_note, attach_path_to_note, create_note, create_note_for_workstream,
+    create_note_from_body, create_note_from_template, create_note_in_workstream,
+    create_related_note, delete_note, file_note, restore_note, save_note, seed_note_if_vault_empty,
+    set_note_kind, NewNoteWorkflowReport,
 };
 pub use selection::SelectionState;
 pub use smart_list_workflow::{apply_smart_list, delete_smart_list, save_smart_list};
