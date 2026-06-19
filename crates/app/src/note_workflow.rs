@@ -106,6 +106,13 @@ pub struct FileNoteWorkflowReport {
     pub refresh_note: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QuickCaptureWorkflowReport {
+    pub note_id: String,
+    pub title: String,
+    pub status_message: String,
+}
+
 pub fn create_note(backend: &mut Backend) -> Result<Note, String> {
     backend.new_note().map_err(|err| err.to_string())
 }
@@ -198,6 +205,24 @@ pub fn create_note_from_body(
     let note = create_note(backend)?;
     save_note(backend, &note.id, title, body)?;
     backend.load_note(&note.id).map_err(|err| err.to_string())
+}
+
+pub fn quick_capture_note(
+    backend: &mut Backend,
+    text: &str,
+) -> Result<Option<QuickCaptureWorkflowReport>, String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
+
+    let title: String = text.chars().take(60).collect();
+    let note = create_note_from_body(backend, &title, &format!("{text}\n"))?;
+    Ok(Some(QuickCaptureWorkflowReport {
+        note_id: note.id,
+        title,
+        status_message: "Captured to inbox".into(),
+    }))
 }
 
 pub fn create_note_from_template(
@@ -537,6 +562,46 @@ mod tests {
 
         let related = create_related_note(&mut backend, &one_on_one.id).unwrap();
         assert!(related.body.contains("[[1:1 — Jane Smith]]"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn quick_capture_workflow_creates_trimmed_inbox_note() {
+        let (mut backend, dir) = backend();
+
+        let report = quick_capture_note(&mut backend, "  Capture this thought  ")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(report.title, "Capture this thought");
+        assert_eq!(report.status_message, "Captured to inbox");
+        let note = backend.load_note(&report.note_id).unwrap();
+        assert_eq!(note.title, "Capture this thought");
+        assert_eq!(note.body, "Capture this thought\n");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn quick_capture_workflow_truncates_long_titles() {
+        let (mut backend, dir) = backend();
+        let text = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 extra";
+
+        let report = quick_capture_note(&mut backend, text).unwrap().unwrap();
+
+        assert_eq!(report.title.chars().count(), 60);
+        assert!(backend
+            .load_note(&report.note_id)
+            .unwrap()
+            .body
+            .contains(" extra"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn quick_capture_workflow_noops_without_text() {
+        let (mut backend, dir) = backend();
+
+        assert!(quick_capture_note(&mut backend, " ").unwrap().is_none());
         std::fs::remove_dir_all(dir).ok();
     }
 

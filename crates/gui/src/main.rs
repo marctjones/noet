@@ -3836,22 +3836,20 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         let state = state.clone();
         ui.on_quick_capture(move |text: SharedString| {
             let ui = ui_w.unwrap();
-            if text.trim().is_empty() {
-                return;
-            }
             let mut s = state.borrow_mut();
-            let title: String = text.trim().chars().take(60).collect();
-            if noet_app::create_note_from_body(
-                &mut s.backend,
-                &title,
-                &format!("{}\n", text.trim()),
-            )
-            .is_ok()
-            {
-                ui.set_status_text("Captured to inbox".into());
+            match noet_app::quick_capture_note(&mut s.backend, &text) {
+                Ok(Some(report)) => {
+                    ui.set_status_text(report.status_message.into());
+                    ui.set_capture_input("".into());
+                    refresh(&ui, &s);
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    ui.set_status_text(format!("Error: {err}").into());
+                    ui.set_capture_input("".into());
+                    refresh(&ui, &s);
+                }
             }
-            ui.set_capture_input("".into());
-            refresh(&ui, &s);
         });
     }
 

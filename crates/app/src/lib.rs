@@ -47,13 +47,13 @@ pub use note_workflow::{
     attach_path_to_current_note, attach_path_to_note, create_note, create_note_for_workstream,
     create_note_from_body, create_note_from_template, create_note_from_template_workflow,
     create_note_in_workstream, create_related_note, delete_note,
-    delete_note_and_select_replacement, file_current_note, file_note, restore_note,
-    restore_note_workflow, save_note, seed_note_if_vault_empty, select_note, set_note_kind,
-    toggle_note_kind, AddTagWorkflowReport, ArchiveNoteWorkflowReport, AttachPathWorkflowReport,
-    DeleteNoteWorkflowReport, FileNoteWorkflowReport, NewNoteWorkflowReport,
-    RestoreNoteWorkflowReport, SelectNoteWorkflowReport, SelectNoteWorkflowRequest,
-    TemplateNoteWorkflowReport, TemplateNoteWorkflowRequest, ToggleNoteKindWorkflowReport,
-    ToggleNoteKindWorkflowRequest,
+    delete_note_and_select_replacement, file_current_note, file_note, quick_capture_note,
+    restore_note, restore_note_workflow, save_note, seed_note_if_vault_empty, select_note,
+    set_note_kind, toggle_note_kind, AddTagWorkflowReport, ArchiveNoteWorkflowReport,
+    AttachPathWorkflowReport, DeleteNoteWorkflowReport, FileNoteWorkflowReport,
+    NewNoteWorkflowReport, QuickCaptureWorkflowReport, RestoreNoteWorkflowReport,
+    SelectNoteWorkflowReport, SelectNoteWorkflowRequest, TemplateNoteWorkflowReport,
+    TemplateNoteWorkflowRequest, ToggleNoteKindWorkflowReport, ToggleNoteKindWorkflowRequest,
 };
 pub use selection::SelectionState;
 pub use smart_list_workflow::{
