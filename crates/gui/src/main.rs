@@ -3499,13 +3499,20 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_attach_path(move |path: SharedString| {
             let ui = ui_w.unwrap();
             let id = ui.get_current_id().to_string();
-            if !id.is_empty() && !path.trim().is_empty() {
-                let mut s = state.borrow_mut();
-                let _ = noet_app::attach_path_to_note(&mut s.backend, &id, &path);
-                open_in_editor(&ui, &s.backend, &id);
-                ui.set_attach_input("".into());
-                ui.set_status_text("Attached".into());
-                refresh(&ui, &s);
+            let mut s = state.borrow_mut();
+            match noet_app::attach_path_to_current_note(&mut s.backend, &id, &path) {
+                Ok(Some(report)) => {
+                    if report.refresh_note {
+                        open_in_editor(&ui, &s.backend, &report.note_id);
+                    }
+                    ui.set_attach_input("".into());
+                    ui.set_status_text(report.status_message.into());
+                    refresh(&ui, &s);
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    ui.set_status_text(format!("Error: {err}").into());
+                }
             }
         });
     }
