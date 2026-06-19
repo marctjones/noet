@@ -3459,8 +3459,8 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_apply_smart_list(move |name: SharedString| {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
-            if let Some(f) = noet_app::apply_smart_list(&s.backend, &name) {
-                s.filter = f;
+            if let Some(report) = noet_app::apply_smart_list_workflow(&s.backend, &name) {
+                s.filter = report.filter;
                 ui.set_status_filter(s.filter.status.clone().into());
                 ui.set_search(s.filter.search.clone().into());
             }
@@ -3473,9 +3473,14 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_save_smart_list(move |name: SharedString| {
             let ui = ui_w.unwrap();
             let s = state.borrow();
-            if !name.trim().is_empty() {
-                let _ = noet_app::save_smart_list(&s.backend, &name, &s.filter);
-                ui.set_status_text(format!("Saved smart list: {}", name.trim()).into());
+            match noet_app::save_smart_list_workflow(&s.backend, &name, &s.filter) {
+                Ok(Some(report)) => {
+                    ui.set_status_text(report.status_message.into());
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    ui.set_status_text(format!("Error: {err}").into());
+                }
             }
             ui.set_smartlist_input("".into());
             refresh(&ui, &s);
@@ -3487,7 +3492,9 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_delete_smart_list(move |name: SharedString| {
             let ui = ui_w.unwrap();
             let s = state.borrow();
-            let _ = noet_app::delete_smart_list(&s.backend, &name);
+            if let Err(err) = noet_app::delete_smart_list_workflow(&s.backend, &name) {
+                ui.set_status_text(format!("Error: {err}").into());
+            }
             refresh(&ui, &s);
         });
     }

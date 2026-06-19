@@ -54,7 +54,11 @@ pub use note_workflow::{
     ToggleNoteKindWorkflowRequest,
 };
 pub use selection::SelectionState;
-pub use smart_list_workflow::{apply_smart_list, delete_smart_list, save_smart_list};
+pub use smart_list_workflow::{
+    apply_smart_list, apply_smart_list_workflow, delete_smart_list, delete_smart_list_workflow,
+    save_smart_list, save_smart_list_workflow, ApplySmartListReport, DeleteSmartListReport,
+    SaveSmartListReport,
+};
 pub use task_workflow::{
     add_task, apply_followup_action, carry_task_to_note, cycle_task, defer_task_to_someday,
     drop_task_on_board, move_task_on_board, promote_task_to_note, reopen_task, resolve_task,
