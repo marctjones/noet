@@ -27,6 +27,14 @@ pub struct SelectNoteWorkflowReport {
     pub saved_previous_note: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AddTagWorkflowReport {
+    pub note_id: String,
+    pub normalized_tag: String,
+    pub status_message: String,
+    pub refresh_note: bool,
+}
+
 pub fn create_note(backend: &mut Backend) -> Result<Note, String> {
     backend.new_note().map_err(|err| err.to_string())
 }
@@ -148,6 +156,26 @@ pub fn create_related_note(backend: &mut Backend, source_note_id: &str) -> Resul
 
 pub fn add_tag_to_note(backend: &mut Backend, note_id: &str, tag: &str) -> Result<(), String> {
     backend.add_tag(note_id, tag).map_err(|err| err.to_string())
+}
+
+pub fn add_tag_to_current_note(
+    backend: &mut Backend,
+    note_id: &str,
+    tag: &str,
+) -> Result<Option<AddTagWorkflowReport>, String> {
+    let note_id = note_id.trim();
+    let normalized_tag = tag.trim().trim_start_matches('#').trim();
+    if note_id.is_empty() || normalized_tag.is_empty() {
+        return Ok(None);
+    }
+
+    add_tag_to_note(backend, note_id, normalized_tag)?;
+    Ok(Some(AddTagWorkflowReport {
+        note_id: note_id.into(),
+        normalized_tag: normalized_tag.into(),
+        status_message: format!("Added #{normalized_tag}"),
+        refresh_note: true,
+    }))
 }
 
 pub fn file_note(backend: &mut Backend, note_id: &str, topic: &str) -> Result<(), String> {
@@ -354,6 +382,39 @@ mod tests {
             .unwrap()
             .body
             .contains("Should not save"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn add_tag_workflow_normalizes_and_reports_tag() {
+        let (mut backend, dir) = backend();
+        let note = create_note_from_body(&mut backend, "Note", "# Note\n\n").unwrap();
+
+        let report = add_tag_to_current_note(&mut backend, &note.id, " #followup ")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(report.note_id, note.id);
+        assert_eq!(report.normalized_tag, "followup");
+        assert_eq!(report.status_message, "Added #followup");
+        assert!(report.refresh_note);
+        assert!(backend
+            .load_note(&report.note_id)
+            .unwrap()
+            .body
+            .contains("#followup"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn add_tag_workflow_noops_without_note_or_tag() {
+        let (mut backend, dir) = backend();
+        assert!(add_tag_to_current_note(&mut backend, "", "followup")
+            .unwrap()
+            .is_none());
+        assert!(add_tag_to_current_note(&mut backend, "note-id", " # ")
+            .unwrap()
+            .is_none());
         std::fs::remove_dir_all(dir).ok();
     }
 

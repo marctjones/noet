@@ -2154,10 +2154,17 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
             let note_id = ui.get_current_id().to_string();
-            if !note_id.is_empty() && !tag.trim().is_empty() {
-                let _ = noet_app::add_tag_to_note(&mut s.backend, &note_id, &tag);
-                open_in_editor(&ui, &s.backend, &note_id);
-                ui.set_status_text(format!("Added #{}", tag.trim().trim_start_matches('#')).into());
+            match noet_app::add_tag_to_current_note(&mut s.backend, &note_id, &tag) {
+                Ok(Some(report)) => {
+                    if report.refresh_note {
+                        open_in_editor(&ui, &s.backend, &report.note_id);
+                    }
+                    ui.set_status_text(report.status_message.into());
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    ui.set_status_text(format!("Error: {err}").into());
+                }
             }
             ui.set_tag_input("".into());
             refresh(&ui, &s);
