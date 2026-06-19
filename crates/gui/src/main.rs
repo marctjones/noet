@@ -3035,60 +3035,60 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         let state = state.clone();
         ui.on_save_todo(move || {
             let ui = ui_w.unwrap();
-            let text = ui.get_form_text().to_string().trim().to_string();
-            if text.is_empty() {
-                ui.set_status_text("Task needs text".into());
-                return;
-            }
-            let kind = ui.get_form_kind().to_string().trim().to_string();
-            let status = ui.get_form_status().to_string().trim().to_string();
             let fields = TodoFields {
-                kind: if kind.is_empty() { "do".into() } else { kind },
-                status: if status.is_empty() {
-                    "todo".into()
-                } else {
-                    status
-                },
-                text,
-                person: ui.get_form_person().to_string().trim().to_string(),
-                project: ui.get_form_project().to_string().trim().to_string(),
-                start: ui.get_form_start().to_string().trim().to_string(),
-                due: ui.get_form_due().to_string().trim().to_string(),
-                external: ui.get_form_external().to_string().trim().to_string(),
-                priority: ui.get_form_priority().to_string().trim().to_string(),
-                repeat: ui.get_form_repeat().to_string().trim().to_string(),
+                kind: ui.get_form_kind().to_string(),
+                status: ui.get_form_status().to_string(),
+                text: ui.get_form_text().to_string(),
+                person: ui.get_form_person().to_string(),
+                project: ui.get_form_project().to_string(),
+                start: ui.get_form_start().to_string(),
+                due: ui.get_form_due().to_string(),
+                external: ui.get_form_external().to_string(),
+                priority: ui.get_form_priority().to_string(),
+                repeat: ui.get_form_repeat().to_string(),
             };
+            let is_new = ui.get_form_is_new();
+            let form_id = ui.get_form_id().to_string();
+            let current_note_id = ui.get_current_id().to_string();
             let mut s = state.borrow_mut();
             ui_trace::ui_event(
                 "callback.save_todo",
                 &ui,
                 &s,
                 serde_json::json!({
-                    "is_new": ui.get_form_is_new(),
-                    "todo_id": ui.get_form_id().to_string(),
-                    "kind": fields.kind,
-                    "status": fields.status,
-                    "text_len": fields.text.len(),
-                    "person": fields.person,
-                    "project": fields.project,
-                    "due": fields.due,
-                    "priority": fields.priority,
+                    "is_new": is_new,
+                    "todo_id": form_id,
+                    "kind": fields.kind.clone(),
+                    "status": fields.status.clone(),
+                    "text_len": fields.text.trim().len(),
+                    "person": fields.person.clone(),
+                    "project": fields.project.clone(),
+                    "due": fields.due.clone(),
+                    "priority": fields.priority.clone(),
                 }),
             );
-            let result = if ui.get_form_is_new() {
-                let note_id = ui.get_current_id().to_string();
-                noet_app::add_task(&mut s.backend, &note_id, &fields).map(|_| ())
+            let mode = if is_new {
+                noet_app::TaskFormMode::New {
+                    note_id: current_note_id.clone(),
+                }
             } else {
-                noet_app::update_task(&mut s.backend, &ui.get_form_id().to_string(), &fields)
+                noet_app::TaskFormMode::Existing { task_id: form_id }
             };
-            match result {
-                Ok(()) => ui.set_status_text("Todo saved".into()),
-                Err(e) => ui.set_status_text(format!("Error: {e}").into()),
-            }
-            ui.set_form_visible(false);
-            let current = ui.get_current_id().to_string();
-            if !current.is_empty() {
-                open_in_editor(&ui, &s.backend, &current);
+            match noet_app::save_task_form(&mut s.backend, mode, fields) {
+                Ok(report) => {
+                    ui.set_status_text(report.status_message.into());
+                    ui.set_form_visible(false);
+                    if let Some(note_id) = report.refresh_note_id.as_deref() {
+                        open_in_editor(&ui, &s.backend, note_id);
+                    }
+                }
+                Err(error) => {
+                    ui.set_status_text(if error == "Task needs text" {
+                        error.into()
+                    } else {
+                        format!("Error: {error}").into()
+                    });
+                }
             }
             refresh(&ui, &s);
         });

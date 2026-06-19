@@ -24,6 +24,19 @@ pub struct FollowupActionReport {
     pub carried_task_id: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TaskFormMode {
+    New { note_id: String },
+    Existing { task_id: String },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SaveTaskFormReport {
+    pub task_id: Option<String>,
+    pub status_message: String,
+    pub refresh_note_id: Option<String>,
+}
+
 pub fn apply_followup_action(
     backend: &mut Backend,
     task_id: &str,
@@ -64,6 +77,66 @@ pub fn apply_followup_action(
             })
         }
     }
+}
+
+pub fn save_task_form(
+    backend: &mut Backend,
+    mode: TaskFormMode,
+    fields: TodoFields,
+) -> Result<SaveTaskFormReport, String> {
+    let fields = normalize_task_fields(fields)?;
+    match mode {
+        TaskFormMode::New { note_id } => {
+            let note_id = note_id.trim();
+            if note_id.is_empty() {
+                return Err("Open a note before adding a task.".into());
+            }
+            let task_id = add_task(backend, note_id, &fields)?;
+            Ok(SaveTaskFormReport {
+                task_id: Some(task_id),
+                status_message: "Todo saved".into(),
+                refresh_note_id: Some(note_id.into()),
+            })
+        }
+        TaskFormMode::Existing { task_id } => {
+            let task_id = task_id.trim();
+            if task_id.is_empty() {
+                return Err("Select a task before saving.".into());
+            }
+            update_task(backend, task_id, &fields)?;
+            let refresh_note_id = task_id
+                .rsplit_once(':')
+                .map(|(note_id, _)| note_id)
+                .filter(|note_id| !note_id.is_empty())
+                .map(str::to_string);
+            Ok(SaveTaskFormReport {
+                task_id: Some(task_id.into()),
+                status_message: "Todo saved".into(),
+                refresh_note_id,
+            })
+        }
+    }
+}
+
+fn normalize_task_fields(fields: TodoFields) -> Result<TodoFields, String> {
+    let text = fields.text.trim().to_string();
+    if text.is_empty() {
+        return Err("Task needs text".into());
+    }
+    let kind = fields.kind.trim();
+    let status = fields.status.trim();
+    Ok(TodoFields {
+        kind: if kind.is_empty() { "do" } else { kind }.into(),
+        status: if status.is_empty() { "todo" } else { status }.into(),
+        text,
+        person: fields.person.trim().into(),
+        project: fields.project.trim().into(),
+        start: fields.start.trim().into(),
+        due: fields.due.trim().into(),
+        external: fields.external.trim().into(),
+        priority: fields.priority.trim().into(),
+        repeat: fields.repeat.trim().into(),
+    })
 }
 
 pub fn resolve_task(backend: &mut Backend, task_id: &str) -> Result<(), String> {
@@ -331,6 +404,76 @@ mod tests {
         assert_eq!(task.text, "Draft final launch note");
         assert_eq!(task.kind, "followup");
         assert_eq!(task.due, "2026-06-17");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn task_form_save_normalizes_fields_and_routes_writeback() {
+        let (mut backend, dir) = backend_with_note("# Note\n\n");
+        let note = backend.query_notes(&Filter::default()).unwrap()[0].clone();
+
+        let created = save_task_form(
+            &mut backend,
+            TaskFormMode::New {
+                note_id: note.id.clone(),
+            },
+            TodoFields {
+                text: "  created through dialog  ".into(),
+                kind: "  ".into(),
+                status: "".into(),
+                person: " Casey ".into(),
+                project: " Ops ".into(),
+                due: " 2026-07-10 ".into(),
+                priority: " B ".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(created.status_message, "Todo saved");
+        assert_eq!(created.refresh_note_id.as_deref(), Some(note.id.as_str()));
+        let task_id = created.task_id.unwrap();
+        let task = backend.get_todo(&task_id).unwrap();
+        assert_eq!(task.text, "created through dialog");
+        assert_eq!(task.kind, "do");
+        assert_eq!(task.status, "todo");
+        assert_eq!(task.person, "Casey");
+        assert_eq!(task.project, "workstream/Ops");
+        assert_eq!(task.due, "2026-07-10");
+        assert_eq!(task.priority, "B");
+
+        let updated = save_task_form(
+            &mut backend,
+            TaskFormMode::Existing {
+                task_id: task_id.clone(),
+            },
+            TodoFields {
+                text: "  updated task  ".into(),
+                kind: " followup ".into(),
+                status: " doing ".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(updated.status_message, "Todo saved");
+        assert_eq!(updated.refresh_note_id.as_deref(), Some(note.id.as_str()));
+        let task = backend.get_todo(&task_id).unwrap();
+        assert_eq!(task.text, "updated task");
+        assert_eq!(task.kind, "followup");
+        assert_eq!(task.status, "doing");
+
+        let err = save_task_form(
+            &mut backend,
+            TaskFormMode::New {
+                note_id: note.id.clone(),
+            },
+            TodoFields {
+                text: "   ".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err, "Task needs text");
         std::fs::remove_dir_all(dir).ok();
     }
 
