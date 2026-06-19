@@ -113,6 +113,15 @@ pub struct QuickCaptureWorkflowReport {
     pub status_message: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RelatedNoteWorkflowReport {
+    pub source_note_id: String,
+    pub note_id: String,
+    pub view: String,
+    pub status_message: String,
+    pub open_in_edit_mode: bool,
+}
+
 pub fn create_note(backend: &mut Backend) -> Result<Note, String> {
     backend.new_note().map_err(|err| err.to_string())
 }
@@ -289,6 +298,25 @@ pub fn create_related_note(backend: &mut Backend, source_note_id: &str) -> Resul
     backend
         .new_related_note(source_note_id)
         .map_err(|err| err.to_string())
+}
+
+pub fn create_related_note_workflow(
+    backend: &mut Backend,
+    source_note_id: &str,
+) -> Result<Option<RelatedNoteWorkflowReport>, String> {
+    let source_note_id = source_note_id.trim();
+    if source_note_id.is_empty() {
+        return Ok(None);
+    }
+
+    let note = create_related_note(backend, source_note_id)?;
+    Ok(Some(RelatedNoteWorkflowReport {
+        source_note_id: source_note_id.into(),
+        note_id: note.id,
+        view: "notes".into(),
+        status_message: "New related note".into(),
+        open_in_edit_mode: true,
+    }))
 }
 
 pub fn add_tag_to_note(backend: &mut Backend, note_id: &str, tag: &str) -> Result<(), String> {
@@ -602,6 +630,34 @@ mod tests {
         let (mut backend, dir) = backend();
 
         assert!(quick_capture_note(&mut backend, " ").unwrap().is_none());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn related_note_workflow_reports_new_note_and_preserves_backlink() {
+        let (mut backend, dir) = backend();
+        let source = create_note_from_body(&mut backend, "Source", "# Source\n\n").unwrap();
+
+        let report = create_related_note_workflow(&mut backend, &source.id)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(report.source_note_id, source.id);
+        assert_eq!(report.view, "notes");
+        assert_eq!(report.status_message, "New related note");
+        assert!(report.open_in_edit_mode);
+        let related = backend.load_note(&report.note_id).unwrap();
+        assert!(related.body.contains("[[Source]]"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn related_note_workflow_noops_without_source_note() {
+        let (mut backend, dir) = backend();
+
+        assert!(create_related_note_workflow(&mut backend, " ")
+            .unwrap()
+            .is_none());
         std::fs::remove_dir_all(dir).ok();
     }
 

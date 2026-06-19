@@ -3781,11 +3781,17 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 &s,
                 serde_json::json!({ "source_note_id": src.clone(), "accepted": true }),
             );
-            if let Ok(n) = noet_app::create_related_note(&mut s.backend, &src) {
-                open_in_editor(&ui, &s.backend, &n.id);
-                ui.set_editing(true);
-                ui.set_view("notes".into());
-                ui.set_status_text("New related note".into());
+            match noet_app::create_related_note_workflow(&mut s.backend, &src) {
+                Ok(Some(report)) => {
+                    open_in_editor(&ui, &s.backend, &report.note_id);
+                    ui.set_editing(report.open_in_edit_mode);
+                    ui.set_view(report.view.into());
+                    ui.set_status_text(report.status_message.into());
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    ui.set_status_text(format!("Error: {err}").into());
+                }
             }
             refresh(&ui, &s);
         });
