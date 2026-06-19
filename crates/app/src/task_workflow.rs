@@ -10,6 +10,62 @@ pub struct CarryTaskReport {
     pub carried_task_id: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FollowupAction {
+    Resolve,
+    CarryToCurrentNote { target_note_id: String },
+    DeferToSomeday,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FollowupActionReport {
+    pub status_message: String,
+    pub refresh_note_id: Option<String>,
+    pub carried_task_id: Option<String>,
+}
+
+pub fn apply_followup_action(
+    backend: &mut Backend,
+    task_id: &str,
+    action: FollowupAction,
+    current_note_id: Option<&str>,
+) -> Result<FollowupActionReport, String> {
+    let current_note_id = current_note_id
+        .map(str::trim)
+        .filter(|note_id| !note_id.is_empty())
+        .map(str::to_string);
+    match action {
+        FollowupAction::Resolve => {
+            resolve_task(backend, task_id)?;
+            Ok(FollowupActionReport {
+                status_message: "Follow-up resolved".into(),
+                refresh_note_id: current_note_id,
+                carried_task_id: None,
+            })
+        }
+        FollowupAction::CarryToCurrentNote { target_note_id } => {
+            let target_note_id = target_note_id.trim();
+            if target_note_id.is_empty() {
+                return Err("Open a 1:1 note first.".into());
+            }
+            let carried = carry_task_to_note(backend, task_id, target_note_id)?;
+            Ok(FollowupActionReport {
+                status_message: "Follow-up carried into the current 1:1".into(),
+                refresh_note_id: Some(target_note_id.into()),
+                carried_task_id: Some(carried.carried_task_id),
+            })
+        }
+        FollowupAction::DeferToSomeday => {
+            defer_task_to_someday(backend, task_id)?;
+            Ok(FollowupActionReport {
+                status_message: "Follow-up deferred to someday".into(),
+                refresh_note_id: current_note_id,
+                carried_task_id: None,
+            })
+        }
+    }
+}
+
 pub fn resolve_task(backend: &mut Backend, task_id: &str) -> Result<(), String> {
     backend
         .set_todo_status(task_id, "done")
@@ -106,7 +162,10 @@ mod tests {
     use super::*;
     use noet_core::{Backend, Filter};
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    static TEST_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     #[test]
     fn promote_task_routes_through_core_writeback_and_returns_note_id() {
@@ -156,6 +215,83 @@ mod tests {
     }
 
     #[test]
+    fn followup_action_workflow_reports_refresh_and_status() {
+        let (mut backend, dir) =
+            backend_with_note("# Prior\n\n- [ ] review budget @[[Jane]] #followup\n");
+        let current = backend.new_note().unwrap();
+        let task = backend.query_todos(&Filter::default()).unwrap()[0].clone();
+
+        let carried = apply_followup_action(
+            &mut backend,
+            &task.id,
+            FollowupAction::CarryToCurrentNote {
+                target_note_id: current.id.clone(),
+            },
+            Some(&current.id),
+        )
+        .unwrap();
+        assert_eq!(
+            carried.status_message,
+            "Follow-up carried into the current 1:1"
+        );
+        assert_eq!(
+            carried.refresh_note_id.as_deref(),
+            Some(current.id.as_str())
+        );
+        let carried_task_id = carried.carried_task_id.unwrap();
+        assert_eq!(backend.get_todo(&task.id).unwrap().status, "done");
+        assert_eq!(
+            backend.get_todo(&carried_task_id).unwrap().note_id,
+            current.id
+        );
+
+        let resolved = apply_followup_action(
+            &mut backend,
+            &task.id,
+            FollowupAction::Resolve,
+            Some(&current.id),
+        )
+        .unwrap();
+        assert_eq!(resolved.status_message, "Follow-up resolved");
+        assert_eq!(
+            resolved.refresh_note_id.as_deref(),
+            Some(current.id.as_str())
+        );
+
+        let deferred = apply_followup_action(
+            &mut backend,
+            &carried_task_id,
+            FollowupAction::DeferToSomeday,
+            Some(&current.id),
+        )
+        .unwrap();
+        assert_eq!(deferred.status_message, "Follow-up deferred to someday");
+        assert_eq!(backend.get_todo(&carried_task_id).unwrap().kind, "someday");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn carry_followup_action_requires_current_note() {
+        let (mut backend, dir) =
+            backend_with_note("# Prior\n\n- [ ] review budget @[[Jane]] #followup\n");
+        let task = backend.query_todos(&Filter::default()).unwrap()[0].clone();
+
+        let err = apply_followup_action(
+            &mut backend,
+            &task.id,
+            FollowupAction::CarryToCurrentNote {
+                target_note_id: String::new(),
+            },
+            None,
+        )
+        .unwrap_err();
+
+        assert_eq!(err, "Open a 1:1 note first.");
+        assert_eq!(backend.get_todo(&task.id).unwrap().status, "todo");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
     fn task_form_and_board_workflows_route_through_core_writeback() {
         let (mut backend, dir) = backend_with_note("# Note\n\n");
         let note = backend.query_notes(&Filter::default()).unwrap()[0].clone();
@@ -200,12 +336,13 @@ mod tests {
 
     fn backend_with_note(body: &str) -> (Backend, PathBuf) {
         let dir = std::env::temp_dir().join(format!(
-            "noet-task-workflow-test-{}-{}",
+            "noet-task-workflow-test-{}-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map(|duration| duration.as_nanos())
-                .unwrap_or_default()
+                .unwrap_or_default(),
+            TEST_DIR_COUNTER.fetch_add(1, Ordering::Relaxed)
         ));
         let notes = dir.join("notes");
         std::fs::create_dir_all(&notes).unwrap();

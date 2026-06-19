@@ -1143,6 +1143,54 @@ fn refresh_after_task_writeback<F>(
     refresh(ui, state);
 }
 
+fn apply_followup_action(
+    ui: &AppWindow,
+    state: &mut State,
+    todo_id: &str,
+    action: noet_app::FollowupAction,
+) {
+    let current_note_id = ui.get_current_id().to_string();
+    match noet_app::apply_followup_action(
+        &mut state.backend,
+        todo_id,
+        action,
+        Some(&current_note_id),
+    ) {
+        Ok(report) => {
+            if let Some(note_id) = report.refresh_note_id.as_deref() {
+                open_in_editor(ui, &state.backend, note_id);
+            }
+            ui.set_status_text(report.status_message.clone().into());
+            ui_trace::ui_event(
+                "followup_action",
+                ui,
+                state,
+                serde_json::json!({
+                    "todo_id": todo_id,
+                    "accepted": true,
+                    "message": report.status_message,
+                    "refresh_note_id": report.refresh_note_id,
+                    "carried_task_id": report.carried_task_id,
+                }),
+            );
+        }
+        Err(error) => {
+            ui.set_status_text(format!("Error: {error}").into());
+            ui_trace::ui_event(
+                "followup_action",
+                ui,
+                state,
+                serde_json::json!({
+                    "todo_id": todo_id,
+                    "accepted": false,
+                    "message": error,
+                }),
+            );
+        }
+    }
+    refresh(ui, state);
+}
+
 fn ai_apply_status(report: &noet_app::AiApplyReport) -> String {
     let mut parts = Vec::new();
     if report.labels_added > 0 {
@@ -1861,17 +1909,7 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_resolve_followup(move |todo_id: SharedString| {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
-            match noet_app::resolve_task(&mut s.backend, &todo_id) {
-                Ok(()) => {
-                    let current = ui.get_current_id().to_string();
-                    if !current.is_empty() {
-                        open_in_editor(&ui, &s.backend, &current);
-                    }
-                    ui.set_status_text("Follow-up resolved".into());
-                }
-                Err(e) => ui.set_status_text(format!("Error: {e}").into()),
-            }
-            refresh(&ui, &s);
+            apply_followup_action(&ui, &mut s, &todo_id, noet_app::FollowupAction::Resolve);
         });
     }
     {
@@ -1881,18 +1919,14 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
             let target = ui.get_current_id().to_string();
-            if target.is_empty() {
-                ui.set_status_text("Open a 1:1 note first.".into());
-                return;
-            }
-            match noet_app::carry_task_to_note(&mut s.backend, &todo_id, &target) {
-                Ok(_) => {
-                    open_in_editor(&ui, &s.backend, &target);
-                    ui.set_status_text("Follow-up carried into the current 1:1".into());
-                }
-                Err(e) => ui.set_status_text(format!("Error: {e}").into()),
-            }
-            refresh(&ui, &s);
+            apply_followup_action(
+                &ui,
+                &mut s,
+                &todo_id,
+                noet_app::FollowupAction::CarryToCurrentNote {
+                    target_note_id: target,
+                },
+            );
         });
     }
     {
@@ -1901,17 +1935,12 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_defer_followup(move |todo_id: SharedString| {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
-            match noet_app::defer_task_to_someday(&mut s.backend, &todo_id) {
-                Ok(()) => {
-                    let current = ui.get_current_id().to_string();
-                    if !current.is_empty() {
-                        open_in_editor(&ui, &s.backend, &current);
-                    }
-                    ui.set_status_text("Follow-up deferred to someday".into());
-                }
-                Err(e) => ui.set_status_text(format!("Error: {e}").into()),
-            }
-            refresh(&ui, &s);
+            apply_followup_action(
+                &ui,
+                &mut s,
+                &todo_id,
+                noet_app::FollowupAction::DeferToSomeday,
+            );
         });
     }
 
