@@ -3570,22 +3570,24 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 return;
             }
             let mut s = state.borrow_mut();
-            let _ = noet_app::delete_note(&mut s.backend, &id);
-            match s
-                .backend
-                .query_notes(&Filter::default())
-                .ok()
-                .and_then(|v| v.into_iter().next())
-            {
-                Some(first) => open_in_editor(&ui, &s.backend, &first.id),
-                None => {
-                    ui.set_current_id("".into());
-                    ui.set_current_title("".into());
-                    ui.set_current_body("".into());
+            match noet_app::delete_note_and_select_replacement(&mut s.backend, &id) {
+                Ok(Some(report)) => {
+                    match report.replacement_note_id {
+                        Some(replacement_id) => open_in_editor(&ui, &s.backend, &replacement_id),
+                        None => {
+                            ui.set_current_id("".into());
+                            ui.set_current_title("".into());
+                            ui.set_current_body("".into());
+                        }
+                    }
+                    ui.set_editing(report.open_in_edit_mode);
+                    ui.set_status_text(report.status_message.into());
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    ui.set_status_text(format!("Error: {err}").into());
                 }
             }
-            ui.set_editing(false);
-            ui.set_status_text("Moved to trash".into());
             refresh(&ui, &s);
         });
     }
@@ -3600,32 +3602,37 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 return;
             }
             let mut s = state.borrow_mut();
-            let _ = noet_app::delete_note(&mut s.backend, &id);
-            RECENTS.with(|r| r.borrow_mut().retain(|x| *x != id));
-            s.pinned.retain(|x| *x != id);
-            persist_pins(&s);
-            if ui.get_current_id() == SharedString::from(id.as_str()) {
-                match s
-                    .backend
-                    .query_notes(&Filter::default())
-                    .ok()
-                    .and_then(|v| v.into_iter().next())
-                {
-                    Some(first) => open_in_editor(&ui, &s.backend, &first.id),
-                    None => {
-                        ui.set_current_id("".into());
-                        ui.set_current_title("".into());
-                        ui.set_current_body("".into());
+            match noet_app::delete_note_and_select_replacement(&mut s.backend, &id) {
+                Ok(Some(report)) => {
+                    RECENTS.with(|r| r.borrow_mut().retain(|x| *x != report.deleted_note_id));
+                    s.pinned.retain(|x| *x != report.deleted_note_id);
+                    persist_pins(&s);
+                    if ui.get_current_id() == SharedString::from(report.deleted_note_id.as_str()) {
+                        match report.replacement_note_id {
+                            Some(replacement_id) => {
+                                open_in_editor(&ui, &s.backend, &replacement_id)
+                            }
+                            None => {
+                                ui.set_current_id("".into());
+                                ui.set_current_title("".into());
+                                ui.set_current_body("".into());
+                            }
+                        }
+                        ui.set_editing(report.open_in_edit_mode);
                     }
+                    if ui.get_split_note_id() == SharedString::from(report.deleted_note_id.as_str())
+                    {
+                        ui.set_split_note_id("".into());
+                        ui.set_split_highlight_line(-1);
+                        ui.set_split_scroll_y(0.0);
+                    }
+                    ui.set_status_text(report.status_message.into());
                 }
-                ui.set_editing(false);
+                Ok(None) => {}
+                Err(err) => {
+                    ui.set_status_text(format!("Error: {err}").into());
+                }
             }
-            if ui.get_split_note_id() == SharedString::from(id.as_str()) {
-                ui.set_split_note_id("".into());
-                ui.set_split_highlight_line(-1);
-                ui.set_split_scroll_y(0.0);
-            }
-            ui.set_status_text("Moved to trash".into());
             refresh(&ui, &s);
         });
     }

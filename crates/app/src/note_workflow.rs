@@ -1,5 +1,5 @@
 use crate::command::AppCommand;
-use noet_core::{Backend, Note};
+use noet_core::{Backend, Filter, Note};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NewNoteWorkflowReport {
@@ -41,6 +41,14 @@ pub struct AttachPathWorkflowReport {
     pub path: String,
     pub status_message: String,
     pub refresh_note: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DeleteNoteWorkflowReport {
+    pub deleted_note_id: String,
+    pub replacement_note_id: Option<String>,
+    pub status_message: String,
+    pub open_in_edit_mode: bool,
 }
 
 pub fn create_note(backend: &mut Backend) -> Result<Note, String> {
@@ -220,6 +228,31 @@ pub fn attach_path_to_current_note(
 
 pub fn delete_note(backend: &mut Backend, note_id: &str) -> Result<(), String> {
     backend.delete_note(note_id).map_err(|err| err.to_string())
+}
+
+pub fn delete_note_and_select_replacement(
+    backend: &mut Backend,
+    note_id: &str,
+) -> Result<Option<DeleteNoteWorkflowReport>, String> {
+    let note_id = note_id.trim();
+    if note_id.is_empty() {
+        return Ok(None);
+    }
+
+    delete_note(backend, note_id)?;
+    let replacement_note_id = backend
+        .query_notes(&Filter::default())
+        .map_err(|err| err.to_string())?
+        .into_iter()
+        .next()
+        .map(|note| note.id);
+
+    Ok(Some(DeleteNoteWorkflowReport {
+        deleted_note_id: note_id.into(),
+        replacement_note_id,
+        status_message: "Moved to trash".into(),
+        open_in_edit_mode: false,
+    }))
 }
 
 pub fn restore_note(backend: &mut Backend, filename: &str) -> Result<(), String> {
@@ -476,6 +509,53 @@ mod tests {
                 .is_none()
         );
         assert!(attach_path_to_current_note(&mut backend, "note-id", " ")
+            .unwrap()
+            .is_none());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn delete_note_workflow_returns_replacement_note() {
+        let (mut backend, dir) = backend();
+        let deleted = create_note_from_body(&mut backend, "Delete", "# Delete\n\n").unwrap();
+        let survivor = create_note_from_body(&mut backend, "Keep", "# Keep\n\n").unwrap();
+
+        let report = delete_note_and_select_replacement(&mut backend, &deleted.id)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(report.deleted_note_id, deleted.id);
+        assert_eq!(report.replacement_note_id, Some(survivor.id.clone()));
+        assert_eq!(report.status_message, "Moved to trash");
+        assert!(!report.open_in_edit_mode);
+        assert!(!backend
+            .query_notes(&Filter::default())
+            .unwrap()
+            .iter()
+            .any(|note| note.id == deleted.id));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn delete_note_workflow_clears_when_no_replacement_exists() {
+        let (mut backend, dir) = backend();
+        let deleted = create_note_from_body(&mut backend, "Delete", "# Delete\n\n").unwrap();
+
+        let report = delete_note_and_select_replacement(&mut backend, &deleted.id)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(report.deleted_note_id, deleted.id);
+        assert_eq!(report.replacement_note_id, None);
+        assert!(!report.open_in_edit_mode);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn delete_note_workflow_noops_without_note_id() {
+        let (mut backend, dir) = backend();
+
+        assert!(delete_note_and_select_replacement(&mut backend, " ")
             .unwrap()
             .is_none());
         std::fs::remove_dir_all(dir).ok();
