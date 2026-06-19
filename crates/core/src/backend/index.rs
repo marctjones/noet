@@ -265,6 +265,7 @@ impl Backend {
             index_dir,
             conn,
             fts,
+            revision_context: Default::default(),
         })
     }
 

@@ -119,6 +119,17 @@ export struct AiJobUi {
     failure: string,
 }
 
+export struct RevisionUi {
+    id: string,
+    created: string,
+    actor: string,
+    operation: string,
+    title: string,
+    summary: string,
+    proposal: string,
+    model: string,
+}
+
 export struct SemanticMatchUi {
     id: string,
     title: string,
@@ -1480,6 +1491,8 @@ export component AppWindow inherits Window {
     in property <[NoteRef]> current-backlinks;
     in property <[RelatedRef]> current-related; // prior notes to link this one to
     in property <[RelatedRef]> current-sources; // explicit source:[[note#^anchor]] links
+    in property <[RevisionUi]> current-revisions;
+    in-out property <string> current-revision-diff;
     callback link-related(string);             // insert [[title]] into the editor
     in property <[TodoItem]> today-stale;
     in property <[NoteItem]> today-recent;
@@ -1648,6 +1661,8 @@ export component AppWindow inherits Window {
     callback ai-inspect-proposal(string);
     callback ai-inspect-proposal-source(string, int);
     callback ai-cancel();
+    callback open-revision(string);
+    callback restore-revision-before(string);
     // Plaintext/source mode: show the raw markdown in a TextEdit instead of the
     // WYSIWYG sred surface.
     in-out property <bool> source-mode: false;
@@ -2709,6 +2724,50 @@ export component AppWindow inherits Window {
                                                                 Chip { text: r.via; tint: #fdeede; ink: #9a5b1b; }
                                                             }
                                                             srcrow := TouchArea { clicked => { root.workspace-switch("notes"); root.select-note(r.id); } }
+                                                        }
+                                                    }
+                                                    PaneSection {
+                                                        title: "History";
+                                                        detail: root.current-revisions.length + " changes";
+                                                        accent: #5b6f8f;
+                                                        if root.current-revisions.length == 0: EmptyState { glyph: "[]"; title: "No revisions"; hint: "Saves and accepted AI proposals appear here."; }
+                                                        for r in root.current-revisions: Rectangle {
+                                                            min-height: 46px;
+                                                            border-radius: 5px;
+                                                            background: revrow.has-hover ? Theme.surface3 : transparent;
+                                                            accessible-role: button;
+                                                            accessible-label: "Show revision diff " + r.summary;
+                                                            accessible-description: r.created;
+                                                            accessible-action-default => { root.open-revision(r.id); }
+                                                            HorizontalLayout {
+                                                                padding: 6px; spacing: 6px;
+                                                                VerticalLayout {
+                                                                    spacing: 2px;
+                                                                    horizontal-stretch: 1;
+                                                                    Text { text: r.summary; font-size: (12px * Z.f); font-weight: 650; color: Theme.text; overflow: elide; }
+                                                                    Text { text: r.created + (r.proposal != "" ? " · " + r.proposal : ""); font-size: (10px * Z.f); color: Theme.text3; overflow: elide; }
+                                                                }
+                                                                MiniBtn { icon: Icons.eye; a11y: "Show revision diff " + r.summary; clicked => { root.open-revision(r.id); } }
+                                                                MiniBtn { icon: Icons.unarchive; a11y: "Restore before revision " + r.summary; clicked => { root.restore-revision-before(r.id); } }
+                                                            }
+                                                            revrow := TouchArea { clicked => { root.open-revision(r.id); } }
+                                                        }
+                                                        if root.current-revision-diff != "": Rectangle {
+                                                            min-height: 80px;
+                                                            max-height: 170px;
+                                                            border-radius: 5px;
+                                                            border-width: 1px;
+                                                            border-color: Theme.border;
+                                                            background: Theme.surface;
+                                                            clip: true;
+                                                            ScrollView {
+                                                                Text {
+                                                                    text: root.current-revision-diff;
+                                                                    font-size: (10px * Z.f);
+                                                                    color: Theme.text2;
+                                                                    wrap: word-wrap;
+                                                                }
+                                                            }
                                                         }
                                                     }
                                                     PaneSection {

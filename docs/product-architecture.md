@@ -722,6 +722,7 @@ Owns the durable product engine:
 - SQLite indexing
 - read queries
 - Markdown write-back mutations
+- durable revision journal
 - workflow read models
 
 ### noet-app
@@ -764,7 +765,14 @@ Owns local open-weight AI integration:
 
 The AI layer should not directly edit Markdown files. It should use `noet-core`
 queries for context and return proposals or typed tool requests that `noet-app`
-can present, validate, and apply through existing Markdown mutation paths.
+can present, validate, and apply through existing Markdown mutation paths. The
+concrete tool host lives in `noet-app`, not the GUI, and exposes note search,
+note context, task lists, related notes, note revisions, and proposal creation.
+Those mutation paths record durable note revisions in `.noet/history.sqlite`,
+including full before/after snapshots and `similar` unified diffs, so AI changes
+are auditable and reversible without making the disposable search index durable.
+The GUI surfaces recent revisions in the current-note context pane and can
+restore the pre-change snapshot of a selected revision.
 
 Hosted providers, API keys, OAuth login, and cloud fallback are outside the AI
 phase. The product source of truth for this boundary is

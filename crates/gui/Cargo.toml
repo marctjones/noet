@@ -12,7 +12,6 @@ path = "src/main.rs"
 
 [dependencies]
 noet-app = { path = "../app" }
-noet-ai = { path = "../ai", features = ["mistralrs-inline"] }
 noet-core = { path = "../core" }
 # WYSIWYG editor engine (UI-free; Slint-version-independent). Pinned to a public
 # tag so CI release builds resolve it without a sibling checkout. This is Noet's
@@ -43,7 +42,8 @@ default = []
 # source span). Heavy build cost; opt-in. See compose_fragments in main.rs.
 typst-math = ["dep:sred-typst"]
 # Compatibility alias: the GUI always embeds mistral.rs through noet-ai. Keeping
-# this feature name avoids breaking older local commands.
+# this feature name avoids breaking older local commands. macOS enables Metal by
+# default through the target-specific noet-ai dependency below.
 mistralrs-inline = []
 mistralrs-inline-metal = ["noet-ai/mistralrs-inline-metal"]
 
@@ -54,6 +54,15 @@ slint-build = "1.13"
 # Headless Slint backend for automated GUI tests (ElementHandle, simulated input,
 # mocked time). Tracks the slint version.
 i-slint-backend-testing = "1.13"
+
+# The app's default local-AI runtime is embedded mistral.rs everywhere. On macOS,
+# the default build also enables Metal/Accelerate so plain `cargo run -p
+# noet-gui` uses the Apple GPU path without requiring an explicit feature flag.
+[target.'cfg(target_os = "macos")'.dependencies]
+noet-ai = { path = "../ai", features = ["mistralrs-inline-metal"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+noet-ai = { path = "../ai", features = ["mistralrs-inline"] }
 
 # Tray + global hotkey + launch-on-startup. Windows and macOS only: both have a
 # main-thread event loop Slint already runs, so the channel-poll integration works

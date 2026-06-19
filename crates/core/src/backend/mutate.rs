@@ -29,10 +29,7 @@ impl Backend {
             path: self.vault.join("notes").join(format!("{id}.md")),
         };
         note.title = markdown_title(&note.body);
-        write_note(&note)?;
-        let tx = self.conn.transaction()?;
-        Self::index_note(&tx, &note, self.fts)?;
-        tx.commit()?;
+        self.persist_with_history(&note, "create_note")?;
         Ok(note)
     }
 
@@ -79,7 +76,7 @@ impl Backend {
             body,
             path: self.vault.join("notes").join(format!("{id}.md")),
         };
-        self.persist(&note)?;
+        self.persist_with_history(&note, "create_related_note")?;
         Ok(note)
     }
 
@@ -91,10 +88,7 @@ impl Backend {
         if note.created.is_empty() {
             note.created = note.updated.clone();
         }
-        write_note(&note)?;
-        let tx = self.conn.transaction()?;
-        Self::index_note(&tx, &note, self.fts)?;
-        tx.commit()?;
+        self.persist_with_history(&note, "save_note")?;
         Ok(())
     }
 
@@ -116,10 +110,7 @@ impl Backend {
                 note.body.push('\n');
             }
         }
-        write_note(&note)?;
-        let tx = self.conn.transaction()?;
-        Self::index_note(&tx, &note, self.fts)?;
-        tx.commit()?;
+        self.persist_with_history(&note, "rewrite_todo_line")?;
         Ok(())
     }
 
@@ -159,7 +150,7 @@ impl Backend {
         let line_no = note.body.lines().count();
         note.body.push_str(&format_todo_line(fields));
         note.body.push('\n');
-        self.persist(&note)?;
+        self.persist_with_history(&note, "add_todo")?;
         Ok(format!("{note_id}:{line_no}"))
     }
 
@@ -231,7 +222,7 @@ impl Backend {
             body,
             path: self.vault.join("notes").join(format!("{id}.md")),
         };
-        self.persist(&note)?;
+        self.persist_with_history(&note, "promote_todo_to_note")?;
 
         let mut source_fields = TodoFields::from_todo(&todo);
         source_fields.text = format!("[[{}]]", note.title);
@@ -277,7 +268,7 @@ impl Backend {
             note.body.push('\n');
         }
         note.body.push_str(&format!("[📎 {name}]({path})\n"));
-        self.persist(&note)
+        self.persist_with_history(&note, "attach_path")
     }
 
     // ---- Saved smart lists (named filters) ----
@@ -356,7 +347,7 @@ impl Backend {
             body: body.to_string(),
             path: self.vault.join("notes").join(format!("{id}.md")),
         };
-        self.persist(&note)?;
+        self.persist_with_history(&note, "create_note_from_template")?;
         Ok(note)
     }
 
@@ -367,6 +358,9 @@ impl Backend {
         std::fs::create_dir_all(&trash)?;
         let dest = trash.join(note.path.file_name().unwrap());
         std::fs::rename(&note.path, &dest)?;
+        let mut after = note.clone();
+        after.path = dest;
+        self.record_note_revision(Some(&note), Some(&after), "delete_note")?;
         self.reindex_all()
     }
 
@@ -393,7 +387,13 @@ impl Backend {
         let src = self.vault.join(".trash").join(filename);
         let dest = self.vault.join("notes").join(filename);
         if src.exists() {
+            let before = read_note(&src).ok();
             std::fs::rename(&src, &dest)?;
+            if let Some(before) = before {
+                let mut after = before.clone();
+                after.path = dest;
+                self.record_note_revision(Some(&before), Some(&after), "restore_note")?;
+            }
             self.reindex_all()?;
         }
         Ok(())
@@ -413,6 +413,17 @@ impl Backend {
         if dest != note.path {
             std::fs::rename(&note.path, &dest)?;
         }
+        let mut after = note.clone();
+        after.path = dest;
+        self.record_note_revision(
+            Some(&note),
+            Some(&after),
+            if archive {
+                "archive_note"
+            } else {
+                "unarchive_note"
+            },
+        )?;
         self.reindex_all()
     }
 
@@ -421,7 +432,7 @@ impl Backend {
         let mut note = self.load_note(note_id)?;
         note.kind = kind.to_string();
         note.updated = Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string();
-        self.persist(&note)
+        self.persist_with_history(&note, "set_note_kind")
     }
 
     /// File a note into a workstream by appending a `#workstream/...` label.
@@ -447,7 +458,7 @@ impl Backend {
             note.body.push('\n');
         }
         note.body.push_str(&format!("#{topic}\n"));
-        self.persist(&note)
+        self.persist_with_history(&note, "file_note_workstream")
     }
 
     /// Append a `#tag` label to a note (no-op if already present).
@@ -467,7 +478,7 @@ impl Backend {
             note.body.push('\n');
         }
         note.body.push_str(&format!("#{tag}\n"));
-        self.persist(&note)
+        self.persist_with_history(&note, "add_tag")
     }
 
     /// Replace a todo's line wholesale from form fields.
@@ -500,7 +511,12 @@ impl Backend {
     }
 
     /// Write a note to disk and reindex it in one shot.
-    fn persist(&mut self, note: &Note) -> Result<()> {
+    fn persist_with_history(&mut self, note: &Note, operation: &str) -> Result<()> {
+        let before = note
+            .path
+            .exists()
+            .then(|| read_note(&note.path).ok())
+            .flatten();
         let mut note = note.clone();
         note.title = markdown_title(&note.body);
         write_note(&note)?;
@@ -508,6 +524,7 @@ impl Backend {
         let tx = self.conn.transaction()?;
         Self::index_note(&tx, &note, fts)?;
         tx.commit()?;
+        self.record_note_revision(before.as_ref(), Some(&note), operation)?;
         Ok(())
     }
 

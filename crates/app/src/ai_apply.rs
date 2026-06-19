@@ -1,6 +1,6 @@
 use crate::{defer_task_to_someday, promote_task_to_note, reopen_task, resolve_task};
 use noet_ai::{AiProposal, LabelSuggestions, ProposalPayload, ProposedTaskState, TaskExtractions};
-use noet_core::{Backend, TodoFields};
+use noet_core::{Backend, RevisionContext, TodoFields};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AiApplyReport {
@@ -11,6 +11,30 @@ pub struct AiApplyReport {
 }
 
 pub fn apply_ai_proposal(
+    backend: &mut Backend,
+    proposal: &AiProposal,
+) -> Result<AiApplyReport, String> {
+    apply_ai_proposal_with_metadata(backend, proposal, None, None)
+}
+
+pub fn apply_ai_proposal_with_metadata(
+    backend: &mut Backend,
+    proposal: &AiProposal,
+    proposal_id: Option<String>,
+    model_id: Option<String>,
+) -> Result<AiApplyReport, String> {
+    let context = RevisionContext::ai(
+        ai_operation_name(proposal),
+        proposal_id,
+        model_id,
+        Some(proposal.rationale.clone()),
+    );
+    backend.with_revision_context(context, |backend| {
+        apply_ai_proposal_inner(backend, proposal)
+    })
+}
+
+fn apply_ai_proposal_inner(
     backend: &mut Backend,
     proposal: &AiProposal,
 ) -> Result<AiApplyReport, String> {
@@ -44,6 +68,19 @@ pub fn apply_ai_proposal(
             })
         }
     }
+}
+
+fn ai_operation_name(proposal: &AiProposal) -> String {
+    match proposal.kind {
+        noet_ai::ProposalKind::DraftAgenda => "ai_draft_agenda",
+        noet_ai::ProposalKind::ReviewNote => "ai_review_note",
+        noet_ai::ProposalKind::AddLabels => "ai_add_labels",
+        noet_ai::ProposalKind::ExtractTasks => "ai_extract_tasks",
+        noet_ai::ProposalKind::PromoteTask => "ai_promote_task",
+        noet_ai::ProposalKind::PatchNote => "ai_patch_note",
+        noet_ai::ProposalKind::ChangeTaskState => "ai_change_task_state",
+    }
+    .into()
 }
 
 fn apply_label_suggestions(
@@ -169,6 +206,55 @@ mod tests {
         assert_eq!(report.labels_added, 1);
         let body = std::fs::read_to_string(note.path).unwrap();
         assert!(body.contains("#followup"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn accepted_ai_proposal_records_ai_revision_metadata() {
+        let (mut backend, dir) = backend_with_note("# Note\n\nraw body\n");
+        let note = backend.query_notes(&Filter::default()).unwrap()[0].clone();
+        let proposal = AiProposal {
+            kind: ProposalKind::AddLabels,
+            target: ProposalTarget::Note {
+                note_id: note.id.clone(),
+            },
+            payload: ProposalPayload::AddLabels(LabelSuggestions {
+                suggestions: vec![LabelSuggestion {
+                    label: "meeting".into(),
+                    reason: "looks like a meeting".into(),
+                    sources: vec![SourceRef::Note {
+                        note_id: note.id.clone(),
+                    }],
+                }],
+            }),
+            rationale: "AI found a missing label.".into(),
+            confidence: 0.8,
+            requires_confirmation: true,
+        };
+
+        let report = apply_ai_proposal_with_metadata(
+            &mut backend,
+            &proposal,
+            Some("ai-proposal-42".into()),
+            Some("ministral-8b-instruct-2410-gguf-q4-k-m".into()),
+        )
+        .unwrap();
+
+        assert_eq!(report.labels_added, 1);
+        let revision_id = backend.note_revisions(&note.id).unwrap()[0].id.clone();
+        let revision = backend
+            .note_revision(&revision_id)
+            .unwrap()
+            .expect("AI revision should be stored");
+        assert_eq!(revision.actor, "ai");
+        assert_eq!(revision.operation, "ai_add_labels");
+        assert_eq!(revision.proposal_id.as_deref(), Some("ai-proposal-42"));
+        assert_eq!(
+            revision.model_id.as_deref(),
+            Some("ministral-8b-instruct-2410-gguf-q4-k-m")
+        );
+        assert!(revision.rationale.unwrap().contains("missing label"));
+        assert!(revision.diff.contains("+#meeting"));
         std::fs::remove_dir_all(dir).ok();
     }
 

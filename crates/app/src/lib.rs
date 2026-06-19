@@ -9,8 +9,10 @@ pub mod ai_apply;
 pub mod ai_housekeeping;
 pub mod ai_semantic;
 pub mod ai_surface;
+pub mod ai_tools;
 pub mod ai_workflow;
 pub mod command;
+pub mod history_workflow;
 pub mod model;
 pub mod navigation;
 pub mod note_workflow;
@@ -23,7 +25,7 @@ pub use ai::{
     AiJobId, AiJobStatus, AiProgress, AiSettings, AiState, AiStatus, ProposalId, ProposalStatus,
     QueuedAiJob, QueuedProposal,
 };
-pub use ai_apply::{apply_ai_proposal, AiApplyReport};
+pub use ai_apply::{apply_ai_proposal, apply_ai_proposal_with_metadata, AiApplyReport};
 pub use ai_housekeeping::run_housekeeping_job;
 pub use ai_semantic::{
     collect_semantic_contexts, load_semantic_index, refresh_semantic_index, save_semantic_index,
@@ -32,7 +34,12 @@ pub use ai_semantic::{
     SemanticStaleSearchBehavior,
 };
 pub use ai_surface::{ai_surface, AiJobRow, AiProposalRow, AiSurface};
+pub use ai_tools::{execute_noet_tool, NoetToolHost};
 pub use command::{AppCommand, CommandOutcome};
+pub use history_workflow::{
+    note_history, note_revision_detail, restore_revision_after, restore_revision_before,
+    NoteRevisionDetail, NoteRevisionRow,
+};
 pub use model::AppModel;
 pub use navigation::{FilterToken, NavigationState};
 pub use note_workflow::{

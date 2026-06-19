@@ -17,6 +17,10 @@ if [[ "$ARCH" != "arm64" ]]; then
   echo "This script currently builds the Apple Silicon artifact only (found $ARCH)." >&2
   exit 1
 fi
+if [[ "$(uname -s)" != "Darwin" ]]; then
+  echo "This script must run on macOS." >&2
+  exit 1
+fi
 
 : "${CARGO_PROFILE_RELEASE_LTO:=false}"
 export CARGO_PROFILE_RELEASE_LTO
@@ -31,22 +35,16 @@ rm -rf "$OUT"
 rm -f "$DMG" "$TARBALL"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$DMG_ROOT"
 
-metal_mode="${NOET_MACOS_ENABLE_METAL:-auto}"
-if [[ "$metal_mode" != "0" && "$(xcrun -f metal 2>/dev/null || true)" != "" ]]; then
-  echo "Building Noet with embedded mistral.rs and Metal acceleration."
-  cargo build --release -p noet-gui --features mistralrs-inline-metal
-else
-  if [[ "$metal_mode" == "1" ]]; then
-    echo "NOET_MACOS_ENABLE_METAL=1 requires the Xcode Metal compiler (xcrun -f metal)." >&2
-    exit 1
-  fi
-  if ! xcrun -f metal >/dev/null 2>&1; then
-    echo "Xcode Metal compiler not found; building embedded mistral.rs CPU runtime."
-  else
-    echo "NOET_MACOS_ENABLE_METAL=0; building embedded mistral.rs CPU runtime."
-  fi
-  cargo build --release -p noet-gui
+if [[ "${NOET_MACOS_ENABLE_METAL:-}" == "0" ]]; then
+  echo "NOET_MACOS_ENABLE_METAL=0 is no longer supported; macOS Noet builds use Metal by default." >&2
+  exit 1
 fi
+if ! xcrun -f metal >/dev/null 2>&1; then
+  echo "Noet's default macOS build requires the Xcode Metal compiler (xcrun -f metal)." >&2
+  exit 1
+fi
+echo "Building Noet with embedded mistral.rs and default macOS Metal acceleration."
+cargo build --release -p noet-gui
 cp target/release/noet "$APP/Contents/MacOS/noet"
 chmod +x "$APP/Contents/MacOS/noet"
 if [[ ! -f "$ROOT/assets/app-icon/Noet.icns" ]]; then

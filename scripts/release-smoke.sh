@@ -27,29 +27,13 @@ memory_free_percent() {
 
 run cargo fmt --check
 run cargo test --workspace
-run cargo check -p noet-gui
-metal_mode="${NOET_CHECK_METAL:-auto}"
-if [[ "$metal_mode" == "0" ]]; then
-  echo
-  echo "Skipping Metal compile check; NOET_CHECK_METAL=0."
-elif [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
-  if ! xcrun -f metal >/dev/null 2>&1; then
-    if [[ "$metal_mode" == "1" ]]; then
-      echo "NOET_CHECK_METAL=1 requires the Xcode Metal compiler (xcrun -f metal)." >&2
-      exit 1
-    fi
-    echo
-    echo "Skipping Metal compile check; Xcode Metal compiler not found, embedded CPU runtime remains enabled."
-  else
-    run cargo check -p noet-gui --features mistralrs-inline-metal
-  fi
-elif [[ "$metal_mode" == "1" ]]; then
-  echo "NOET_CHECK_METAL=1 is only supported on arm64 macOS." >&2
+if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]] \
+  && ! xcrun -f metal >/dev/null 2>&1; then
+  echo "Noet's default macOS build uses embedded mistral.rs with Metal acceleration." >&2
+  echo "Install the Xcode Metal compiler so 'xcrun -f metal' succeeds before running the macOS release gate." >&2
   exit 1
-else
-  echo
-  echo "Skipping Metal compile check; not running on arm64 macOS."
 fi
+run cargo check -p noet-gui
 run git diff --check
 
 if [[ "${NOET_RUN_LOCAL_MODEL_SMOKES:-0}" == "1" ]]; then
@@ -64,12 +48,23 @@ if [[ "${NOET_RUN_LOCAL_MODEL_SMOKES:-0}" == "1" ]]; then
     exit 1
   fi
   echo "Memory preflight passed: ${free}% free."
-  run cargo test -p noet-gui --features mistralrs-inline \
-    headless_ui_local_model_ai_smoke -- --ignored --nocapture
-  run cargo test -p noet-gui --features mistralrs-inline \
-    headless_ui_local_model_cancel_smoke -- --ignored --nocapture
-  run cargo test -p noet-gui --features mistralrs-inline \
-    headless_ui_local_embedding_refresh_smoke -- --ignored --nocapture
+  if [[ -n "${NOET_LOCAL_MODEL_SMOKE_FEATURES:-}" ]]; then
+    echo "Running local model smokes with extra features: ${NOET_LOCAL_MODEL_SMOKE_FEATURES}"
+    run cargo test -p noet-gui --features "$NOET_LOCAL_MODEL_SMOKE_FEATURES" \
+      headless_ui_local_model_ai_smoke -- --ignored --nocapture
+    run cargo test -p noet-gui --features "$NOET_LOCAL_MODEL_SMOKE_FEATURES" \
+      headless_ui_local_model_cancel_smoke -- --ignored --nocapture
+    run cargo test -p noet-gui --features "$NOET_LOCAL_MODEL_SMOKE_FEATURES" \
+      headless_ui_local_embedding_refresh_smoke -- --ignored --nocapture
+  else
+    echo "Running local model smokes with the default target runtime."
+    run cargo test -p noet-gui \
+      headless_ui_local_model_ai_smoke -- --ignored --nocapture
+    run cargo test -p noet-gui \
+      headless_ui_local_model_cancel_smoke -- --ignored --nocapture
+    run cargo test -p noet-gui \
+      headless_ui_local_embedding_refresh_smoke -- --ignored --nocapture
+  fi
 else
   echo
   echo "Skipping local model smokes; set NOET_RUN_LOCAL_MODEL_SMOKES=1 to run them."

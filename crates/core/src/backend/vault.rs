@@ -130,14 +130,18 @@ pub fn set_markdown_title(body: &str, title: &str) -> String {
     s
 }
 
-pub(crate) fn write_note(note: &Note) -> Result<()> {
+pub(crate) fn format_note(note: &Note) -> String {
     let fm = FrontMatter {
         created: note.created.clone(),
         updated: note.updated.clone(),
         kind: note.kind.clone(),
     };
-    let yaml = serde_yaml::to_string(&fm)?;
-    let contents = format!("---\n{yaml}---\n{}", note.body);
+    let yaml = serde_yaml::to_string(&fm).unwrap_or_default();
+    format!("---\n{yaml}---\n{}", note.body)
+}
+
+pub(crate) fn write_note(note: &Note) -> Result<()> {
+    let contents = format_note(note);
     std::fs::write(&note.path, contents)
         .with_context(|| format!("writing {}", note.path.display()))?;
     Ok(())

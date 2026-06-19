@@ -15,6 +15,10 @@ service.
 - Noet must not include hidden cloud fallback behavior.
 - Markdown remains the source of truth.
 - SQLite remains a rebuildable index.
+- The durable revision journal records before/after snapshots for note changes,
+  including AI-applied mutations, and uses `similar` diffs for review.
+- The current-note context pane exposes recent note revisions, AI proposal
+  metadata, unified diffs, and a restore-before-snapshot path.
 - The LLM may suggest changes, but typed Noet tools perform validated mutations.
 - Background housekeeping must be reviewable unless the action is narrow,
   deterministic, and reversible.
@@ -115,20 +119,29 @@ retrieval. Embedding execution should use the `mistral.rs` Rust SDK directly
 inside Noet.
 
 The desktop app enables the inline SDK path by default so local AI does not
-depend on a PATH-visible CLI. Use the `noet-gui` feature
-`mistralrs-inline-metal` only when optional Apple Silicon acceleration is
-needed and the Xcode Metal compiler is installed. The GUI must run the existing
-memory preflight before constructing inline chat or embedding runtimes, because
-construction is the point where local model weights are loaded.
+depend on a PATH-visible CLI. On Apple Silicon macOS, the default `noet-gui`
+build also enables `mistralrs-inline-metal`, so local AI uses Metal/Accelerate
+without an explicit feature flag. The GUI must run the existing memory preflight
+before constructing inline chat or embedding runtimes, because construction is
+the point where local model weights are loaded.
 
-Latest embedded Noet smoke results on this machine, with the conservative
-benchmark settings above and `mistralrs-inline-metal` enabled:
+The inline loader still treats user stability as more important than forcing a
+specific accelerator. On macOS it first checks the Metal device path used by
+Candle/mistral.rs. If the system has Metal but Candle cannot enumerate an
+ordinal Metal device, Noet falls back to CPU instead of panicking the AI worker.
+Embedding models use F32 when CPU fallback is selected because the current
+EmbeddingGemma BF16 path fails CPU matmul in Candle. This keeps the GUI
+responsive and the model call recoverable while preserving Metal as the default
+preference when the embedded library can use it.
+
+Latest embedded Noet smoke results on this machine, with the local model cache,
+memory preflight passing, and `mistralrs-inline-metal` enabled:
 
 | Model | Prompt | TTFT | Decode TPS | Wall | Max RSS |
 | --- | --- | ---: | ---: | ---: | ---: |
-| Mistral 7B Q4_K_M | note review + agenda drafting | n/a | n/a | 51.48s | 4.06 GB |
-| EmbeddingGemma 300M | embedding refresh + semantic search | n/a | n/a | 28.87s | 3.17 GB |
-| Mistral 7B Q4_K_M | cancel smoke | n/a | n/a | 10.66s | 2.23 GB |
+| Ministral 8B Q4_K_M | note review + agenda drafting | n/a | n/a | 120.69s | n/a |
+| Ministral 8B Q4_K_M | cancel smoke | n/a | n/a | 27.35s | n/a |
+| EmbeddingGemma 300M | embedding refresh + semantic search | n/a | n/a | 2.85s | n/a |
 
 Direct embedded throughput snapshot on the same machine, using the new
 `noet-ai` benchmark binary and a short prompt sweep:
@@ -139,10 +152,12 @@ Direct embedded throughput snapshot on the same machine, using the new
 | Ministral 8B Q4_K_M | 111 | 7.23s | 15.35 |
 | Mistral Nemo Q4_K_M | 179 | 16.40s | 10.91 |
 
-With Metal available, the embedded Noet path is the preferred local AI
-execution mode on Apple Silicon. The important change is responsiveness, not a
-different product boundary: Noet still runs local-only, still stays reviewable,
-and still falls back to CPU when Metal is unavailable. The next profiling pass
+The embedded Metal path is the preferred local AI execution mode on Apple
+Silicon. The important change is responsiveness, not a different product
+boundary: Noet still runs local-only and still stays reviewable. Non-macOS
+builds keep the embedded CPU-capable runtime; macOS builds require the Xcode
+Metal compiler for the default feature set, then fall back safely if the
+embedded library cannot use the Metal device at runtime. The next profiling pass
 should expand this to the remaining prompt classes before changing the default
 model recommendation.
 
@@ -206,7 +221,9 @@ own:
 
 `noet-core` continues to own durable facts, queries, and Markdown mutations.
 `noet-app` decides when AI is invoked, what context is supplied, and how
-proposals are reviewed or applied.
+proposals are reviewed or applied. `noet-app` also owns the concrete
+`NoetToolHost` implementation over core read models so runtime adapters can use
+the same typed tools without reaching into GUI callbacks.
 
 ## Product Interaction Model
 
@@ -217,6 +234,8 @@ primary interaction should be explicit, source-linked, and reviewable:
   stale follow-ups, and promote tasks
 - proposal cards that show the source note/task, rationale, confidence, and the
   exact change or insertion
+- current-note history rows that show saves and accepted AI changes with
+  before/after diffs
 - accept, reject, copy, insert, and defer actions on each proposal
 - visible runtime state in the shell: disabled, indexing, ready, thinking,
   proposing, applying, or failed
@@ -236,6 +255,7 @@ surface contract is:
 ```text
 AI action -> context assembly -> local runtime -> structured proposal
           -> proposal queue -> typed core mutation or insertion
+          -> durable revision record with before/after diff
 ```
 
 ## Tool Layer
@@ -249,6 +269,8 @@ Initial tool categories:
 - load note context
 - list tasks by person, due date, status, or workstream
 - find related notes
+- list note revisions
+- load a note revision with before, after, metadata, and diff
 - draft 1:1 agenda
 - suggest labels or workstreams
 - suggest task extraction
@@ -265,6 +287,12 @@ Mutating tools should start as proposals. A proposal should include:
 - exact Markdown patch or structured mutation
 - confidence
 - whether user confirmation is required
+
+When a proposal is applied, Noet should record a revision with `actor=ai`,
+proposal id, model id, rationale, full before/after content, and a `similar`
+unified diff. Normal user edits also record revisions with `actor=user`; future
+UI work should surface the history beside the current note and allow restoring
+older versions through reviewable proposals.
 
 ## First Workflows
 

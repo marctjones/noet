@@ -30,6 +30,7 @@ fn headless_ui_smoke() {
     let trace_path = tmp.join("ui-trace.jsonl");
     std::env::set_var("NOET_UI_TRACE", &trace_path);
     std::env::set_var("NOET_UI_TRACE_CONTENT", "1");
+    std::env::set_var("NOET_TEST_CLIPBOARD", "1");
     let vault = tmp.join("vault");
 
     itest::init_no_event_loop();
@@ -206,8 +207,9 @@ fn headless_ui_smoke() {
         source_two_id,
         "indexed source inspection should open the selected source note"
     );
+    let accepted_note_id = ui.get_current_id().to_string();
     let (accept_id, reject_id, defer_id) = {
-        let note_id = ui.get_current_id().to_string();
+        let note_id = accepted_note_id.clone();
         let mut state = ctx.state.borrow_mut();
         let accept_id = state
             .app
@@ -235,6 +237,58 @@ fn headless_ui_smoke() {
     refresh(ui, &ctx.state.borrow());
     let pending_after_enqueue = ui.get_ai_pending_count();
     ui.invoke_ai_accept_proposal(accept_id.clone().into());
+    {
+        let state = ctx.state.borrow();
+        let note = state.backend.load_note(&accepted_note_id).unwrap();
+        assert!(
+            note.body.contains("#accept"),
+            "AI accept should apply typed mutations through the backend"
+        );
+        let revision = state
+            .backend
+            .note_revision(&state.backend.note_revisions(&accepted_note_id).unwrap()[0].id)
+            .unwrap()
+            .expect("AI accept should record note history");
+        assert_eq!(revision.actor, "ai");
+        assert_eq!(revision.proposal_id.as_deref(), Some(accept_id.as_str()));
+        assert!(revision.diff.contains("+#accept"));
+    }
+    let ai_revision_id = {
+        let revisions = ui.get_current_revisions();
+        assert!(
+            revisions.row_count() >= 1,
+            "accepted AI proposal should populate note revision rows"
+        );
+        let mut found = None;
+        for idx in 0..revisions.row_count() {
+            let row = revisions.row_data(idx).unwrap();
+            if row.proposal.to_string() == accept_id {
+                assert_eq!(row.actor, "ai");
+                assert!(row.summary.contains("AI add labels"));
+                found = Some(row.id.to_string());
+                break;
+            }
+        }
+        found.expect("AI revision row should include the accepted proposal id")
+    };
+    ui.invoke_open_revision(ai_revision_id.clone().into());
+    assert!(
+        ui.get_current_revision_diff().contains("+#accept"),
+        "opening an AI revision should expose its unified diff"
+    );
+    ui.invoke_restore_revision_before(ai_revision_id.into());
+    {
+        let state = ctx.state.borrow();
+        let note = state.backend.load_note(&accepted_note_id).unwrap();
+        assert!(
+            !note.body.contains("#accept"),
+            "restoring the before snapshot should undo the accepted AI label"
+        );
+        assert_eq!(
+            state.backend.note_revisions(&accepted_note_id).unwrap()[0].operation,
+            "restore_revision_before"
+        );
+    }
     ui.invoke_ai_reject_proposal(reject_id.clone().into());
     ui.invoke_ai_defer_proposal(defer_id.clone().into());
     assert_eq!(proposal_status(ui, &accept_id), Some("Accepted".into()));
@@ -547,6 +601,40 @@ fn headless_ui_smoke() {
     assert!(ui.get_focus_mode(), "Ctrl/Cmd+Shift+F enters focus mode");
     send_key_combo(ui, &[Key::Control.into(), Key::Shift.into(), "f".into()]);
     assert!(!ui.get_focus_mode(), "Ctrl/Cmd+Shift+F exits focus mode");
+    let before_key_new = count(&ctx);
+    send_key_combo(ui, &[Key::Control.into(), "n".into()]);
+    assert_eq!(
+        count(&ctx),
+        before_key_new + 1,
+        "Ctrl/Cmd+N creates a note through the same shell shortcut users press"
+    );
+    assert_eq!(
+        ui.get_workspace_primary(),
+        "notes",
+        "Ctrl/Cmd+N returns to the Notes surface"
+    );
+    assert!(
+        ui.get_editing(),
+        "Ctrl/Cmd+N opens the new note ready for writing"
+    );
+    send_key_combo(ui, &[Key::Control.into(), "4".into()]);
+    assert_eq!(
+        ui.get_workspace_primary(),
+        "board",
+        "Ctrl/Cmd+4 switches to the Board surface"
+    );
+    send_key_combo(ui, &[Key::Control.into(), "5".into()]);
+    assert_eq!(
+        ui.get_workspace_primary(),
+        "review",
+        "Ctrl/Cmd+5 switches to the Review surface"
+    );
+    send_key_combo(ui, &[Key::Control.into(), "6".into()]);
+    assert_eq!(
+        ui.get_workspace_primary(),
+        "settings",
+        "Ctrl/Cmd+6 switches to Settings"
+    );
 
     // ----- Level 3: more real handlers (templates, filters, smart lists) -----
     ui.invoke_set_view("notes".into());
@@ -664,6 +752,38 @@ fn headless_ui_smoke() {
         !RICH.with(|r| r.borrow().selected_text()).is_empty(),
         "Shift+Down extends the selection using the editor's visual line motion"
     );
+    SredEditorAdapter::load_note_body(ui, "alpha beta alpha\nbeta alpha\n");
+    click_accessible_button(ui, "Edit menu");
+    click_accessible_button(ui, "Find");
+    assert!(ui.get_find_open(), "Edit > Find opens the find bar");
+    ui.set_find_query("alpha".into());
+    ui.invoke_find_search(ui.get_find_query());
+    assert_eq!(ui.get_find_count(), 3, "find counts all matches");
+    assert_eq!(ui.get_find_current(), 1, "find starts on the first match");
+    ui.invoke_find_step(true);
+    assert_eq!(
+        ui.get_find_current(),
+        2,
+        "find next advances the active match"
+    );
+    ui.invoke_find_step(false);
+    assert_eq!(ui.get_find_current(), 1, "find previous wraps back");
+    ui.set_find_replace("omega".into());
+    ui.invoke_find_replace_all();
+    assert!(
+        ui.get_current_body().contains("omega beta omega")
+            && ui.get_current_body().contains("beta omega"),
+        "replace all updates the live editor body: {:?}",
+        ui.get_current_body()
+    );
+    assert_eq!(ui.get_status_text(), "Replaced 3 match(es)");
+    assert_eq!(
+        ui.get_find_count(),
+        0,
+        "re-search after replace clears hits"
+    );
+    ui.invoke_find_close();
+    assert!(!ui.get_find_open(), "find close hides the find bar");
 
     // Selecting an existing note leaves edit mode and should render Markdown
     // instead of showing raw source markers in a plain TextEdit.
@@ -727,6 +847,18 @@ fn headless_ui_smoke() {
     ElementHandle::find_by_accessible_label(ui, "Toggle task Call client")
         .find(|e| e.accessible_role() == Some(AccessibleRole::Checkbox))
         .expect("rendered todo is exposed as an interactive clean task row");
+    click_accessible_button(ui, "View menu");
+    click_accessible_button(ui, "Edit Markdown source");
+    assert!(
+        ui.get_source_mode() && ui.get_editing(),
+        "View > Edit Markdown source enters editable source mode"
+    );
+    click_accessible_button(ui, "View menu");
+    click_accessible_button(ui, "Use rich editor");
+    assert!(
+        !ui.get_source_mode() && ui.get_editing(),
+        "View > Use rich editor leaves source mode without closing editing"
+    );
     assert!(
         !ui.get_workspace_right_open(),
         "full context remains closed while the current-note todo rail is visible"
@@ -1773,6 +1905,14 @@ fn headless_ui_smoke() {
         }),
         "Tasks workspace lists the Markdown-backed task"
     );
+    click_accessible_button(ui, "Open task task list toggle");
+    assert_eq!(
+        ui.get_current_id(),
+        task_action_note_id,
+        "accessible task open action opens the source note"
+    );
+    assert!(ui.get_editing(), "task open lands in edit mode");
+    ui.invoke_workspace_switch("tasks".into());
     ui.invoke_toggle_todo(task_toggle_id.clone().into());
     let toggled = ctx
         .state
@@ -1847,11 +1987,25 @@ fn headless_ui_smoke() {
     );
 
     ui.invoke_select_note(task_action_note_id.clone().into());
-    ui.invoke_open_add_todo();
+    click_accessible_button(ui, "Note menu");
+    click_accessible_button(ui, "Add task");
     assert!(ui.get_form_visible(), "Add task opens the task editor");
     ElementHandle::find_by_accessible_label(ui, "Task editor")
         .find(|e| e.accessible_role() == Some(AccessibleRole::Groupbox))
         .expect("task editor modal is mounted");
+    click_accessible_button(ui, "More fields");
+    assert!(
+        ui.get_form_show_details(),
+        "task editor exposes advanced fields on demand"
+    );
+    click_accessible_button(ui, "Fewer fields");
+    assert!(
+        !ui.get_form_show_details(),
+        "task editor can collapse advanced fields again"
+    );
+    click_accessible_button(ui, "Cancel");
+    assert!(!ui.get_form_visible(), "Cancel closes the task editor");
+    ui.invoke_open_add_todo();
     ui.set_form_text("   ".into());
     ui.invoke_save_todo();
     assert!(
@@ -1899,6 +2053,263 @@ fn headless_ui_smoke() {
             .to_string()
             .starts_with("Task update failed:"),
         "task write-back errors are visible in app status"
+    );
+
+    // ----- Level 16: lifecycle, filters, calendar, clipboard, and editor affordances -----
+    ui.invoke_set_kind_filter("waiting".into());
+    assert_eq!(ctx.state.borrow().filter.kind, "waiting");
+    assert_eq!(ui.get_filter_kind(), "waiting");
+    ui.invoke_set_priority_filter("B".into());
+    assert_eq!(ctx.state.borrow().filter.priority, "B");
+    assert_eq!(ui.get_filter_priority(), "B");
+    ui.invoke_set_due_filter("has date".into());
+    assert_eq!(ctx.state.borrow().filter.due_bucket, "hasdate");
+    assert_eq!(ui.get_filter_due(), "has date");
+    assert!(
+        ui.get_active_filters().row_count() >= 3,
+        "dimension filters should render removable chips"
+    );
+    ui.invoke_clear_filter("priority".into());
+    assert_eq!(ctx.state.borrow().filter.priority, "");
+    assert_eq!(ui.get_filter_priority(), "any");
+    ui.invoke_clear_filters();
+    assert_eq!(ctx.state.borrow().filter.kind, "");
+    assert_eq!(ctx.state.borrow().filter.due_bucket, "");
+    assert_eq!(ui.get_search(), "");
+    assert_eq!(ui.get_status_filter(), "");
+
+    ui.invoke_delete_smart_list("My open items".into());
+    assert!(
+        !ctx.state
+            .borrow()
+            .backend
+            .list_smart_lists()
+            .iter()
+            .any(|name| name == "My open items"),
+        "smart list deletion should persist"
+    );
+
+    ui.invoke_set_view("calendar".into());
+    let this_month = ui.get_cal_label().to_string();
+    assert!(
+        ui.get_cal_cells().row_count() >= 28,
+        "calendar view should populate day cells"
+    );
+    ui.invoke_cal_prev();
+    let prev_month = ui.get_cal_label().to_string();
+    assert_ne!(prev_month, this_month, "previous month changes the label");
+    ui.invoke_cal_next();
+    assert_eq!(
+        ui.get_cal_label().to_string(),
+        this_month,
+        "next month returns to the original calendar label"
+    );
+    ui.invoke_cal_today();
+    assert!(
+        ui.get_cal_cells().row_count() >= 28,
+        "today refresh should keep calendar cells populated"
+    );
+
+    let lifecycle_id;
+    {
+        let mut st = ctx.state.borrow_mut();
+        let n = st.backend.new_note().unwrap();
+        st.backend
+            .save_note(
+                &n.id,
+                "Lifecycle Coverage",
+                "# Lifecycle Coverage\n\nOriginal body\n",
+            )
+            .unwrap();
+        lifecycle_id = n.id.clone();
+    }
+    ctx.state.borrow_mut().backend.reindex_all().unwrap();
+    ui.invoke_select_note(lifecycle_id.clone().into());
+    ui.set_editing(true);
+    ui.invoke_note_title_edited("Renamed Coverage Note".into());
+    itest::mock_elapsed_time(std::time::Duration::from_millis(150));
+    assert_eq!(ui.get_current_title(), "Renamed Coverage Note");
+    assert!(
+        ui.get_current_body().starts_with("# Renamed Coverage Note"),
+        "title edits should rewrite the markdown heading"
+    );
+    ui.invoke_save_note(
+        lifecycle_id.clone().into(),
+        ui.get_current_title(),
+        ui.get_current_body(),
+    );
+    assert_eq!(ui.get_status_text(), "Saved");
+    let renamed = ctx.state.borrow().backend.load_note(&lifecycle_id).unwrap();
+    assert_eq!(renamed.title, "Renamed Coverage Note");
+
+    let previous_kind = ui.get_current_kind().to_string();
+    let expected_kind = match previous_kind.as_str() {
+        "auto" => "markdown",
+        "markdown" => "typst",
+        _ => "auto",
+    };
+    ui.invoke_toggle_kind();
+    assert_eq!(ui.get_current_kind(), expected_kind);
+    assert!(
+        ui.get_status_text()
+            .to_string()
+            .starts_with(&format!("Mode: {expected_kind}")),
+        "kind toggle should expose the selected render mode"
+    );
+    assert_eq!(
+        ctx.state
+            .borrow()
+            .backend
+            .load_note(&lifecycle_id)
+            .unwrap()
+            .kind,
+        expected_kind
+    );
+    ui.invoke_attach_path("ref:/tmp/noet-coverage.pdf".into());
+    assert_eq!(ui.get_status_text(), "Attached");
+    assert!(
+        ctx.state
+            .borrow()
+            .backend
+            .load_note(&lifecycle_id)
+            .unwrap()
+            .body
+            .contains("ref:/tmp/noet-coverage.pdf"),
+        "attached paths are written back to the note"
+    );
+
+    ui.invoke_set_clip("  selected follow up\nwith detail  ".into());
+    ui.invoke_selection_to_todo();
+    assert!(
+        ui.get_form_visible(),
+        "selection-to-task opens the task editor"
+    );
+    assert_eq!(ui.get_form_text(), "selected follow up with detail");
+    ui.set_form_kind("followup".into());
+    ui.invoke_save_todo();
+    assert!(
+        ctx.state
+            .borrow()
+            .backend
+            .load_note(&lifecycle_id)
+            .unwrap()
+            .body
+            .contains("- [ ] selected follow up with detail #followup"),
+        "selection-to-task writes a normalized task line"
+    );
+
+    let before_selection_note = count(&ctx);
+    ui.invoke_set_clip("Extracted note title\n\nBody from selected text".into());
+    ui.invoke_selection_to_note();
+    assert_eq!(
+        count(&ctx),
+        before_selection_note + 1,
+        "selection-to-note creates one note"
+    );
+    assert_eq!(ui.get_current_title(), "Extracted note title");
+    assert_eq!(ui.get_status_text(), "New note from selection");
+    assert!(
+        !ui.get_editing(),
+        "new notes from selection open in read mode"
+    );
+
+    SredEditorAdapter::load_note_body(ui, "copy target word\nsecond line\n");
+    RICH.with(|r| {
+        let mut ed = r.borrow_mut();
+        ed.set_viewport(320, 180.0);
+        ed.core_mut().set_cursor(0);
+    });
+    ui.invoke_rich_resized(320.0, 180.0);
+    ui.invoke_rich_scrolled(8.0);
+    ui.invoke_rich_pointer_down(1.0, 1.0);
+    ui.invoke_rich_pointer_drag(80.0, 1.0);
+    ui.invoke_rich_pointer_double(1.0, 1.0);
+    RICH.with(|r| r.borrow_mut().core_mut().set_cursor(0));
+    ui.invoke_rich_special("select-end".into());
+    ui.invoke_rich_copy();
+    assert_eq!(
+        clip_get(),
+        "copy target word",
+        "rich-copy uses the selected editor text"
+    );
+
+    let archive_id;
+    {
+        let mut st = ctx.state.borrow_mut();
+        let n = st.backend.new_note().unwrap();
+        st.backend
+            .save_note(&n.id, "Archive Coverage", "# Archive Coverage\n\n")
+            .unwrap();
+        archive_id = n.id.clone();
+    }
+    ctx.state.borrow_mut().backend.reindex_all().unwrap();
+    ui.invoke_select_note(archive_id.clone().into());
+    ui.invoke_archive_note(true);
+    assert_eq!(ui.get_status_text(), "Archived");
+    assert!(
+        ctx.state
+            .borrow()
+            .backend
+            .note_archived(&archive_id)
+            .unwrap(),
+        "archive current note should hide it from default queries"
+    );
+    ui.invoke_set_show_archived(true);
+    assert!(ui.get_show_archived());
+    assert!(ctx.state.borrow().filter.show_archived);
+    ui.invoke_archive_note_id(archive_id.clone().into(), false);
+    assert_eq!(ui.get_status_text(), "Unarchived");
+    assert!(
+        !ctx.state
+            .borrow()
+            .backend
+            .note_archived(&archive_id)
+            .unwrap(),
+        "archive-note-id should unarchive a specific note"
+    );
+    ui.invoke_set_show_archived(false);
+
+    let trash_id;
+    let trash_file;
+    {
+        let mut st = ctx.state.borrow_mut();
+        let n = st.backend.new_note().unwrap();
+        st.backend
+            .save_note(&n.id, "Trash Coverage", "# Trash Coverage\n\n")
+            .unwrap();
+        trash_file = n.path.file_name().unwrap().to_string_lossy().to_string();
+        trash_id = n.id.clone();
+    }
+    ctx.state.borrow_mut().backend.reindex_all().unwrap();
+    ui.invoke_select_note(trash_id.clone().into());
+    ui.invoke_delete_note();
+    assert_eq!(ui.get_status_text(), "Moved to trash");
+    assert!(
+        ctx.state
+            .borrow()
+            .backend
+            .list_trash()
+            .unwrap()
+            .iter()
+            .any(|(file, title)| file == &trash_file && title == "Trash Coverage"),
+        "delete current note should populate the trash surface source"
+    );
+    ui.invoke_set_view("trash".into());
+    assert!(
+        ui.get_trash_notes().row_count() >= 1,
+        "trash view should render deleted notes"
+    );
+    ui.invoke_restore_note(trash_file.into());
+    assert_eq!(ui.get_status_text(), "Restored from trash");
+    assert!(
+        ctx.state
+            .borrow()
+            .backend
+            .query_notes(&noet_core::backend::Filter::default())
+            .unwrap()
+            .iter()
+            .any(|note| note.id == trash_id),
+        "restore brings the note back into the default query"
     );
 
     std::env::set_var("NOET_AI_RUNTIME", "local");
@@ -2002,7 +2413,7 @@ fn headless_ui_local_model_ai_smoke() {
     }
     refresh(ui, &ctx.state.borrow());
 
-    ui.invoke_set_ai_profile("mistral-7b-instruct-v0-3-gguf-q4-k-m".into());
+    ui.invoke_set_ai_profile("ministral-8b-instruct-2410-gguf-q4-k-m".into());
     ui.invoke_set_ai_min_free_memory("25".into());
     ui.invoke_set_ai_model_root("/Users/marc/.cache/huggingface/hub".into());
 
@@ -2108,7 +2519,7 @@ fn headless_ui_local_model_cancel_smoke() {
     }
     refresh(ui, &ctx.state.borrow());
 
-    ui.invoke_set_ai_profile("mistral-7b-instruct-v0-3-gguf-q4-k-m".into());
+    ui.invoke_set_ai_profile("ministral-8b-instruct-2410-gguf-q4-k-m".into());
     ui.invoke_set_ai_min_free_memory("25".into());
     ui.invoke_set_ai_model_root("/Users/marc/.cache/huggingface/hub".into());
 
@@ -2317,6 +2728,14 @@ fn line_char_offset_lands_on_the_right_line() {
     assert_eq!(line_char_offset(body, 99), body.chars().count());
 }
 
+fn click_accessible_button(ui: &AppWindow, label: &str) {
+    let button = ElementHandle::find_by_accessible_label(ui, label)
+        .find(|e| e.accessible_role() == Some(AccessibleRole::Button))
+        .unwrap_or_else(|| panic!("accessible button {label:?} should exist"));
+    button.invoke_accessible_default_action();
+    itest::mock_elapsed_time(std::time::Duration::from_millis(16));
+}
+
 fn send_key_combo(ui: &AppWindow, keys: &[SharedString]) {
     let window = ui.window();
     for key in keys {
@@ -2409,6 +2828,23 @@ fn wait_for_ai_pending(ui: &AppWindow, expected: i32, timeout: std::time::Durati
         itest::mock_elapsed_time(std::time::Duration::from_millis(250));
         if ui.get_ai_pending_count() >= expected {
             return;
+        }
+        let status_text = ui.get_status_text().to_string();
+        let ai_status = ui.get_ai_status().to_string();
+        if !ui.get_ai_progress_active()
+            && (status_text.contains("failed")
+                || status_text.contains("panicked")
+                || ai_status.contains("failed")
+                || ai_status.contains("panicked"))
+        {
+            panic!(
+                "AI request failed before {expected} proposals; got {}, status={}, app_status={}, progress={} {}",
+                ui.get_ai_pending_count(),
+                ai_status,
+                status_text,
+                ui.get_ai_progress_label(),
+                ui.get_ai_progress_detail()
+            );
         }
         std::thread::sleep(std::time::Duration::from_millis(250));
     }

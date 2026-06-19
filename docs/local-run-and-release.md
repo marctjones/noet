@@ -13,6 +13,10 @@ Use this path when reviewing UX changes or using Noet directly from the repo.
 cargo run -p noet-gui
 ```
 
+On Apple Silicon macOS, the default GUI build embeds `mistral.rs` with
+Metal/Accelerate enabled. That path requires the Xcode Metal compiler
+(`xcrun -f metal`). Non-macOS builds keep the embedded CPU-capable runtime.
+
 To keep test data away from a real vault:
 
 ```bash
@@ -85,8 +89,8 @@ cargo test --workspace
 git diff --check
 ```
 
-Normal GUI builds include the inline `mistral.rs` runtime. The compile gate
-should verify the normal embedded-library path:
+Normal GUI builds include the inline `mistral.rs` runtime. On Apple Silicon
+macOS, that default embedded-library path uses Metal/Accelerate:
 
 ```bash
 cargo check -p noet-gui
@@ -99,38 +103,36 @@ scripts/release-smoke.sh
 ```
 
 By default the script runs formatting, workspace tests, the normal embedded
-`mistral.rs` GUI compile check, an auto-detected Metal compile check when the
-Xcode Metal compiler is present, and whitespace checks. It does not load local
-AI models or build installers unless explicitly requested.
-
-The Apple Silicon Metal/Accelerate check requires the full Xcode Metal compiler
-(`xcrun -f metal`), not only the default command-line tools. If the compiler is
-missing, the release smoke script safely continues with the embedded CPU
-runtime. To require Metal and fail when it is missing:
-
-```bash
-NOET_CHECK_METAL=1 scripts/release-smoke.sh
-```
+`mistral.rs` GUI compile check, and whitespace checks. On Apple Silicon macOS it
+first verifies that `xcrun -f metal` succeeds, because the default macOS runtime
+uses Metal. It does not load local AI models or build installers unless
+explicitly requested.
 
 Model-backed smokes are ignored by default because they load local models. Run
 them only on a prepared machine after checking memory pressure:
 
 ```bash
 memory_pressure
-cargo test -p noet-gui headless_ui_local_model_ai_smoke -- --ignored --nocapture
-cargo test -p noet-gui headless_ui_local_model_cancel_smoke -- --ignored --nocapture
-cargo test -p noet-gui headless_ui_local_embedding_refresh_smoke -- --ignored --nocapture
+cargo test -p noet-gui \
+  headless_ui_local_model_ai_smoke -- --ignored --nocapture
+cargo test -p noet-gui \
+  headless_ui_local_model_cancel_smoke -- --ignored --nocapture
+cargo test -p noet-gui \
+  headless_ui_local_embedding_refresh_smoke -- --ignored --nocapture
 ```
 
 The same model-backed checks can be run through the release smoke script:
 
 ```bash
-NOET_RUN_LOCAL_MODEL_SMOKES=1 scripts/release-smoke.sh
+source scripts/local-ai-env.sh
+scripts/release-smoke.sh
 ```
 
-When Metal is installed, these smokes exercise the embedded Noet runtime with
-`mistralrs-inline-metal`, which is the path to use for local benchmark numbers
-on Apple Silicon.
+On Apple Silicon macOS those commands use the default embedded
+Metal/Accelerate build. At runtime Noet prefers Metal, but it will fall back to
+CPU if Candle/mistral.rs cannot enumerate a usable Metal ordinal device.
+`NOET_LOCAL_MODEL_SMOKE_FEATURES` is only for adding extra Cargo features in
+specialized checks; it cannot disable the macOS default Metal dependency.
 
 Expected local model cache inputs for the current smokes:
 
@@ -145,10 +147,9 @@ preflight before loading local models.
 Release evidence should record:
 
 - the `memory_pressure` free percentage before model loading
-- `cargo check -p noet-gui`
-- the Metal compile check result, either skipped because `xcrun -f metal` was
-  absent or run with `cargo check -p noet-gui --features mistralrs-inline-metal`
-- both ignored local model smoke commands, if the model cache is available
+- `cargo check -p noet-gui`; on Apple Silicon macOS this is the default Metal
+  compile check
+- all three ignored local model smoke commands, if the model cache is available
 - confirmation that semantic index files remain in the disposable cache/index
   directory and not in the Markdown vault
 
@@ -161,18 +162,8 @@ The macOS packaging script builds an Apple Silicon local artifact:
 ```
 
 It embeds the `mistral.rs` runtime by default and auto-detects Metal
-acceleration when `xcrun -f metal` succeeds. To require Metal and fail when it
-is missing:
-
-```bash
-NOET_MACOS_ENABLE_METAL=1 ./scripts/package-macos.sh
-```
-
-To force the embedded CPU runtime even when Metal is installed:
-
-```bash
-NOET_MACOS_ENABLE_METAL=0 ./scripts/package-macos.sh
-```
+acceleration through the default macOS Cargo target. The script requires
+`xcrun -f metal` and fails clearly if the Metal compiler is missing.
 
 The packaging step can be attached to the release smoke script when a local app
 bundle/DMG checkpoint is needed:

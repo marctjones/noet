@@ -1285,6 +1285,80 @@ fn export_note_markdown_copies_file() {
 }
 
 #[test]
+fn note_history_records_before_after_and_similar_diff() {
+    let dir = std::env::temp_dir().join(format!("noet-test-{}", ulid::Ulid::new()));
+    let mut b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();
+    let note = b.new_note().unwrap();
+    b.save_note(&note.id, "History", "# History\n\nBefore\n")
+        .unwrap();
+    b.save_note(&note.id, "History", "# History\n\nAfter\n")
+        .unwrap();
+
+    let revisions = b.note_revisions(&note.id).unwrap();
+    assert!(
+        revisions.len() >= 3,
+        "create plus two saves should be recorded"
+    );
+    let latest = b
+        .note_revision(&revisions[0].id)
+        .unwrap()
+        .expect("latest revision");
+
+    assert_eq!(latest.actor, "user");
+    assert_eq!(latest.operation, "save_note");
+    assert!(latest.before_content.contains("Before"));
+    assert!(latest.after_content.contains("After"));
+    assert!(latest.diff.contains("--- before"));
+    assert!(latest.diff.contains("+++ after"));
+    assert!(latest.diff.contains("-Before"));
+    assert!(latest.diff.contains("+After"));
+    assert!(b.history_path().starts_with(dir.join(".noet")));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn note_history_can_restore_before_snapshot() {
+    let dir = std::env::temp_dir().join(format!("noet-test-{}", ulid::Ulid::new()));
+    let mut b = Backend::open_at(dir.clone(), dir.join(".index")).unwrap();
+    let note = b.new_note().unwrap();
+    b.save_note(&note.id, "History", "# History\n\nBefore AI\n")
+        .unwrap();
+    b.with_revision_context(
+        RevisionContext::ai(
+            "ai_patch_note",
+            Some("ai-proposal-1".into()),
+            Some("ministral-8b-instruct-2410-gguf-q4-k-m".into()),
+            Some("test restore".into()),
+        ),
+        |b| {
+            b.save_note(&note.id, "History", "# History\n\nAfter AI\n")
+                .unwrap();
+        },
+    );
+
+    let ai_revision = b
+        .note_revisions(&note.id)
+        .unwrap()
+        .into_iter()
+        .find(|revision| revision.operation == "ai_patch_note")
+        .expect("AI revision");
+    let restored = b
+        .restore_note_revision(&ai_revision.id, RevisionSnapshot::Before)
+        .unwrap();
+
+    assert!(restored.body.contains("Before AI"));
+    assert!(!restored.body.contains("After AI"));
+    let latest = b.note_revisions(&note.id).unwrap()[0].clone();
+    assert_eq!(latest.operation, "restore_revision_before");
+    let revision = b.note_revision(&latest.id).unwrap().unwrap();
+    assert!(revision.diff.contains("-After AI"));
+    assert!(revision.diff.contains("+Before AI"));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn open_lazy_skips_indexing_until_reindex() {
     let dir = std::env::temp_dir().join(format!("noet-test-{}", ulid::Ulid::new()));
     // seed a note file directly on disk

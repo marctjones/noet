@@ -13,6 +13,7 @@
 //! - [`export`] — per-note Markdown / PDF export.
 
 mod export;
+mod history;
 mod index;
 mod model;
 mod mutate;
@@ -24,6 +25,9 @@ mod vault;
 mod workflow;
 
 // The public surface frontends consume as `noet_core::backend::*`.
+pub use history::{
+    NoteRevision, NoteRevisionSummary, RevisionActor, RevisionContext, RevisionSnapshot,
+};
 pub use index::{background_reindex, reindex_connection};
 pub use model::{
     Filter, MdBlock, Note, Project, RelatedNote, Segment, SourceSpan, Todo, TodoFields, KINDS,
@@ -60,6 +64,7 @@ pub struct Backend {
     index_dir: PathBuf, // where the disposable SQLite index + render cache live
     conn: Connection,
     fts: bool, // FTS5 available in this SQLite build
+    revision_context: RevisionContext,
 }
 
 #[cfg(test)]

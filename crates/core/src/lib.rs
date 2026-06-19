@@ -14,7 +14,8 @@ pub mod backend;
 pub use backend::{
     Backend, BoardColumn, BoardModel, ContactFact, ContactKind, Filter, InlineEntity,
     InlineEntityKind, LabelContext, LabelReview, LabelSummary, Note, NoteContext, NoteFacts,
-    NoteSummary, OneOnOneContext, ParseDiagnostic, ParseSeverity, ParsedNote, Project,
-    PropertyFact, Segment, SourceRef, SourceSpan, TaskFact, TaskReview, TaskSource, TaskStatus,
+    NoteRevision, NoteRevisionSummary, NoteSummary, OneOnOneContext, ParseDiagnostic,
+    ParseSeverity, ParsedNote, Project, PropertyFact, RevisionActor, RevisionContext,
+    RevisionSnapshot, Segment, SourceRef, SourceSpan, TaskFact, TaskReview, TaskSource, TaskStatus,
     TaskWorkflow, Todo, TodoFields, WaitingGroup, WaitingReview,
 };

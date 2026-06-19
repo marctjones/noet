@@ -5,7 +5,7 @@ use slint::{Image, ModelRc, SharedString, VecModel};
 
 use crate::{
     AiJobUi, AiProposalUi, BoardColumn, CalCell, FacetItem, FilterChip, GanttItem, MdBlock,
-    NoteItem, NoteRef, NoteTab, RelatedRef, Segment, TodoItem,
+    NoteItem, NoteRef, NoteTab, RelatedRef, RevisionUi, Segment, TodoItem,
 };
 
 pub fn note_item(n: &backend::Note) -> NoteItem {
@@ -72,6 +72,19 @@ pub fn ai_job_item(row: noet_app::AiJobRow) -> AiJobUi {
         kind: row.kind.into(),
         produced_proposals: row.produced_proposals as i32,
         failure: row.failure.unwrap_or_default().into(),
+    }
+}
+
+pub fn revision_item(row: noet_app::NoteRevisionRow) -> RevisionUi {
+    RevisionUi {
+        id: row.id.into(),
+        created: row.created.into(),
+        actor: row.actor.into(),
+        operation: row.operation.into(),
+        title: row.title.into(),
+        summary: row.summary.into(),
+        proposal: row.proposal_id.into(),
+        model: row.model_id.into(),
     }
 }
 

@@ -2,6 +2,8 @@ use noet_ai::{
     AiCancelToken, AiProgressUpdate, AiResult, LocalRuntimeSettings, MistralRsInlineChatRuntime,
 };
 use noet_app::{ai_workflow, SemanticIndex};
+use std::any::Any;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::mpsc;
 
 pub(crate) enum AiWorkerMessage {
@@ -121,11 +123,55 @@ pub(crate) fn cancelled_status(failure_prefix: &str) -> String {
         .unwrap_or_else(|| "AI request canceled".into())
 }
 
+pub(crate) fn catch_worker_panic<T>(f: impl FnOnce() -> T) -> Result<T, String> {
+    catch_worker_unwind(f).map_err(|payload| {
+        format!(
+            "AI worker panicked: {}",
+            panic_payload_message(payload.as_ref())
+        )
+    })
+}
+
+static AI_WORKER_PANIC_HOOK_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn catch_worker_unwind<T>(f: impl FnOnce() -> T) -> Result<T, Box<dyn Any + Send>> {
+    let _guard = AI_WORKER_PANIC_HOOK_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let previous_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let result = catch_unwind(AssertUnwindSafe(f));
+    std::panic::set_hook(previous_hook);
+    result
+}
+
+fn panic_payload_message(payload: &(dyn Any + Send)) -> String {
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        (*message).to_string()
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "unknown panic payload".into()
+    }
+}
+
 fn send_ai_progress_update(tx: &mpsc::Sender<AiWorkerMessage>, update: AiProgressUpdate) {
     if update.output_chunks == 1 || update.output_chunks % 8 == 0 {
         let _ = tx.send(AiWorkerMessage::ProgressDetail(format!(
             "Generating response ({} chunks, {} chars)",
             update.output_chunks, update.output_chars
         )));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn worker_panic_boundary_returns_failure_message() {
+        let result = super::catch_worker_panic(|| panic!("model loader exploded"));
+        assert_eq!(
+            result.unwrap_err(),
+            "AI worker panicked: model loader exploded"
+        );
     }
 }

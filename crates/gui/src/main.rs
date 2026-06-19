@@ -172,6 +172,9 @@ thread_local! {
     /// "wiki" | "person" | "tag". `None` when the popup is closed.
     static AC: RefCell<Option<(&'static str, String)>> = const { RefCell::new(None) };
 
+    /// In headless GUI tests, avoid depending on the OS clipboard/pasteboard.
+    static TEST_CLIPBOARD: RefCell<String> = const { RefCell::new(String::new()) };
+
     /// Recently-opened note ids (most-recent first) for the tab strip. A thread-local
     /// so `open_in_editor` — the single choke point for showing a note — records it,
     /// no matter which flow opened it.
@@ -1016,12 +1019,19 @@ fn str_model(v: &[String]) -> ModelRc<SharedString> {
 }
 
 fn clip_set(text: &str) {
+    if std::env::var_os("NOET_TEST_CLIPBOARD").is_some() {
+        TEST_CLIPBOARD.with(|clip| *clip.borrow_mut() = text.to_string());
+        return;
+    }
     if let Ok(mut c) = arboard::Clipboard::new() {
         let _ = c.set_text(text.to_string());
     }
 }
 
 fn clip_get() -> String {
+    if std::env::var_os("NOET_TEST_CLIPBOARD").is_some() {
+        return TEST_CLIPBOARD.with(|clip| clip.borrow().clone());
+    }
     arboard::Clipboard::new()
         .ok()
         .and_then(|mut c| c.get_text().ok())
@@ -1041,6 +1051,7 @@ pub(crate) fn open_in_editor(ui: &AppWindow, b: &Backend, note_id: &str) {
         ui.set_current_title(n.title.clone().into());
         ui.set_current_body(n.body.clone().into());
         ui.set_current_kind(n.kind.clone().into());
+        ui.set_current_revision_diff("".into());
         set_doc_counts(ui, &n.body);
         // The sred WYSIWYG editor is the sole note surface (it renders + scrolls);
         // opening a note enters the edit state so autosave/edit flows are active.
@@ -1130,6 +1141,30 @@ fn refresh_after_task_writeback<F>(
         }
     }
     refresh(ui, state);
+}
+
+fn ai_apply_status(report: &noet_app::AiApplyReport) -> String {
+    let mut parts = Vec::new();
+    if report.labels_added > 0 {
+        parts.push(format!("{} label(s)", report.labels_added));
+    }
+    if report.tasks_added > 0 {
+        parts.push(format!("{} task(s)", report.tasks_added));
+    }
+    if report.tasks_promoted > 0 {
+        parts.push(format!("{} promoted task(s)", report.tasks_promoted));
+    }
+    if report.task_states_changed > 0 {
+        parts.push(format!(
+            "{} task state change(s)",
+            report.task_states_changed
+        ));
+    }
+    if parts.is_empty() {
+        "AI proposal accepted".into()
+    } else {
+        format!("AI applied {}", parts.join(", "))
+    }
 }
 
 /// Char offset of the start of a 0-based `line` in `text` (sred cursor offsets are
@@ -1258,6 +1293,13 @@ fn render_read(ui: &AppWindow, b: &Backend, note: &backend::Note) {
         ui.set_current_todos(ModelRc::new(VecModel::from(Vec::<TodoItem>::new())));
         ui.set_current_sources(ModelRc::new(VecModel::from(Vec::<RelatedRef>::new())));
     }
+    let revisions = noet_app::note_history(b, &note.id, 8).unwrap_or_default();
+    ui.set_current_revisions(ModelRc::new(VecModel::from(
+        revisions
+            .into_iter()
+            .map(surface_adapters::revision_item)
+            .collect::<Vec<_>>(),
+    )));
 }
 
 /// The built-but-not-yet-driven app: window, shared state, and the background-
@@ -2399,8 +2441,47 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_ai_accept_proposal(move |proposal_id: SharedString| {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
-            let command = AppCommand::MarkAiProposalAccepted(proposal_id.to_string());
-            let outcome = s.app.apply(command.clone());
+            let proposal_id = proposal_id.to_string();
+            let proposal = s
+                .app
+                .ai
+                .proposal(&proposal_id)
+                .map(|entry| entry.proposal.clone());
+            let model_id = s.app.ai.settings.selected_profile_id.clone();
+            let current = ui.get_current_id().to_string();
+            if ui.get_editing() && !current.is_empty() {
+                let _ = noet_app::save_note(
+                    &mut s.backend,
+                    &current,
+                    &ui.get_current_title(),
+                    &ui.get_current_body(),
+                );
+            }
+            let command = AppCommand::MarkAiProposalAccepted(proposal_id.clone());
+            let outcome = if let Some(proposal) = proposal {
+                match noet_app::apply_ai_proposal_with_metadata(
+                    &mut s.backend,
+                    &proposal,
+                    Some(proposal_id.clone()),
+                    Some(model_id),
+                ) {
+                    Ok(report) => {
+                        let outcome = s.app.apply(command.clone());
+                        if outcome.accepted {
+                            if !current.is_empty() {
+                                open_in_editor(&ui, &s.backend, &current);
+                            }
+                            ui.set_status_text(ai_apply_status(&report).into());
+                        }
+                        outcome
+                    }
+                    Err(err) => noet_app::CommandOutcome::rejected(format!(
+                        "AI proposal apply failed: {err}"
+                    )),
+                }
+            } else {
+                noet_app::CommandOutcome::rejected(format!("Unknown AI proposal: {proposal_id}"))
+            };
             ui_trace::command("command.ai_accept_proposal", &ui, &s, &command, &outcome);
             refresh(&ui, &s);
         });
@@ -2461,6 +2542,54 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
                 ui.set_status_text("AI cancel requested".into());
             } else if let Some(message) = outcome.message {
                 ui.set_status_text(message.into());
+            }
+            refresh(&ui, &s);
+        });
+    }
+    {
+        let ui_w = ui.as_weak();
+        let state = state.clone();
+        ui.on_open_revision(move |revision_id: SharedString| {
+            let ui = ui_w.unwrap();
+            let s = state.borrow();
+            match noet_app::note_revision_detail(&s.backend, &revision_id) {
+                Ok(Some(revision)) => {
+                    ui.set_current_revision_diff(revision.diff.into());
+                    ui.set_status_text(format!("Showing revision {}", revision.created).into());
+                }
+                Ok(None) => {
+                    ui.set_status_text("Revision not found".into());
+                }
+                Err(message) => {
+                    ui.set_status_text(format!("Could not open revision: {message}").into());
+                }
+            }
+            refresh(&ui, &s);
+        });
+    }
+    {
+        let ui_w = ui.as_weak();
+        let state = state.clone();
+        ui.on_restore_revision_before(move |revision_id: SharedString| {
+            let ui = ui_w.unwrap();
+            let mut s = state.borrow_mut();
+            let current = ui.get_current_id().to_string();
+            if ui.get_editing() && !current.is_empty() {
+                let _ = noet_app::save_note(
+                    &mut s.backend,
+                    &current,
+                    &ui.get_current_title(),
+                    &ui.get_current_body(),
+                );
+            }
+            match noet_app::restore_revision_before(&mut s.backend, &revision_id) {
+                Ok(note_id) => {
+                    open_in_editor(&ui, &s.backend, &note_id);
+                    ui.set_status_text("Restored note from revision".into());
+                }
+                Err(message) => {
+                    ui.set_status_text(format!("Could not restore revision: {message}").into());
+                }
             }
             refresh(&ui, &s);
         });

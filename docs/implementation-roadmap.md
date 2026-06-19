@@ -430,6 +430,9 @@ Architecture:
 - [x] Define local embedding model profiles.
 - [x] Define local runtime contracts for chat, embeddings, structured responses,
   and tool calls.
+- [x] Add a concrete `noet-app` Noet tool host over core read models for note
+  search, note context, tasks, related notes, note revisions, and proposal
+  creation.
 - [x] Define reviewable proposal types for AI-suggested Markdown changes.
 - [x] Define background housekeeping jobs as explicit local jobs with visible
   status.
@@ -476,6 +479,8 @@ Remaining AI hardening:
     indexed source inspection.
   - [x] Let users inspect specific source references instead of only the
     proposal target.
+  - [x] Show accepted AI changes in the current-note revision history with
+    proposal/model metadata, unified diffs, and restore-before support.
   - [ ] Manually review the proposal queue against a realistic vault.
 - [x] Keep local model validation targeted at memory-safe runtime hardening, not
   open-ended model shopping.
@@ -528,8 +533,10 @@ Release only when:
 - the 1:1 Focus workflow is usable without keeping People or Filters open
 - the Notes workspace can open and edit a Markdown note
 - task state changes write back to Markdown
-- `cargo check -p noet-gui --features mistralrs-inline` passes for local AI
-  release checkpoints
+- note and AI-applied mutations record durable before/after revisions with
+  reviewable diffs
+- `cargo check -p noet-gui` passes for local AI release checkpoints; on Apple
+  Silicon macOS this is the default Metal/Accelerate build
 - ignored local model smokes are run on a prepared machine when local AI runtime
   behavior changed
 - local macOS packaging succeeds, if releasing a macOS artifact

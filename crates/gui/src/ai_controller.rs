@@ -47,9 +47,11 @@ pub(crate) fn enqueue_draft_agenda(ui: &AppWindow, state: &mut State) {
         ui.set_workspace_bottom_open(true);
         ui.set_status_text("AI agenda draft running locally".into());
         std::thread::spawn(move || {
-            let proposal =
+            let proposal = ai_worker::catch_worker_panic(|| {
                 ai_worker::run_local_agenda(runtime_settings, context, options, cancel, tx.clone())
-                    .map_err(ai_error_message);
+                    .map_err(ai_error_message)
+            })
+            .and_then(|result| result);
             let _ = tx.send(AiWorkerMessage::Proposal {
                 success: "Queued agenda proposal".into(),
                 failure_prefix: "AI agenda draft failed".into(),
@@ -120,14 +122,17 @@ pub(crate) fn enqueue_note_review(ui: &AppWindow, state: &mut State) {
         ui.set_workspace_bottom_open(true);
         ui.set_status_text("AI note review running locally".into());
         std::thread::spawn(move || {
-            let proposal = ai_worker::run_local_note_review(
-                runtime_settings,
-                context,
-                options,
-                cancel,
-                tx.clone(),
-            )
-            .map_err(ai_error_message);
+            let proposal = ai_worker::catch_worker_panic(|| {
+                ai_worker::run_local_note_review(
+                    runtime_settings,
+                    context,
+                    options,
+                    cancel,
+                    tx.clone(),
+                )
+                .map_err(ai_error_message)
+            })
+            .and_then(|result| result);
             let _ = tx.send(AiWorkerMessage::Proposal {
                 success: "Queued note review proposal".into(),
                 failure_prefix: "AI note review failed".into(),
@@ -211,7 +216,10 @@ pub(crate) fn refresh_embeddings(ui: &AppWindow, state: &mut State) {
         ui.set_workspace_bottom_open(true);
         ui.set_status_text("AI embedding refresh running locally".into());
         std::thread::spawn(move || {
-            let result = ai_worker::run_local_embedding_refresh(index, profile_id, contexts);
+            let result = ai_worker::catch_worker_panic(|| {
+                ai_worker::run_local_embedding_refresh(index, profile_id, contexts)
+            })
+            .and_then(|result| result);
             let _ = tx.send(AiWorkerMessage::EmbeddingRefresh { job_id, result });
         });
         crate::refresh(ui, state);
@@ -297,7 +305,10 @@ pub(crate) fn run_semantic_search(ui: &AppWindow, state: &mut State, query: &str
         });
         ui.set_status_text("AI semantic search running locally".into());
         std::thread::spawn(move || {
-            let result = ai_worker::run_local_semantic_search(index, profile_id, query, 8);
+            let result = ai_worker::catch_worker_panic(|| {
+                ai_worker::run_local_semantic_search(index, profile_id, query, 8)
+            })
+            .and_then(|result| result);
             let _ = tx.send(AiWorkerMessage::SemanticSearch { result });
         });
         return;

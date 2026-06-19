@@ -5,7 +5,11 @@
 
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "mistralrs-inline")]
-use std::time::Duration;
+use std::{
+    any::Any,
+    panic::{catch_unwind, AssertUnwindSafe},
+    time::Duration,
+};
 use std::{
     collections::BTreeMap,
     path::PathBuf,
@@ -337,6 +341,7 @@ pub fn inline_embedding_supported(profile_id: &str) -> bool {
 #[cfg(feature = "mistralrs-inline")]
 pub struct MistralRsInlineEmbeddingRuntime {
     profile_id: String,
+    device_selection: InlineDeviceSelection,
     runtime: tokio::runtime::Runtime,
     model: mistralrs::Model,
 }
@@ -344,9 +349,204 @@ pub struct MistralRsInlineEmbeddingRuntime {
 #[cfg(feature = "mistralrs-inline")]
 pub struct MistralRsInlineChatRuntime {
     profile_id: String,
+    device_selection: InlineDeviceSelection,
     timeout: Duration,
     runtime: tokio::runtime::Runtime,
     model: mistralrs::Model,
+}
+
+#[cfg(feature = "mistralrs-inline")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InlineDeviceSelection {
+    MetalPreferred,
+    CpuForced,
+    CpuFallback { reason: String },
+}
+
+#[cfg(feature = "mistralrs-inline")]
+impl InlineDeviceSelection {
+    fn force_cpu(&self) -> bool {
+        matches!(self, Self::CpuForced | Self::CpuFallback { .. })
+    }
+
+    fn can_retry_on_cpu(&self) -> bool {
+        matches!(self, Self::MetalPreferred)
+    }
+}
+
+#[cfg(feature = "mistralrs-inline")]
+pub fn inline_device_selection_for_load() -> InlineDeviceSelection {
+    #[cfg(not(feature = "mistralrs-inline-metal"))]
+    {
+        InlineDeviceSelection::CpuForced
+    }
+
+    #[cfg(all(feature = "mistralrs-inline-metal", target_os = "macos"))]
+    {
+        match candle_metal_ordinal_preflight() {
+            Ok(()) => InlineDeviceSelection::MetalPreferred,
+            Err(reason) => InlineDeviceSelection::CpuFallback { reason },
+        }
+    }
+
+    #[cfg(all(feature = "mistralrs-inline-metal", not(target_os = "macos")))]
+    {
+        InlineDeviceSelection::MetalPreferred
+    }
+}
+
+#[cfg(all(feature = "mistralrs-inline-metal", target_os = "macos"))]
+fn candle_metal_ordinal_preflight() -> Result<(), String> {
+    if !metal::Device::all().is_empty() {
+        return Ok(());
+    }
+    if metal::Device::system_default().is_some() {
+        Err(
+            "Metal system device is available, but Candle returned no ordinal devices for mistral.rs"
+                .into(),
+        )
+    } else {
+        Err("Metal system device is unavailable".into())
+    }
+}
+
+#[cfg(feature = "mistralrs-inline")]
+fn new_inline_runtime() -> AiResult<tokio::runtime::Runtime> {
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .map_err(|err| AiRuntimeError::RuntimeUnavailable {
+            message: err.to_string(),
+        })
+}
+
+#[cfg(feature = "mistralrs-inline")]
+fn embedding_builder(
+    profile: &EmbeddingModelProfile,
+    force_cpu: bool,
+) -> mistralrs::EmbeddingModelBuilder {
+    let builder = mistralrs::EmbeddingModelBuilder::new(profile.repository.clone())
+        .with_max_num_seqs(1)
+        .with_device_mapping(mistralrs::DeviceMapSetting::dummy());
+    if force_cpu {
+        builder
+            .with_dtype(mistralrs::ModelDType::F32)
+            .with_force_cpu()
+    } else {
+        builder
+    }
+}
+
+#[cfg(feature = "mistralrs-inline")]
+fn chat_builder(
+    settings: &LocalRuntimeSettings,
+    model_spec: &LocalModelSpec,
+    force_cpu: bool,
+) -> mistralrs::GgufModelBuilder {
+    let builder = mistralrs::GgufModelBuilder::new(
+        model_spec.model_dir.to_string_lossy(),
+        vec![model_spec.quantized_file.clone()],
+    )
+    .with_max_num_seqs(settings.max_seqs.max(1) as usize)
+    .with_device_mapping(mistralrs::DeviceMapSetting::dummy())
+    .with_prefix_cache_n(if settings.prefix_cache_n == 0 {
+        None
+    } else {
+        Some(settings.prefix_cache_n as usize)
+    });
+    if force_cpu {
+        builder.with_force_cpu()
+    } else {
+        builder
+    }
+}
+
+#[cfg(feature = "mistralrs-inline")]
+fn build_embedding_model(
+    runtime: &tokio::runtime::Runtime,
+    builder: mistralrs::EmbeddingModelBuilder,
+    profile_id: &str,
+) -> AiResult<mistralrs::Model> {
+    run_mistralrs_model_load(profile_id, || runtime.block_on(builder.build()))
+}
+
+#[cfg(feature = "mistralrs-inline")]
+fn build_chat_model(
+    runtime: &tokio::runtime::Runtime,
+    builder: mistralrs::GgufModelBuilder,
+    profile_id: &str,
+) -> AiResult<mistralrs::Model> {
+    run_mistralrs_model_load(profile_id, || runtime.block_on(builder.build()))
+}
+
+#[cfg(feature = "mistralrs-inline")]
+fn run_mistralrs_model_load<T, E>(
+    profile_id: &str,
+    load: impl FnOnce() -> Result<T, E>,
+) -> AiResult<T>
+where
+    E: std::fmt::Display,
+{
+    catch_mistralrs_load_unwind(load)
+        .map_err(|payload| AiRuntimeError::ModelUnavailable {
+            profile_id: format!(
+                "{profile_id}: mistral.rs loader panicked: {}",
+                panic_payload_message(payload.as_ref())
+            ),
+        })?
+        .map_err(|err| AiRuntimeError::ModelUnavailable {
+            profile_id: format!("{profile_id}: {err}"),
+        })
+}
+
+#[cfg(feature = "mistralrs-inline")]
+static MISTRALRS_LOAD_PANIC_HOOK_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(feature = "mistralrs-inline")]
+fn catch_mistralrs_load_unwind<T>(load: impl FnOnce() -> T) -> Result<T, Box<dyn Any + Send>> {
+    let _guard = MISTRALRS_LOAD_PANIC_HOOK_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let previous_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let result = catch_unwind(AssertUnwindSafe(load));
+    std::panic::set_hook(previous_hook);
+    result
+}
+
+#[cfg(feature = "mistralrs-inline")]
+fn panic_payload_message(payload: &(dyn Any + Send)) -> String {
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        (*message).to_string()
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "unknown panic payload".into()
+    }
+}
+
+#[cfg(feature = "mistralrs-inline")]
+fn model_load_error_detail(error: &AiRuntimeError) -> String {
+    match error {
+        AiRuntimeError::ModelUnavailable { profile_id } => profile_id.clone(),
+        other => format!("{other:?}"),
+    }
+}
+
+#[cfg(feature = "mistralrs-inline")]
+fn cpu_fallback_error(
+    profile_id: &str,
+    primary: AiRuntimeError,
+    fallback: AiRuntimeError,
+) -> AiRuntimeError {
+    AiRuntimeError::ModelUnavailable {
+        profile_id: format!(
+            "{profile_id}: Metal load failed ({}); CPU fallback failed ({})",
+            model_load_error_detail(&primary),
+            model_load_error_detail(&fallback)
+        ),
+    }
 }
 
 #[cfg(feature = "mistralrs-inline")]
@@ -361,28 +561,34 @@ impl MistralRsInlineEmbeddingRuntime {
                 profile_id: profile_id.clone(),
             }
         })?;
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(1)
-            .enable_all()
-            .build()
-            .map_err(|err| AiRuntimeError::RuntimeUnavailable {
-                message: err.to_string(),
-            })?;
-        let mut builder = mistralrs::EmbeddingModelBuilder::new(profile.repository)
-            .with_max_num_seqs(1)
-            .with_device_mapping(mistralrs::DeviceMapSetting::dummy());
-        #[cfg(not(feature = "mistralrs-inline-metal"))]
-        {
-            builder = builder.with_force_cpu();
-        }
-        let model =
-            runtime
-                .block_on(builder.build())
-                .map_err(|err| AiRuntimeError::ModelUnavailable {
-                    profile_id: format!("{profile_id}: {err}"),
-                })?;
+        let device_selection = inline_device_selection_for_load();
+        let runtime = new_inline_runtime()?;
+        let model = match build_embedding_model(
+            &runtime,
+            embedding_builder(&profile, device_selection.force_cpu()),
+            &profile_id,
+        ) {
+            Ok(model) => model,
+            Err(primary) if device_selection.can_retry_on_cpu() => {
+                let fallback_selection = InlineDeviceSelection::CpuFallback {
+                    reason: format!("Metal load failed: {}", model_load_error_detail(&primary)),
+                };
+                let runtime = new_inline_runtime()?;
+                let model =
+                    build_embedding_model(&runtime, embedding_builder(&profile, true), &profile_id)
+                        .map_err(|fallback| cpu_fallback_error(&profile_id, primary, fallback))?;
+                return Ok(Self {
+                    profile_id,
+                    device_selection: fallback_selection,
+                    runtime,
+                    model,
+                });
+            }
+            Err(err) => return Err(err),
+        };
         Ok(Self {
             profile_id,
+            device_selection,
             runtime,
             model,
         })
@@ -390,6 +596,10 @@ impl MistralRsInlineEmbeddingRuntime {
 
     pub fn profile_id(&self) -> &str {
         &self.profile_id
+    }
+
+    pub fn device_selection(&self) -> &InlineDeviceSelection {
+        &self.device_selection
     }
 }
 
@@ -410,36 +620,38 @@ impl MistralRsInlineChatRuntime {
                 .ok_or_else(|| AiRuntimeError::ModelUnavailable {
                     profile_id: profile_id.clone(),
                 })?;
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(1)
-            .enable_all()
-            .build()
-            .map_err(|err| AiRuntimeError::RuntimeUnavailable {
-                message: err.to_string(),
-            })?;
-        let mut builder = mistralrs::GgufModelBuilder::new(
-            model_spec.model_dir.to_string_lossy(),
-            vec![model_spec.quantized_file.clone()],
-        )
-        .with_max_num_seqs(settings.max_seqs.max(1) as usize)
-        .with_prefix_cache_n(if settings.prefix_cache_n == 0 {
-            None
-        } else {
-            Some(settings.prefix_cache_n as usize)
-        })
-        .with_device_mapping(mistralrs::DeviceMapSetting::dummy());
-        #[cfg(not(feature = "mistralrs-inline-metal"))]
-        {
-            builder = builder.with_force_cpu();
-        }
-        let model =
-            runtime
-                .block_on(builder.build())
-                .map_err(|err| AiRuntimeError::ModelUnavailable {
-                    profile_id: format!("{profile_id}: {err}"),
-                })?;
+        let device_selection = inline_device_selection_for_load();
+        let runtime = new_inline_runtime()?;
+        let model = match build_chat_model(
+            &runtime,
+            chat_builder(&settings, model_spec, device_selection.force_cpu()),
+            &profile_id,
+        ) {
+            Ok(model) => model,
+            Err(primary) if device_selection.can_retry_on_cpu() => {
+                let fallback_selection = InlineDeviceSelection::CpuFallback {
+                    reason: format!("Metal load failed: {}", model_load_error_detail(&primary)),
+                };
+                let runtime = new_inline_runtime()?;
+                let model = build_chat_model(
+                    &runtime,
+                    chat_builder(&settings, model_spec, true),
+                    &profile_id,
+                )
+                .map_err(|fallback| cpu_fallback_error(&profile_id, primary, fallback))?;
+                return Ok(Self {
+                    profile_id,
+                    device_selection: fallback_selection,
+                    timeout: Duration::from_secs(settings.timeout_seconds),
+                    runtime,
+                    model,
+                });
+            }
+            Err(err) => return Err(err),
+        };
         Ok(Self {
             profile_id,
+            device_selection,
             timeout: Duration::from_secs(settings.timeout_seconds),
             runtime,
             model,
@@ -448,6 +660,10 @@ impl MistralRsInlineChatRuntime {
 
     pub fn profile_id(&self) -> &str {
         &self.profile_id
+    }
+
+    pub fn device_selection(&self) -> &InlineDeviceSelection {
+        &self.device_selection
     }
 
     pub fn complete_chat_streaming<F>(
@@ -1047,6 +1263,8 @@ pub enum NoetTool {
     LoadNoteContext,
     ListTasks,
     FindRelatedNotes,
+    ListNoteRevisions,
+    LoadNoteRevision,
     DraftOneOnOneAgenda,
     SuggestLabels,
     SuggestTaskExtraction,
@@ -1068,10 +1286,174 @@ pub struct ToolArgument {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NoetToolSpec {
+    pub tool: NoetTool,
+    pub description: String,
+    pub arguments: Vec<ToolArgumentSpec>,
+    pub read_only: bool,
+    pub returns_proposal: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolArgumentSpec {
+    pub name: String,
+    pub description: String,
+    pub required: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NoetToolResult {
     pub tool: NoetTool,
     pub content: String,
     pub sources: Vec<SourceRef>,
+    pub proposal: Option<AiProposal>,
+}
+
+pub fn noet_tool_specs() -> Vec<NoetToolSpec> {
+    vec![
+        tool_spec(
+            NoetTool::SearchNotes,
+            "Search indexed notes by text and return matching note summaries.",
+            true,
+            false,
+            &[
+                arg("query", "Plain-text search query.", true),
+                arg("limit", "Maximum result count.", false),
+            ],
+        ),
+        tool_spec(
+            NoetTool::LoadNoteContext,
+            "Load one note with extracted tasks, labels, people, backlinks, related notes, and source links.",
+            true,
+            false,
+            &[arg("note_id", "Noet note id.", true)],
+        ),
+        tool_spec(
+            NoetTool::ListTasks,
+            "List tasks by note, person, status, or a combination of filters.",
+            true,
+            false,
+            &[
+                arg("note_id", "Optional note id to constrain tasks.", false),
+                arg("person", "Optional person name.", false),
+                arg("status", "Optional task status, including open.", false),
+                arg("limit", "Maximum result count.", false),
+            ],
+        ),
+        tool_spec(
+            NoetTool::FindRelatedNotes,
+            "Find notes related to the target note through shared people, labels, or workstreams.",
+            true,
+            false,
+            &[
+                arg("note_id", "Noet note id.", true),
+                arg("limit", "Maximum result count.", false),
+            ],
+        ),
+        tool_spec(
+            NoetTool::ListNoteRevisions,
+            "List durable before/after revisions for a note.",
+            true,
+            false,
+            &[
+                arg("note_id", "Noet note id.", true),
+                arg("limit", "Maximum result count.", false),
+            ],
+        ),
+        tool_spec(
+            NoetTool::LoadNoteRevision,
+            "Load one durable note revision with before, after, metadata, and diff.",
+            true,
+            false,
+            &[arg("revision_id", "Noet revision id.", true)],
+        ),
+        tool_spec(
+            NoetTool::DraftOneOnOneAgenda,
+            "Load 1:1 context for a person so the model can draft a source-linked agenda proposal.",
+            true,
+            false,
+            &[arg("person", "Person name.", true)],
+        ),
+        tool_spec(
+            NoetTool::SuggestLabels,
+            "Return an AddLabels proposal. The app must review and accept it before Markdown changes.",
+            false,
+            true,
+            &[
+                arg("note_id", "Target note id.", true),
+                arg("labels", "Comma-separated labels without or with #.", true),
+                arg("reason", "Short rationale for the labels.", false),
+            ],
+        ),
+        tool_spec(
+            NoetTool::SuggestTaskExtraction,
+            "Return an ExtractTasks proposal for tasks found in a note.",
+            false,
+            true,
+            &[
+                arg("note_id", "Target note id.", true),
+                arg("text", "Task text.", true),
+                arg("person", "Optional assignee or person.", false),
+                arg("due", "Optional due date.", false),
+                arg("labels", "Optional comma-separated workflow labels.", false),
+            ],
+        ),
+        tool_spec(
+            NoetTool::ProposeTaskPromotion,
+            "Return a PromoteTask proposal for turning an inline todo into a task note.",
+            false,
+            true,
+            &[
+                arg("task_id", "Source task id.", true),
+                arg("title", "Proposed task-note title.", true),
+                arg("body", "Proposed task-note body.", false),
+            ],
+        ),
+        tool_spec(
+            NoetTool::ProposeNotePatch,
+            "Return a PatchNote proposal. Patch application requires explicit UI review.",
+            false,
+            true,
+            &[
+                arg("note_id", "Target note id.", true),
+                arg("patch", "Human-reviewable patch or replacement instructions.", true),
+            ],
+        ),
+        tool_spec(
+            NoetTool::ProposeTaskStateChange,
+            "Return a ChangeTaskState proposal for resolving, reopening, carrying, or deferring a task.",
+            false,
+            true,
+            &[
+                arg("task_id", "Target task id.", true),
+                arg("state", "Resolve, CarryForward, DemoteToSomeday, or KeepOpen.", true),
+            ],
+        ),
+    ]
+}
+
+fn tool_spec(
+    tool: NoetTool,
+    description: &str,
+    read_only: bool,
+    returns_proposal: bool,
+    arguments: &[ToolArgumentSpec],
+) -> NoetToolSpec {
+    NoetToolSpec {
+        tool,
+        description: description.into(),
+        arguments: arguments.to_vec(),
+        read_only,
+        returns_proposal,
+    }
+}
+
+fn arg(name: &str, description: &str, required: bool) -> ToolArgumentSpec {
+    ToolArgumentSpec {
+        name: name.into(),
+        description: description.into(),
+        required,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1307,6 +1689,28 @@ mod tests {
     }
 
     #[test]
+    fn noet_tool_specs_separate_read_tools_from_proposal_tools() {
+        let specs = noet_tool_specs();
+
+        assert!(specs.iter().any(|spec| {
+            spec.tool == NoetTool::ListNoteRevisions && spec.read_only && !spec.returns_proposal
+        }));
+        assert!(specs.iter().any(|spec| {
+            spec.tool == NoetTool::LoadNoteRevision && spec.read_only && !spec.returns_proposal
+        }));
+        assert!(specs.iter().any(|spec| {
+            spec.tool == NoetTool::SuggestTaskExtraction && !spec.read_only && spec.returns_proposal
+        }));
+        assert!(
+            specs
+                .iter()
+                .filter(|spec| !spec.read_only)
+                .all(|spec| spec.returns_proposal),
+            "Noet AI mutation tools must return reviewable proposals"
+        );
+    }
+
+    #[test]
     fn default_embedding_profile_is_small_and_local() {
         let profile = default_embedding_profile();
 
@@ -1481,6 +1885,44 @@ mod tests {
 
         assert_eq!(response.content, "Agenda draft ready.");
         assert_eq!(response.usage.unwrap().input_tokens, Some(42));
+    }
+
+    #[cfg(feature = "mistralrs-inline")]
+    #[test]
+    fn mistralrs_model_load_panic_is_model_unavailable() {
+        let err = run_mistralrs_model_load("probe", || -> Result<(), std::io::Error> {
+            panic!("metal device enumeration failed")
+        })
+        .unwrap_err();
+
+        let AiRuntimeError::ModelUnavailable { profile_id } = err else {
+            panic!("panic should become a model unavailable error");
+        };
+        assert!(profile_id.contains("probe"));
+        assert!(profile_id.contains("mistral.rs loader panicked"));
+        assert!(profile_id.contains("metal device enumeration failed"));
+    }
+
+    #[cfg(feature = "mistralrs-inline")]
+    #[test]
+    fn cpu_fallback_error_keeps_primary_and_fallback_details() {
+        let err = cpu_fallback_error(
+            "mistral-test",
+            AiRuntimeError::ModelUnavailable {
+                profile_id: "mistral-test: metal failed".into(),
+            },
+            AiRuntimeError::ModelUnavailable {
+                profile_id: "mistral-test: cpu failed".into(),
+            },
+        );
+
+        let AiRuntimeError::ModelUnavailable { profile_id } = err else {
+            panic!("fallback error should be model unavailable");
+        };
+        assert!(profile_id.contains("Metal load failed"));
+        assert!(profile_id.contains("metal failed"));
+        assert!(profile_id.contains("CPU fallback failed"));
+        assert!(profile_id.contains("cpu failed"));
     }
 
     #[cfg(feature = "mistralrs-inline")]
