@@ -45,11 +45,12 @@ pub use navigation::{FilterToken, NavigationState};
 pub use note_workflow::{
     add_tag_to_current_note, add_tag_to_note, archive_note, attach_path_to_current_note,
     attach_path_to_note, create_note, create_note_for_workstream, create_note_from_body,
-    create_note_from_template, create_note_in_workstream, create_related_note, delete_note,
-    delete_note_and_select_replacement, file_note, restore_note, save_note,
-    seed_note_if_vault_empty, select_note, set_note_kind, toggle_note_kind, AddTagWorkflowReport,
-    AttachPathWorkflowReport, DeleteNoteWorkflowReport, NewNoteWorkflowReport,
-    SelectNoteWorkflowReport, SelectNoteWorkflowRequest, ToggleNoteKindWorkflowReport,
+    create_note_from_template, create_note_from_template_workflow, create_note_in_workstream,
+    create_related_note, delete_note, delete_note_and_select_replacement, file_note, restore_note,
+    save_note, seed_note_if_vault_empty, select_note, set_note_kind, toggle_note_kind,
+    AddTagWorkflowReport, AttachPathWorkflowReport, DeleteNoteWorkflowReport,
+    NewNoteWorkflowReport, SelectNoteWorkflowReport, SelectNoteWorkflowRequest,
+    TemplateNoteWorkflowReport, TemplateNoteWorkflowRequest, ToggleNoteKindWorkflowReport,
     ToggleNoteKindWorkflowRequest,
 };
 pub use selection::SelectionState;

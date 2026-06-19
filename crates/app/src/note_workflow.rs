@@ -67,6 +67,24 @@ pub struct ToggleNoteKindWorkflowReport {
     pub status_message: String,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TemplateNoteWorkflowRequest {
+    pub template: String,
+    pub selected_person: String,
+    pub filter_person: String,
+    pub started_in_workspace: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TemplateNoteWorkflowReport {
+    pub note_id: String,
+    pub open_command: AppCommand,
+    pub followup_commands: Vec<AppCommand>,
+    pub view: String,
+    pub status_message: String,
+    pub open_in_edit_mode: bool,
+}
+
 pub fn create_note(backend: &mut Backend) -> Result<Note, String> {
     backend.new_note().map_err(|err| err.to_string())
 }
@@ -178,6 +196,47 @@ pub fn create_note_from_template(
         save_note(backend, &note.id, &title, &body)?;
     }
     backend.load_note(&note.id).map_err(|err| err.to_string())
+}
+
+pub fn create_note_from_template_workflow(
+    backend: &mut Backend,
+    request: TemplateNoteWorkflowRequest,
+) -> Result<TemplateNoteWorkflowReport, String> {
+    let template = request.template.trim();
+    let selected_person = request.selected_person.trim();
+    let filter_person = request.filter_person.trim();
+    let person = if selected_person.is_empty() {
+        filter_person
+    } else {
+        selected_person
+    };
+    let note = create_note_from_template(backend, template, Some(person))?;
+    let note_id = note.id;
+    let mut followup_commands = Vec::new();
+    if template == "oneonone" {
+        if !selected_person.is_empty() {
+            followup_commands.push(AppCommand::SelectPerson(selected_person.into()));
+        }
+        followup_commands.push(AppCommand::SwitchWorkspace("one-on-one-focus".into()));
+    } else if request.started_in_workspace {
+        followup_commands.push(AppCommand::SwitchWorkspace("notes".into()));
+    }
+    let view = if request.started_in_workspace {
+        "workspace"
+    } else if template == "oneonone" {
+        "oneonone"
+    } else {
+        "notes"
+    };
+
+    Ok(TemplateNoteWorkflowReport {
+        open_command: AppCommand::OpenNote(note_id.clone()),
+        note_id,
+        followup_commands,
+        view: view.into(),
+        status_message: "New note from template".into(),
+        open_in_edit_mode: true,
+    })
 }
 
 pub fn create_related_note(backend: &mut Backend, source_note_id: &str) -> Result<Note, String> {
@@ -403,6 +462,69 @@ mod tests {
 
         let related = create_related_note(&mut backend, &one_on_one.id).unwrap();
         assert!(related.body.contains("[[1:1 — Jane Smith]]"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn template_workflow_builds_one_on_one_commands_and_body() {
+        let (mut backend, dir) = backend();
+
+        let report = create_note_from_template_workflow(
+            &mut backend,
+            TemplateNoteWorkflowRequest {
+                template: "oneonone".into(),
+                selected_person: "Jane Smith".into(),
+                filter_person: "Ignored Person".into(),
+                started_in_workspace: false,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            report.open_command,
+            AppCommand::OpenNote(report.note_id.clone())
+        );
+        assert_eq!(
+            report.followup_commands,
+            vec![
+                AppCommand::SelectPerson("Jane Smith".into()),
+                AppCommand::SwitchWorkspace("one-on-one-focus".into())
+            ]
+        );
+        assert_eq!(report.view, "oneonone");
+        assert_eq!(report.status_message, "New note from template");
+        assert!(report.open_in_edit_mode);
+        let note = backend.load_note(&report.note_id).unwrap();
+        assert!(note.body.contains("@[[Jane Smith]]"));
+        assert!(!note.body.contains("Ignored Person"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn template_workflow_preserves_workspace_view_for_workspace_launch() {
+        let (mut backend, dir) = backend();
+
+        let report = create_note_from_template_workflow(
+            &mut backend,
+            TemplateNoteWorkflowRequest {
+                template: "meeting".into(),
+                selected_person: "".into(),
+                filter_person: "Jane Smith".into(),
+                started_in_workspace: true,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            report.open_command,
+            AppCommand::OpenNote(report.note_id.clone())
+        );
+        assert_eq!(
+            report.followup_commands,
+            vec![AppCommand::SwitchWorkspace("notes".into())]
+        );
+        assert_eq!(report.view, "workspace");
+        assert!(report.open_in_edit_mode);
         std::fs::remove_dir_all(dir).ok();
     }
 

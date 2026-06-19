@@ -3525,35 +3525,30 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
             let ui = ui_w.unwrap();
             let mut s = state.borrow_mut();
             let started_in_workspace = ui.get_view().to_string() == "workspace";
-            let person = if ui.get_selected_person().is_empty() {
-                s.filter.person.trim().to_string()
-            } else {
-                ui.get_selected_person().to_string()
-            };
-            if let Ok(n) = noet_app::create_note_from_template(&mut s.backend, &t, Some(&person)) {
-                let id = n.id.clone();
-                open_in_editor(&ui, &s.backend, &id);
-                s.app.apply(AppCommand::OpenNote(id.clone()));
-                if t.as_str() == "oneonone" {
-                    if !ui.get_selected_person().is_empty() {
-                        s.app.apply(AppCommand::SelectPerson(
-                            ui.get_selected_person().to_string(),
-                        ));
+            let selected_person = ui.get_selected_person().to_string();
+            let filter_person = s.filter.person.trim().to_string();
+            match noet_app::create_note_from_template_workflow(
+                &mut s.backend,
+                noet_app::TemplateNoteWorkflowRequest {
+                    template: t.to_string(),
+                    selected_person,
+                    filter_person,
+                    started_in_workspace,
+                },
+            ) {
+                Ok(report) => {
+                    open_in_editor(&ui, &s.backend, &report.note_id);
+                    s.app.apply(report.open_command);
+                    for command in report.followup_commands {
+                        s.app.apply(command);
                     }
-                    s.app
-                        .apply(AppCommand::SwitchWorkspace("one-on-one-focus".into()));
-                } else if started_in_workspace {
-                    s.app.apply(AppCommand::SwitchWorkspace("notes".into()));
+                    ui.set_editing(report.open_in_edit_mode);
+                    ui.set_view(report.view.into());
+                    ui.set_status_text(report.status_message.into());
                 }
-                ui.set_editing(true);
-                ui.set_view(if started_in_workspace {
-                    "workspace".into()
-                } else if t.as_str() == "oneonone" {
-                    "oneonone".into()
-                } else {
-                    "notes".into()
-                });
-                ui.set_status_text("New note from template".into());
+                Err(err) => {
+                    ui.set_status_text(format!("Error: {err}").into());
+                }
             }
             refresh(&ui, &s);
         });
