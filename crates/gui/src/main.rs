@@ -3798,13 +3798,20 @@ fn setup_app(vault: PathBuf) -> Result<AppCtx, Box<dyn std::error::Error>> {
         ui.on_add_link(move |topic: SharedString| {
             let ui = ui_w.unwrap();
             let id = ui.get_current_id().to_string();
-            if !id.is_empty() && !topic.trim().is_empty() {
-                let mut s = state.borrow_mut();
-                let _ = noet_app::file_note(&mut s.backend, &id, &topic);
-                open_in_editor(&ui, &s.backend, &id);
-                ui.set_status_text(format!("Filed into {}", topic.trim()).into());
-                ui.set_topic_input("".into());
-                refresh(&ui, &s);
+            let mut s = state.borrow_mut();
+            match noet_app::file_current_note(&mut s.backend, &id, &topic) {
+                Ok(Some(report)) => {
+                    if report.refresh_note {
+                        open_in_editor(&ui, &s.backend, &report.note_id);
+                    }
+                    ui.set_status_text(report.status_message.into());
+                    ui.set_topic_input("".into());
+                    refresh(&ui, &s);
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    ui.set_status_text(format!("Error: {err}").into());
+                }
             }
         });
     }

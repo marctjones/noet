@@ -98,6 +98,14 @@ pub struct ArchiveNoteWorkflowReport {
     pub status_message: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileNoteWorkflowReport {
+    pub note_id: String,
+    pub topic: String,
+    pub status_message: String,
+    pub refresh_note: bool,
+}
+
 pub fn create_note(backend: &mut Backend) -> Result<Note, String> {
     backend.new_note().map_err(|err| err.to_string())
 }
@@ -286,6 +294,26 @@ pub fn file_note(backend: &mut Backend, note_id: &str, topic: &str) -> Result<()
     backend
         .add_link(note_id, topic)
         .map_err(|err| err.to_string())
+}
+
+pub fn file_current_note(
+    backend: &mut Backend,
+    note_id: &str,
+    topic: &str,
+) -> Result<Option<FileNoteWorkflowReport>, String> {
+    let note_id = note_id.trim();
+    let topic = topic.trim();
+    if note_id.is_empty() || topic.is_empty() {
+        return Ok(None);
+    }
+
+    file_note(backend, note_id, topic)?;
+    Ok(Some(FileNoteWorkflowReport {
+        note_id: note_id.into(),
+        topic: topic.into(),
+        status_message: format!("Filed into {topic}"),
+        refresh_note: true,
+    }))
 }
 
 pub fn attach_path_to_note(backend: &mut Backend, note_id: &str, path: &str) -> Result<(), String> {
@@ -695,6 +723,39 @@ mod tests {
             .unwrap()
             .is_none());
         assert!(add_tag_to_current_note(&mut backend, "note-id", " # ")
+            .unwrap()
+            .is_none());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn file_note_workflow_trims_topic_and_reports_status() {
+        let (mut backend, dir) = backend();
+        let note = create_note_from_body(&mut backend, "Note", "# Note\n\n").unwrap();
+
+        let report = file_current_note(&mut backend, &note.id, " clients/acme ")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(report.note_id, note.id);
+        assert_eq!(report.topic, "clients/acme");
+        assert_eq!(report.status_message, "Filed into clients/acme");
+        assert!(report.refresh_note);
+        assert!(backend
+            .load_note(&report.note_id)
+            .unwrap()
+            .body
+            .contains("#workstream/clients/acme"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn file_note_workflow_noops_without_note_or_topic() {
+        let (mut backend, dir) = backend();
+        assert!(file_current_note(&mut backend, "", "clients/acme")
+            .unwrap()
+            .is_none());
+        assert!(file_current_note(&mut backend, "note-id", " ")
             .unwrap()
             .is_none());
         std::fs::remove_dir_all(dir).ok();
